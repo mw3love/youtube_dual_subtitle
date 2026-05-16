@@ -220,9 +220,7 @@
   function forceToggleCaptions(): void {
     // capturedVideoIds 체크 없이 무조건 off+on. 자막이 이미 켜져있어도 강제 재fetch.
     const isShorts = location.pathname.startsWith('/shorts/');
-    const root: ParentNode = isShorts
-      ? document.querySelector('ytd-reel-video-renderer[is-active]') ?? document
-      : document;
+    const root: ParentNode = isShorts ? findShortsActiveRoot() : document;
     const ccBtn = root.querySelector<HTMLElement>('.ytp-subtitles-button');
     if (!ccBtn) {
       console.warn(TAG, 'forceToggleCaptions: ccBtn not found');
@@ -247,6 +245,25 @@
 
   const ENABLE_RETRY_MS = [0, 300, 800, 1500, 3000];
 
+  function findShortsActiveRoot(): ParentNode {
+    // 1순위: [is-active] reel
+    const active = document.querySelector('ytd-reel-video-renderer[is-active]');
+    if (active) return active;
+    // 2순위: 화면에 visible한 video element의 가장 가까운 reel/player
+    const videos = Array.from(document.querySelectorAll<HTMLVideoElement>('video'));
+    for (const v of videos) {
+      const r = v.getBoundingClientRect();
+      if (r.width > 100 && r.height > 100 && r.top < window.innerHeight && r.bottom > 0) {
+        const reel = v.closest('ytd-reel-video-renderer');
+        if (reel) return reel;
+        const sp = v.closest('#shorts-player');
+        if (sp) return sp;
+        return v.parentElement ?? document;
+      }
+    }
+    return document;
+  }
+
   function tryEnableCaptions(attempt: number): void {
     const vid = getVideoId();
     if (vid && capturedVideoIds.has(vid)) {
@@ -256,11 +273,10 @@
     }
 
     // Shorts는 여러 reel이 DOM에 있어 첫 번째 .ytp-subtitles-button이
-    // active reel의 것이 아닐 수 있다. active reel 안의 player/ccBtn을 우선.
+    // active reel의 것이 아닐 수 있다. `[is-active]`는 YouTube가 안 쓸 때가 있어
+    // visible video element로 active reel을 찾는 게 더 견고하다.
     const isShorts = location.pathname.startsWith('/shorts/');
-    const root: ParentNode = isShorts
-      ? document.querySelector('ytd-reel-video-renderer[is-active]') ?? document
-      : document;
+    const root: ParentNode = isShorts ? findShortsActiveRoot() : document;
 
     const player = root.querySelector('#movie_player, #shorts-player') as
       | (Element & {
@@ -275,11 +291,19 @@
     if (isShorts) {
       const reels = document.querySelectorAll('ytd-reel-video-renderer');
       const activeReels = document.querySelectorAll('ytd-reel-video-renderer[is-active]');
+      const allVideos = document.querySelectorAll('video');
+      const visibleVideos = Array.from(allVideos).filter((v) => {
+        const r = v.getBoundingClientRect();
+        return r.width > 100 && r.height > 100 && r.top < window.innerHeight && r.bottom > 0;
+      });
       console.log(
         TAG,
         'shorts diag — reels:', reels.length,
         'active:', activeReels.length,
-        'rootIsActiveReel:', root !== document,
+        'videos:', allVideos.length,
+        'visibleVideos:', visibleVideos.length,
+        'rootFound:', root !== document,
+        'rootTag:', (root as Element).tagName?.toLowerCase?.() ?? 'document',
         'player:', !!player,
         'ccBtn:', !!ccBtn,
       );
