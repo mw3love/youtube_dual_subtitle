@@ -6,7 +6,7 @@ import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/type
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
-import { loadSettings, type Settings } from '../shared/settings';
+import { loadSettings, saveSettings, type Settings } from '../shared/settings';
 import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT]';
@@ -220,6 +220,20 @@ function applySettings(s: Settings): void {
 }
 
 void loadSettings().then(applySettings);
+
+// C 키로 듀얼 자막 on/off. YouTube native 핸들러도 함께 발화하도록 preventDefault 안 함 —
+// 하단 자막 버튼 시각 상태도 자동 동기화된다. native 자막은 hide-native-captions CSS로 안 보임.
+// input/textarea/contenteditable focus 시는 통과 (검색창 'c' 입력 보호).
+document.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'c') return;
+  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+  const t = ev.target as HTMLElement | null;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (!currentSettings) return;
+  const next = !currentSettings.subtitlesEnabled;
+  void saveSettings({ subtitlesEnabled: next });
+  console.log(TAG, `toggled: ${next ? 'on' : 'off'} via shortcut`);
+});
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
 const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend']);
