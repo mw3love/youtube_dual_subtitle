@@ -14,7 +14,7 @@
   // 캡처된 videoId를 기억해 자동 CC 재토글이 무한 반복되지 않게 한다.
   const capturedVideoIds = new Set<string>();
 
-  function postCaptured(via: 'fetch' | 'xhr', url: string, body: string): void {
+  function postCaptured(via: 'fetch' | 'xhr' | 'direct', url: string, body: string): void {
     if (!body) return;
     try {
       const v = new URL(url, location.origin).searchParams.get('v');
@@ -33,6 +33,15 @@
     console.log(TAG, `captured timedtext (${via}), len:`, body.length, 'url:', url);
   }
 
+  // 페이지가 자체적으로 호출한 timedtext URL의 마지막 값.
+  // raw baseUrl(playerResponse)에는 PoToken/cver 등 client validation params가 없어 200+empty body가 옴.
+  // 페이지가 호출한 full URL을 기억해 두면 retry 시 그걸 (tlang만 제거하고) 재사용 가능.
+  let lastPageTimedtextUrl: string | null = null;
+
+  function rememberPageUrl(url: string): void {
+    if (location.pathname.startsWith('/shorts/')) lastPageTimedtextUrl = url;
+  }
+
   const origFetch = window.fetch;
   window.fetch = function patched(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
     const promise = origFetch.call(this, input as RequestInfo, init);
@@ -44,6 +53,7 @@
             ? input.href
             : (input as Request).url;
       if (url && url.includes('/api/timedtext')) {
+        rememberPageUrl(url);
         promise
           .then((res) => {
             if (!res.ok) return;
@@ -71,6 +81,7 @@
   XMLHttpRequest.prototype.send = function (this: XMLHttpRequest, body?: Document | XMLHttpRequestBodyInit | null) {
     const url = (this as unknown as { _ydtUrl?: string })._ydtUrl;
     if (url && url.includes('/api/timedtext')) {
+      rememberPageUrl(url);
       this.addEventListener('load', () => {
         if (this.status >= 200 && this.status < 300) {
           // responseText 접근은 responseType이 '' 또는 'text'일 때만 가능. 다른 경우 대비.
@@ -117,29 +128,44 @@
     return Array.isArray(c) ? c : null;
   }
 
-  function getTracks(): RawCaptionTrack[] {
+  function getTracks(): { tracks: RawCaptionTrack[]; via: string } {
     const w = window as unknown as {
       ytInitialPlayerResponse?: CaptionsHolder;
       ytplayer?: { config?: { args?: { raw_player_response?: CaptionsHolder } } };
     };
 
-    const player = document.querySelector('#movie_player') as
-      | (Element & { getPlayerResponse?: () => CaptionsHolder | undefined })
-      | null;
+    type PlayerEl = Element & { getPlayerResponse?: () => CaptionsHolder | undefined };
+    const isShorts = location.pathname.startsWith('/shorts/');
+
+    // Shorts는 활성 reel의 #shorts-player를 우선 — swipe 후에도 현재 reel의 metadata를 얻는다.
+    if (isShorts) {
+      const root = findShortsActiveRoot();
+      const shortsPlayer = (root as ParentNode).querySelector?.('#shorts-player') as PlayerEl | null;
+      if (shortsPlayer?.getPlayerResponse) {
+        try {
+          const live = tracksFrom(shortsPlayer.getPlayerResponse());
+          if (live && live.length > 0) return { tracks: live, via: 'shorts-active' };
+        } catch {
+          // fall through
+        }
+      }
+    }
+
+    const player = document.querySelector('#movie_player, #shorts-player') as PlayerEl | null;
     if (player?.getPlayerResponse) {
       try {
         const live = tracksFrom(player.getPlayerResponse());
-        if (live) return live;
+        if (live) return { tracks: live, via: 'getPlayerResponse' };
       } catch {
         // fall through
       }
     }
 
     const a = tracksFrom(w?.ytInitialPlayerResponse);
-    if (a) return a;
+    if (a) return { tracks: a, via: 'ytInitialPlayerResponse' };
     const b = tracksFrom(w?.ytplayer?.config?.args?.raw_player_response);
-    if (b) return b;
-    return [];
+    if (b) return { tracks: b, via: 'ytplayer.config' };
+    return { tracks: [], via: 'none' };
   }
 
   function getVideoId(): string | null {
@@ -152,7 +178,7 @@
   const RETRY_DELAYS_MS = [0, 250, 500, 1000, 1500];
 
   function tryBroadcast(reason: string, attempt = 0): void {
-    const raw = getTracks();
+    const { tracks: raw, via } = getTracks();
     if (raw.length === 0 && attempt + 1 < RETRY_DELAYS_MS.length) {
       setTimeout(() => tryBroadcast(reason, attempt + 1), RETRY_DELAYS_MS[attempt + 1]);
       return;
@@ -167,7 +193,7 @@
       { source: 'YDT_MAIN', type: 'CAPTION_TRACKS', reason, videoId: getVideoId(), tracks },
       location.origin,
     );
-    console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'videoId:', getVideoId(), 'attempts:', attempt);
+    console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'via:', via, 'videoId:', getVideoId(), 'attempts:', attempt);
 
     // 트랙이 있고 페이지가 자막을 아직 안 켰다면, 자동으로 활성화 트리거
     if (tracks.length > 0) {
@@ -220,8 +246,21 @@
   function forceToggleCaptions(): void {
     // capturedVideoIds 체크 없이 무조건 off+on. 자막이 이미 켜져있어도 강제 재fetch.
     const isShorts = location.pathname.startsWith('/shorts/');
-    const root: ParentNode = isShorts ? findShortsActiveRoot() : document;
-    const ccBtn = root.querySelector<HTMLElement>('.ytp-subtitles-button');
+    if (isShorts) {
+      // Shorts는 CC 버튼이 없어 click path가 의미 없음.
+      // 우선순위: 페이지가 호출했던 full URL(PoToken 포함) > raw baseUrl(부족하면 빈 응답)
+      const candidate = lastPageTimedtextUrl ?? lastShortsBaseUrl;
+      if (candidate) {
+        console.log(TAG, 'forceToggleCaptions: shorts direct fetch retry, src:', lastPageTimedtextUrl ? 'page' : 'baseUrl');
+        void fetchTimedtextDirect(candidate, getVideoId());
+      } else {
+        // playerResponse가 갓 갱신됐을 수 있으니 트랙 재broadcast로 isolated가 다시 driving.
+        console.log(TAG, 'forceToggleCaptions: shorts re-broadcast tracks');
+        tryBroadcast('shorts-retry');
+      }
+      return;
+    }
+    const ccBtn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
     if (!ccBtn) {
       console.warn(TAG, 'forceToggleCaptions: ccBtn not found');
       return;
@@ -272,13 +311,11 @@
       return;
     }
 
-    // Shorts는 여러 reel이 DOM에 있어 첫 번째 .ytp-subtitles-button이
-    // active reel의 것이 아닐 수 있다. `[is-active]`는 YouTube가 안 쓸 때가 있어
-    // visible video element로 active reel을 찾는 게 더 견고하다.
-    const isShorts = location.pathname.startsWith('/shorts/');
-    const root: ParentNode = isShorts ? findShortsActiveRoot() : document;
+    // Shorts는 .ytp-subtitles-button이 DOM에 없어 click path가 futile.
+    // 캡션 캡처는 isolated → MAIN FETCH_TIMEDTEXT 경로로 처리.
+    if (location.pathname.startsWith('/shorts/')) return;
 
-    const player = root.querySelector('#movie_player, #shorts-player') as
+    const player = document.querySelector('#movie_player') as
       | (Element & {
           loadModule?: (name: string) => void;
           setOption?: (module: string, option: string, value: unknown) => void;
@@ -286,28 +323,7 @@
         })
       | null;
 
-    const ccBtn = root.querySelector<HTMLElement>('.ytp-subtitles-button');
-
-    if (isShorts) {
-      const reels = document.querySelectorAll('ytd-reel-video-renderer');
-      const activeReels = document.querySelectorAll('ytd-reel-video-renderer[is-active]');
-      const allVideos = document.querySelectorAll('video');
-      const visibleVideos = Array.from(allVideos).filter((v) => {
-        const r = v.getBoundingClientRect();
-        return r.width > 100 && r.height > 100 && r.top < window.innerHeight && r.bottom > 0;
-      });
-      console.log(
-        TAG,
-        'shorts diag — reels:', reels.length,
-        'active:', activeReels.length,
-        'videos:', allVideos.length,
-        'visibleVideos:', visibleVideos.length,
-        'rootFound:', root !== document,
-        'rootTag:', (root as Element).tagName?.toLowerCase?.() ?? 'document',
-        'player:', !!player,
-        'ccBtn:', !!ccBtn,
-      );
-    }
+    const ccBtn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
 
     if (!player && !ccBtn) {
       if (attempt + 1 < ENABLE_RETRY_MS.length) {
@@ -361,7 +377,82 @@
     }
   }
 
-  // ───────────────────────── 4. 진입점 ─────────────────────────
+  // ───────────────────────── 4. Shorts용 직접 fetch ─────────────────────────
+  // Shorts에는 .ytp-subtitles-button이 없어 페이지가 자체적으로 timedtext fetch를 trigger 안 함.
+  // isolated content script가 playerResponse에서 chosen track baseUrl을 뽑아 MAIN에 fetch를 요청하면,
+  // MAIN이 페이지 context(쿠키/origin)에서 직접 fetch해 기존 postCaptured 경로로 결과를 흘려보낸다.
+  // tlang은 강제 제거 — 소스 언어 cue가 필요(이중 번역 방지).
+
+  let lastShortsBaseUrl: string | null = null;
+  const inflightDirect = new Set<string>();
+
+  async function fetchTimedtextDirect(rawUrl: string, videoId: string | null): Promise<void> {
+    // raw baseUrl(playerResponse)에는 PoToken/cver 등 client validation params가 없어
+    // origin server가 200 + empty body로 응답한다. 페이지가 자체 호출한 full URL이 있고
+    // 동일 videoId면 그걸 우선 사용해야 cue를 받을 수 있다.
+    let effectiveUrl = rawUrl;
+    if (lastPageTimedtextUrl) {
+      try {
+        const pageV = new URL(lastPageTimedtextUrl, location.origin).searchParams.get('v');
+        if (pageV && pageV === videoId) effectiveUrl = lastPageTimedtextUrl;
+      } catch {
+        // ignore
+      }
+    }
+    let normalized: string;
+    try {
+      const u = new URL(effectiveUrl, location.origin);
+      u.searchParams.delete('tlang');
+      u.searchParams.set('fmt', 'json3');
+      normalized = u.toString();
+    } catch (e) {
+      console.warn(TAG, 'direct: URL parse failed', e);
+      return;
+    }
+    if (inflightDirect.has(normalized)) return;
+    inflightDirect.add(normalized);
+    lastShortsBaseUrl = rawUrl;
+    try {
+      const res = await origFetch.call(window, normalized);
+      if (!res.ok) {
+        console.warn(TAG, `direct fetch ${res.status} for ${videoId}`);
+        return;
+      }
+      const body = await res.text();
+      if (body) postCaptured('direct', normalized, body);
+    } catch (e) {
+      console.warn(TAG, 'direct fetch failed', e);
+    } finally {
+      inflightDirect.delete(normalized);
+    }
+  }
+
+  window.addEventListener('message', (ev) => {
+    if (ev.source !== window) return;
+    const data = ev.data as
+      | { source?: string; type?: string; baseUrl?: string; videoId?: string | null }
+      | undefined;
+    if (!data || data.source !== 'YDT_CONTENT' || data.type !== 'FETCH_TIMEDTEXT') return;
+    if (typeof data.baseUrl !== 'string' || !data.baseUrl) return;
+    void fetchTimedtextDirect(data.baseUrl, data.videoId ?? null);
+  });
+
+  // Shorts swipe 감지 — 활성 video element가 새 source를 로드하면 loadeddata 발화.
+  // capture phase로 페이지 전역의 video 이벤트를 캐치 (페이지가 후속 listener를 막아도 안전).
+  document.addEventListener(
+    'loadeddata',
+    (ev) => {
+      if (!location.pathname.startsWith('/shorts/')) return;
+      const target = ev.target;
+      if (!(target instanceof HTMLVideoElement)) return;
+      const rect = target.getBoundingClientRect();
+      if (rect.width < 100 || rect.height < 100) return;
+      tryBroadcast('shorts-reel-change');
+    },
+    true,
+  );
+
+  // ───────────────────────── 5. 진입점 ─────────────────────────
   tryBroadcast('initial');
 
   window.addEventListener('yt-navigate-finish', () => {

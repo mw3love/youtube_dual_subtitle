@@ -29,3 +29,14 @@ export interface TimedtextResponseMessage {
 }
 
 export type MainToContentMessage = CaptionTracksMessage | TimedtextResponseMessage;
+
+// isolated → MAIN. Shorts에서 CC 버튼이 없어 페이지 fetch를 trigger 못 할 때,
+// playerResponse에서 추출한 caption track baseUrl을 MAIN이 페이지 context에서 직접 fetch하도록 요청.
+export interface FetchTimedtextMessage {
+  source: 'YDT_CONTENT';
+  type: 'FETCH_TIMEDTEXT';
+  baseUrl: string;
+  videoId: string | null;
+}
+
+export type ContentToMainMessage = FetchTimedtextMessage;

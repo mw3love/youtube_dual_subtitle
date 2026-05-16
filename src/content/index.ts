@@ -70,6 +70,10 @@ function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
   return sorted[0];
 }
 
+// Shorts에서 같은 reel에 대해 중복 direct-fetch 요청 방지.
+// 일반 영상은 이 Set을 사용하지 않음 — 페이지 자체 fetch가 인터셉트로 처리됨.
+const requestedShortsVideoIds = new Set<string>();
+
 function handleCaptionTracks(payload: {
   reason: string;
   videoId: string | null;
@@ -91,6 +95,23 @@ function handleCaptionTracks(payload: {
     TAG,
     `chosen track for ${payload.videoId}: lang=${chosen.languageCode} kind=${chosen.kind ?? 'manual'} name=${chosen.name ?? '-'}`,
   );
+
+  // Shorts: 페이지가 자체 fetch를 trigger 안 하므로 MAIN에 직접 fetch 요청.
+  // 일반 영상은 CC 버튼 click이 페이지 fetch를 발화 → 우리 monkey-patch가 가로채므로 추가 동작 불필요.
+  const isShorts = location.pathname.startsWith('/shorts/');
+  if (isShorts && payload.videoId && !requestedShortsVideoIds.has(payload.videoId)) {
+    requestedShortsVideoIds.add(payload.videoId);
+    window.postMessage(
+      {
+        source: 'YDT_CONTENT',
+        type: 'FETCH_TIMEDTEXT',
+        baseUrl: chosen.baseUrl,
+        videoId: payload.videoId,
+      },
+      location.origin,
+    );
+    console.log(TAG, `requested direct fetch for shorts ${payload.videoId}`);
+  }
 }
 
 function handleTimedtextResponse(payload: { url: string; body: string }): void {
