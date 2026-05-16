@@ -4,9 +4,12 @@
 
 import type { CaptionTrackInfo, MainToContentMessage } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
+import { SubtitleRenderer } from './renderer/subtitle-renderer';
 
 const TAG = '[YDT]';
 console.log(TAG, 'content script loaded on', location.href);
+
+const renderer = new SubtitleRenderer();
 
 // 소스 언어 하드코딩 — 설정 UI는 M7에서.
 const PREFERRED_SOURCE = 'en';
@@ -75,10 +78,8 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     const json = JSON.parse(payload.body) as unknown;
     const cues = parseJson3(json);
     console.log(TAG, `cues parsed: ${cues.length}`);
-    if (cues.length) {
-      console.log(TAG, 'first 3 cues:', cues.slice(0, 3));
-      console.log(TAG, 'last cue:', cues[cues.length - 1]);
-    }
+    if (cues.length === 0) return;
+    renderer.setCues(cues);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
   }
