@@ -18,7 +18,11 @@
     if (!body) return;
     try {
       const v = new URL(url, location.origin).searchParams.get('v');
-      if (v) capturedVideoIds.add(v);
+      if (v) {
+        capturedVideoIds.add(v);
+        // capture 성공 시 그 videoId용 timeout/retry 카운터 정리
+        clearCaptureTimeout(v);
+      }
     } catch {
       // ignore
     }
@@ -166,7 +170,75 @@
     console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'videoId:', getVideoId(), 'attempts:', attempt);
 
     // 트랙이 있고 페이지가 자막을 아직 안 켰다면, 자동으로 활성화 트리거
-    if (tracks.length > 0) tryEnableCaptions(0);
+    if (tracks.length > 0) {
+      tryEnableCaptions(0);
+      armCaptureTimeout(getVideoId());
+    }
+  }
+
+  // ─────── 3.5 timedtext capture timeout / 강제 재토글 ───────
+  // tryEnableCaptions이 click을 보내도 YouTube가 fetch를 안 하는 경우가 있다
+  // (캐시된 메타로 만족하는 듯). 일정 시간 안에 capture 신호가 안 오면 강제 off+on
+  // 토글로 다시 시도. 같은 videoId당 최대 N회.
+
+  const CAPTURE_TIMEOUT_MS = 5000;
+  const MAX_CAPTURE_RETRIES = 2;
+  const captureTimers = new Map<string, number>();
+  const captureRetries = new Map<string, number>();
+
+  function clearCaptureTimeout(videoId: string): void {
+    const t = captureTimers.get(videoId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      captureTimers.delete(videoId);
+    }
+    captureRetries.delete(videoId);
+  }
+
+  function armCaptureTimeout(videoId: string | null): void {
+    if (!videoId) return;
+    if (capturedVideoIds.has(videoId)) return; // 이미 잡음
+    const existing = captureTimers.get(videoId);
+    if (existing !== undefined) clearTimeout(existing);
+    const t = window.setTimeout(() => {
+      captureTimers.delete(videoId);
+      if (capturedVideoIds.has(videoId)) return;
+      if (videoId !== getVideoId()) return; // 영상이 바뀐 경우 stale 타이머
+      const tries = captureRetries.get(videoId) ?? 0;
+      if (tries >= MAX_CAPTURE_RETRIES) {
+        console.warn(TAG, `gave up on timedtext for ${videoId} after ${tries + 1} attempts`);
+        return;
+      }
+      captureRetries.set(videoId, tries + 1);
+      console.log(TAG, `timedtext not captured in ${CAPTURE_TIMEOUT_MS}ms, force toggle retry ${tries + 1}/${MAX_CAPTURE_RETRIES} for ${videoId}`);
+      forceToggleCaptions();
+      armCaptureTimeout(videoId);
+    }, CAPTURE_TIMEOUT_MS);
+    captureTimers.set(videoId, t);
+  }
+
+  function forceToggleCaptions(): void {
+    // capturedVideoIds 체크 없이 무조건 off+on. 자막이 이미 켜져있어도 강제 재fetch.
+    const isShorts = location.pathname.startsWith('/shorts/');
+    const root: ParentNode = isShorts
+      ? document.querySelector('ytd-reel-video-renderer[is-active]') ?? document
+      : document;
+    const ccBtn = root.querySelector<HTMLElement>('.ytp-subtitles-button');
+    if (!ccBtn) {
+      console.warn(TAG, 'forceToggleCaptions: ccBtn not found');
+      return;
+    }
+    const pressed = ccBtn.getAttribute('aria-pressed') === 'true';
+    if (pressed) {
+      ccBtn.click(); // off
+      setTimeout(() => ccBtn.click(), 300); // on
+    } else {
+      ccBtn.click(); // on
+      setTimeout(() => {
+        ccBtn.click(); // off
+        setTimeout(() => ccBtn.click(), 200); // on
+      }, 300);
+    }
   }
 
   // ───────────────────────── 3. 자동 CC 활성화 ─────────────────────────
