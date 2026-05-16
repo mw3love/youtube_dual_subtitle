@@ -2,7 +2,7 @@
 // MAIN world script가 가로챈 timedtext 응답을 받아서 parseJson3 → cue 배열로 만든다.
 // 트랙 목록도 받아 어떤 트랙이 선택될지 로깅 (소스 언어 결정용).
 
-import type { CaptionTrackInfo, MainToContentMessage } from '../shared/types';
+import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { loadSettings } from '../shared/settings';
@@ -95,9 +95,51 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     // setCues 직후 mountedVideoId 갱신 — yt-navigate-finish가 이후 발생해도
     // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
     mountedVideoId = currentVideoId();
+    void translateCues(cues, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
   }
+}
+
+// Google 무료 엔드포인트 URL은 ~8KB. cue 텍스트가 길어지면 URL 414가 와서
+// 작은 배치로 나눠 부른다. 각 배치 결과가 도착하는 대로 renderer에 점진 반영해
+// 사용자가 영상 시작부터 곧장 번역을 본다.
+const TRANSLATE_BATCH_SIZE = 50;
+
+async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
+  const texts = cues.map((c) => c.text);
+  const all: string[] = [];
+
+  for (let i = 0; i < texts.length; i += TRANSLATE_BATCH_SIZE) {
+    const batch = texts.slice(i, i + TRANSLATE_BATCH_SIZE);
+    let res: { ok: true; translations: string[] } | { ok: false; error: string };
+    try {
+      res = (await chrome.runtime.sendMessage({
+        type: 'TRANSLATE_BATCH',
+        texts: batch,
+        src: 'en',
+        tgt: 'ko',
+      })) as typeof res;
+    } catch (e) {
+      console.error(TAG, 'translate request failed:', e);
+      return;
+    }
+
+    // 요청 도중 영상이 바뀌었으면 결과 무시 (stale)
+    if (currentVideoId() !== requestVideoId) {
+      console.log(TAG, 'translate: video changed mid-flight, dropping');
+      return;
+    }
+
+    if (!res.ok) {
+      console.error(TAG, 'translate failed:', res.error);
+      return;
+    }
+
+    all.push(...res.translations);
+    renderer.setTargetTexts(all);
+  }
+  console.log(TAG, `translate complete: ${all.length}/${texts.length}`);
 }
 
 // 영상이 실제로 바뀌었고 아직 새 cue가 도착하지 않은 경우만 cue 비움.

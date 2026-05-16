@@ -9,6 +9,7 @@ const TAG = '[YDT/renderer]';
 
 export class SubtitleRenderer {
   private cues: Cue[] = [];
+  private targetTexts: string[] = []; // 번역 결과. cues와 같은 인덱스. 없으면 placeholder(영어)
   private container: HTMLElement | null = null;
   private sourceEl: HTMLElement | null = null;
   private targetEl: HTMLElement | null = null;
@@ -26,9 +27,16 @@ export class SubtitleRenderer {
 
   setCues(cues: Cue[]): void {
     this.cues = cues;
+    this.targetTexts = []; // 새 cue 들어오면 이전 번역 무효
     this.lastIdx = -2;
     console.log(TAG, 'cues set:', cues.length);
     this.mount();
+  }
+
+  setTargetTexts(texts: string[]): void {
+    this.targetTexts = texts;
+    this.lastIdx = -2; // 다음 update에서 target 갱신
+    console.log(TAG, 'target texts set:', texts.length, '/', this.cues.length);
   }
 
   // host/video가 아직 없을 수 있어 retry.
@@ -124,8 +132,8 @@ export class SubtitleRenderer {
     } else {
       const cue = this.cues[idx];
       this.sourceEl.textContent = cue.text;
-      // M3 placeholder: 한글 자리에 영어 그대로. M4에서 진짜 번역으로 교체.
-      this.targetEl.textContent = cue.text;
+      // 번역 도착 전이거나 alignment 어긋난 인덱스는 영어 placeholder.
+      this.targetEl.textContent = this.targetTexts[idx] || cue.text;
       this.container.style.visibility = 'visible';
     }
   }
