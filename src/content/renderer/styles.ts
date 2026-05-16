@@ -1,15 +1,16 @@
 // CSS injection — native YouTube 자막 숨김 + 자체 자막 스타일.
-// M7에서 사용자 커스터마이즈 들어올 때까지 하드코딩.
+// 사용자가 바꿀 수 있는 값은 모두 CSS 변수로 — applyStyleSettings로 :root에 박는다.
+
+import type { CueStyle } from '../../shared/settings';
 
 const STYLES = `
-/* 1. native 자막 숨김 — 사용자 측에서 자동/수동으로 켜졌어도 우리 것만 보이도록 */
+/* native 자막 숨김 — 사용자 측에서 자동/수동으로 켜졌어도 우리 것만 보이도록 */
 .ytp-caption-window-container { display: none !important; }
 
-/* 2. 자체 자막 컨테이너 */
 .ydt-container {
   position: absolute;
   left: 50%;
-  bottom: 10%;
+  bottom: var(--ydt-bottom, 10%);
   transform: translateX(-50%);
   z-index: 60;
   display: flex;
@@ -32,27 +33,27 @@ const STYLES = `
 }
 
 .ydt-source {
-  color: #ffffff;
-  font-size: 22px;
-  font-weight: 500;
+  color: var(--ydt-source-color, #ffffff);
+  font-size: var(--ydt-source-size, 22px);
+  font-weight: var(--ydt-source-weight, 500);
 }
 
 .ydt-target {
-  color: #cccccc;
-  font-size: 18px;
-  font-weight: 400;
+  color: var(--ydt-target-color, #cccccc);
+  font-size: var(--ydt-target-size, 18px);
+  font-weight: var(--ydt-target-weight, 400);
 }
 
-/* Fullscreen 보정 */
-:fullscreen .ydt-source { font-size: 32px; }
-:fullscreen .ydt-target { font-size: 26px; }
+/* Fullscreen 보정 — 변수 기준으로 ~1.4배 */
+:fullscreen .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 1.4); }
+:fullscreen .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * 1.4); }
 
-/* Shorts 보정 — 컨트롤 UI 위쪽 영역에 표시, 폰트 작게 */
+/* Shorts 보정 — 약간 작게 */
 .ydt-container[data-mode="shorts"] {
   bottom: 18%;
 }
-.ydt-container[data-mode="shorts"] .ydt-source { font-size: 16px; }
-.ydt-container[data-mode="shorts"] .ydt-target { font-size: 13px; }
+.ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 0.72); }
+.ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * 0.72); }
 `;
 
 let injected = false;
@@ -72,4 +73,20 @@ export function injectStyles(): void {
   };
   if (document.head) inject();
   else document.addEventListener('DOMContentLoaded', inject, { once: true });
+}
+
+// :root에 CSS 변수로 박아서 :fullscreen / [data-mode="shorts"]까지 한 번에 반영.
+export function applyStyleSettings(opts: {
+  sourceStyle: CueStyle;
+  targetStyle: CueStyle;
+  bottomOffsetPercent: number;
+}): void {
+  const root = document.documentElement.style;
+  root.setProperty('--ydt-source-color', opts.sourceStyle.color);
+  root.setProperty('--ydt-source-size', `${opts.sourceStyle.fontSize}px`);
+  root.setProperty('--ydt-source-weight', String(opts.sourceStyle.fontWeight));
+  root.setProperty('--ydt-target-color', opts.targetStyle.color);
+  root.setProperty('--ydt-target-size', `${opts.targetStyle.fontSize}px`);
+  root.setProperty('--ydt-target-weight', String(opts.targetStyle.fontWeight));
+  root.setProperty('--ydt-bottom', `${opts.bottomOffsetPercent}%`);
 }

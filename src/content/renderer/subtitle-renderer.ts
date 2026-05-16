@@ -1,4 +1,5 @@
 import type { Cue } from '../../shared/types';
+import type { DisplayMode } from '../../shared/settings';
 import { createContainer, findMountTarget, type Mode } from './container';
 import { injectStyles } from './styles';
 
@@ -20,6 +21,7 @@ export class SubtitleRenderer {
   // 사용자가 native CC 버튼을 직접 끄면 우리 자막도 같이 숨긴다.
   // visibility(cue 단위)와 별개 차원이므로 display를 쓴다.
   private userHidden = false;
+  private displayMode: DisplayMode = 'dual';
 
   constructor() {
     injectStyles();
@@ -74,6 +76,7 @@ export class SubtitleRenderer {
     this.mode = target.mode;
 
     if (this.userHidden) container.style.display = 'none';
+    this.applyDisplayMode();
 
     console.log(TAG, 'mounted (mode:', this.mode, ')');
     this.startLoop();
@@ -102,6 +105,17 @@ export class SubtitleRenderer {
   setUserVisible(visible: boolean): void {
     this.userHidden = !visible;
     if (this.container) this.container.style.display = visible ? '' : 'none';
+  }
+
+  setDisplayMode(mode: DisplayMode): void {
+    this.displayMode = mode;
+    this.applyDisplayMode();
+  }
+
+  private applyDisplayMode(): void {
+    if (!this.sourceEl || !this.targetEl) return;
+    this.sourceEl.style.display = this.displayMode === 'translation-only' ? 'none' : '';
+    this.targetEl.style.display = this.displayMode === 'source-only' ? 'none' : '';
   }
 
   private startLoop(): void {

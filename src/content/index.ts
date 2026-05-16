@@ -5,7 +5,8 @@
 import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
-import { loadSettings } from '../shared/settings';
+import { applyStyleSettings } from './renderer/styles';
+import { loadSettings, type Settings } from '../shared/settings';
 import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT]';
@@ -23,9 +24,21 @@ function currentVideoId(): string | null {
 // 현재 renderer가 들고 있는 cue가 어느 video의 것인지. setCues 호출 시 갱신된다.
 // yt-navigate-finish에서 이걸 비교해 stale cue만 clear한다.
 let mountedVideoId: string | null = null;
+// 마지막 cues 보관 — 언어/백엔드 설정이 바뀌면 영상 reload 없이 재번역하려고.
+let lastCues: Cue[] = [];
 
-// 소스 언어 하드코딩 — 설정 UI는 M7에서.
-const PREFERRED_SOURCE = 'en';
+// 현재 활성 settings 캐시. boot 후 storage.onChanged로 갱신.
+// 'en' default는 storage 로드 전 한 짧은 순간 동안만 쓰임.
+let currentSettings: Settings | null = null;
+function preferredSource(): string {
+  return currentSettings?.sourceLang ?? 'en';
+}
+function targetLang(): string {
+  return currentSettings?.targetLang ?? 'ko';
+}
+function activeBackend(): 'chrome-builtin' | 'google-free' {
+  return currentSettings?.backend ?? 'google-free';
+}
 
 window.addEventListener('message', (ev) => {
   if (ev.source !== window) return;
@@ -52,7 +65,7 @@ function trackScore(t: CaptionTrackInfo, preferred: string): number {
 function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
   if (!tracks.length) return null;
   const sorted = [...tracks].sort(
-    (a, b) => trackScore(a, PREFERRED_SOURCE) - trackScore(b, PREFERRED_SOURCE),
+    (a, b) => trackScore(a, preferredSource()) - trackScore(b, preferredSource()),
   );
   return sorted[0];
 }
@@ -96,6 +109,7 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     // setCues 직후 mountedVideoId 갱신 — yt-navigate-finish가 이후 발생해도
     // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
     mountedVideoId = currentVideoId();
+    lastCues = cues;
     void translateCues(cues, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
@@ -110,9 +124,10 @@ const TRANSLATE_BATCH_SIZE = 50;
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
   const texts = cues.map((c) => c.text);
-  const settings = await loadSettings();
-  const backend = settings.backend;
-  const cacheKey = makeKey(requestVideoId, 'en', 'ko', backend);
+  const src = preferredSource();
+  const tgt = targetLang();
+  const backend = activeBackend();
+  const cacheKey = makeKey(requestVideoId, src, tgt, backend);
 
   // 1) 캐시 hit
   const cached = await getCached(cacheKey);
@@ -131,8 +146,8 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
       res = (await chrome.runtime.sendMessage({
         type: 'TRANSLATE_BATCH',
         texts: batch,
-        src: 'en',
-        tgt: 'ko',
+        src,
+        tgt,
         backend,
       })) as typeof res;
     } catch (e) {
@@ -170,18 +185,36 @@ window.addEventListener('yt-navigate-finish', () => {
   }
 });
 
-// 자막 표시는 popup의 토글로 제어 (chrome.storage.sync).
-// native CC 버튼 토글은 안 따라간다 — YouTube의 CC click을 표준 이벤트로 잡을 수 없고
-// 우리 자동 토글과 구분이 어려워 popup 컨트롤로 일원화.
-void loadSettings().then((s) => {
+// settings를 한 번에 적용 — display mode·visibility·styles 모두.
+// 호출 흐름: boot 시 1회, storage.onChanged 시마다.
+function applySettings(s: Settings): void {
+  currentSettings = s;
   renderer.setUserVisible(s.subtitlesEnabled);
-});
+  renderer.setDisplayMode(s.displayMode);
+  applyStyleSettings({
+    sourceStyle: s.sourceStyle,
+    targetStyle: s.targetStyle,
+    bottomOffsetPercent: s.bottomOffsetPercent,
+  });
+}
+
+void loadSettings().then(applySettings);
+
+// 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
+const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend']);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;
-  if ('subtitlesEnabled' in changes) {
-    const enabled = changes.subtitlesEnabled.newValue !== false;
-    console.log(TAG, 'settings: subtitlesEnabled =', enabled);
-    renderer.setUserVisible(enabled);
-  }
+  // 변경 키가 무엇이든 settings 전체를 다시 읽어 일관되게 반영.
+  // partial diff 적용은 복잡하고 zod 검증 우회 위험.
+  void loadSettings().then((s) => {
+    console.log(TAG, 'settings changed:', Object.keys(changes));
+    applySettings(s);
+
+    const needsRetranslate = Object.keys(changes).some((k) => RETRANSLATE_KEYS.has(k));
+    if (needsRetranslate && lastCues.length > 0 && mountedVideoId) {
+      console.log(TAG, 'retranslating with new settings');
+      void translateCues(lastCues, mountedVideoId);
+    }
+  });
 });

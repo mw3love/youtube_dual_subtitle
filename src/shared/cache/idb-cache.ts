@@ -6,6 +6,21 @@
 
 import { get, set, del, keys } from 'idb-keyval';
 
+export async function getCacheStats(): Promise<{ count: number }> {
+  const allKeys = (await keys()).filter(
+    (k): k is string => typeof k === 'string' && k.startsWith('ydt::'),
+  );
+  return { count: allKeys.length };
+}
+
+export async function clearCache(): Promise<number> {
+  const allKeys = (await keys()).filter(
+    (k): k is string => typeof k === 'string' && k.startsWith('ydt::'),
+  );
+  for (const k of allKeys) await del(k);
+  return allKeys.length;
+}
+
 const TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30일
 const MAX_ENTRIES = 200;
 
