@@ -1,6 +1,12 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../shared/settings';
+import {
+  DEFAULT_SETTINGS,
+  loadSettings,
+  saveSettings,
+  type BackendId,
+  type Settings,
+} from '../shared/settings';
 
 function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -13,14 +19,20 @@ function Popup() {
     });
   }, []);
 
-  const toggle = (): void => {
+  const toggleSubtitles = (): void => {
     const next = { ...settings, subtitlesEnabled: !settings.subtitlesEnabled };
     setSettings(next);
     void saveSettings({ subtitlesEnabled: next.subtitlesEnabled });
   };
 
+  const setBackend = (backend: BackendId): void => {
+    const next = { ...settings, backend };
+    setSettings(next);
+    void saveSettings({ backend });
+  };
+
   return (
-    <div style={{ minWidth: 260, padding: 14, fontFamily: 'system-ui, sans-serif' }}>
+    <div style={{ minWidth: 280, padding: 14, fontFamily: 'system-ui, sans-serif' }}>
       <h3 style={{ margin: '0 0 12px', fontSize: 14 }}>YouTube Dual Subtitle</h3>
 
       <label
@@ -37,13 +49,39 @@ function Popup() {
         <input
           type="checkbox"
           checked={settings.subtitlesEnabled}
-          onChange={toggle}
+          onChange={toggleSubtitles}
           disabled={!loaded}
         />
       </label>
 
+      <div style={{ padding: '8px 0', opacity: loaded ? 1 : 0.5 }}>
+        <div style={{ fontSize: 13, marginBottom: 6 }}>번역 백엔드</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+          <label style={{ display: 'flex', gap: 6, cursor: loaded ? 'pointer' : 'default' }}>
+            <input
+              type="radio"
+              name="backend"
+              checked={settings.backend === 'google-free'}
+              onChange={() => setBackend('google-free')}
+              disabled={!loaded}
+            />
+            Google 무료 (빠름, 비공식)
+          </label>
+          <label style={{ display: 'flex', gap: 6, cursor: loaded ? 'pointer' : 'default' }}>
+            <input
+              type="radio"
+              name="backend"
+              checked={settings.backend === 'chrome-builtin'}
+              onChange={() => setBackend('chrome-builtin')}
+              disabled={!loaded}
+            />
+            Chrome 내장 (오프라인, 첫 사용 시 모델 다운로드)
+          </label>
+        </div>
+      </div>
+
       <p style={{ margin: '8px 0 0', fontSize: 11, color: '#888' }}>
-        v0.1.0 · 더 많은 설정은 옵션 페이지에서 (M7)
+        v0.1.0 · 백엔드 변경 시 캐시 분리. 페이지 새로고침 권장.
       </p>
     </div>
   );

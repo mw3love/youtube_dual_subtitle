@@ -1,8 +1,8 @@
 // Background service worker entry.
-// M4: content가 cue를 받으면 여기로 번역 요청을 보내고, 우리는 Google 무료 백엔드로 호출한다.
-// (CORS·쿠키 문제가 없고 content 쪽에서 직접 부르면 페이지 origin이 노출되어 차단 위험 ↑)
+// 번역 요청을 router로 위임. router는 사용자가 선택한 백엔드 우선, 실패 시 fallback.
 
-import { translateBatch } from './translators/google-free';
+import { translateBatch } from './translators/router';
+import type { BackendId } from './translators/types';
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
@@ -12,6 +12,7 @@ interface TranslateBatchMsg {
   texts: string[];
   src: string;
   tgt: string;
+  backend: BackendId;
 }
 
 type TranslateResponse =
@@ -29,8 +30,9 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
         texts,
         m.src ?? 'en',
         m.tgt ?? 'ko',
+        m.backend ?? 'google-free',
       );
-      console.log(TAG, `translated ${translations.length}/${texts.length}`);
+      console.log(TAG, `translated ${translations.length}/${texts.length} via ${m.backend}`);
       sendResponse({ ok: true, translations } satisfies TranslateResponse);
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
@@ -39,7 +41,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     }
   })();
 
-  return true; // async sendResponse
+  return true;
 });
 
 chrome.runtime.onInstalled.addListener((details) => {

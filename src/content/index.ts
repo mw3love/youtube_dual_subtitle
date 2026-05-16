@@ -110,12 +110,14 @@ const TRANSLATE_BATCH_SIZE = 50;
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
   const texts = cues.map((c) => c.text);
-  const cacheKey = makeKey(requestVideoId, 'en', 'ko', 'google-free');
+  const settings = await loadSettings();
+  const backend = settings.backend;
+  const cacheKey = makeKey(requestVideoId, 'en', 'ko', backend);
 
   // 1) 캐시 hit
   const cached = await getCached(cacheKey);
   if (cached && cached.length === texts.length) {
-    console.log(TAG, `cache hit: ${cached.length} translations`);
+    console.log(TAG, `cache hit (${backend}): ${cached.length} translations`);
     if (currentVideoId() === requestVideoId) renderer.setTargetTexts(cached);
     return;
   }
@@ -131,6 +133,7 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
         texts: batch,
         src: 'en',
         tgt: 'ko',
+        backend,
       })) as typeof res;
     } catch (e) {
       console.error(TAG, 'translate request failed:', e);
