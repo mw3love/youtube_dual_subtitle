@@ -5,11 +5,23 @@
 import type { CaptionTrackInfo, MainToContentMessage } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
+import { loadSettings } from '../shared/settings';
 
 const TAG = '[YDT]';
 console.log(TAG, 'content script loaded on', location.href);
 
 const renderer = new SubtitleRenderer();
+
+function currentVideoId(): string | null {
+  const q = new URLSearchParams(location.search).get('v');
+  if (q) return q;
+  const m = location.pathname.match(/\/shorts\/([^/?#]+)/);
+  return m?.[1] ?? null;
+}
+
+// 현재 renderer가 들고 있는 cue가 어느 video의 것인지. setCues 호출 시 갱신된다.
+// yt-navigate-finish에서 이걸 비교해 stale cue만 clear한다.
+let mountedVideoId: string | null = null;
 
 // 소스 언어 하드코딩 — 설정 UI는 M7에서.
 const PREFERRED_SOURCE = 'en';
@@ -80,7 +92,36 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     console.log(TAG, `cues parsed: ${cues.length}`);
     if (cues.length === 0) return;
     renderer.setCues(cues);
+    // setCues 직후 mountedVideoId 갱신 — yt-navigate-finish가 이후 발생해도
+    // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
+    mountedVideoId = currentVideoId();
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
   }
 }
+
+// 영상이 실제로 바뀌었고 아직 새 cue가 도착하지 않은 경우만 cue 비움.
+// 새 cue가 이미 setCues됐다면 mountedVideoId가 새 ID로 갱신돼 비교가 통과돼 clear 안 함.
+window.addEventListener('yt-navigate-finish', () => {
+  const next = currentVideoId();
+  if (next !== mountedVideoId) {
+    console.log(TAG, `nav: mounted=${mountedVideoId}, now=${next} — clearing cues`);
+    renderer.clearCues();
+  }
+});
+
+// 자막 표시는 popup의 토글로 제어 (chrome.storage.sync).
+// native CC 버튼 토글은 안 따라간다 — YouTube의 CC click을 표준 이벤트로 잡을 수 없고
+// 우리 자동 토글과 구분이 어려워 popup 컨트롤로 일원화.
+void loadSettings().then((s) => {
+  renderer.setUserVisible(s.subtitlesEnabled);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'sync') return;
+  if ('subtitlesEnabled' in changes) {
+    const enabled = changes.subtitlesEnabled.newValue !== false;
+    console.log(TAG, 'settings: subtitlesEnabled =', enabled);
+    renderer.setUserVisible(enabled);
+  }
+});

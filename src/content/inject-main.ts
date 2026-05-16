@@ -11,8 +11,17 @@
 
   // ───────────────────────── 1. fetch + XHR monkey-patch (즉시) ─────────────────────────
   // YouTube가 timedtext를 fetch / XMLHttpRequest 중 어느 쪽으로 호출하는지 불분명하므로 둘 다.
+  // 캡처된 videoId를 기억해 자동 CC 재토글이 무한 반복되지 않게 한다.
+  const capturedVideoIds = new Set<string>();
+
   function postCaptured(via: 'fetch' | 'xhr', url: string, body: string): void {
     if (!body) return;
+    try {
+      const v = new URL(url, location.origin).searchParams.get('v');
+      if (v) capturedVideoIds.add(v);
+    } catch {
+      // ignore
+    }
     window.postMessage(
       { source: 'YDT_MAIN', type: 'TIMEDTEXT_RESPONSE', url, body },
       location.origin,
@@ -167,7 +176,21 @@
   const ENABLE_RETRY_MS = [0, 300, 800, 1500, 3000];
 
   function tryEnableCaptions(attempt: number): void {
-    const player = document.querySelector('#movie_player') as
+    const vid = getVideoId();
+    if (vid && capturedVideoIds.has(vid)) {
+      // 이미 이 영상의 자막을 한 번 잡았으니 더 시도하지 않는다.
+      // (SPA navigate가 같은 영상에서 여러 번 발생할 때 무한 토글 방지)
+      return;
+    }
+
+    // Shorts는 여러 reel이 DOM에 있어 첫 번째 .ytp-subtitles-button이
+    // active reel의 것이 아닐 수 있다. active reel 안의 player/ccBtn을 우선.
+    const isShorts = location.pathname.startsWith('/shorts/');
+    const root: ParentNode = isShorts
+      ? document.querySelector('ytd-reel-video-renderer[is-active]') ?? document
+      : document;
+
+    const player = root.querySelector('#movie_player, #shorts-player') as
       | (Element & {
           loadModule?: (name: string) => void;
           setOption?: (module: string, option: string, value: unknown) => void;
@@ -175,7 +198,20 @@
         })
       | null;
 
-    const ccBtn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
+    const ccBtn = root.querySelector<HTMLElement>('.ytp-subtitles-button');
+
+    if (isShorts) {
+      const reels = document.querySelectorAll('ytd-reel-video-renderer');
+      const activeReels = document.querySelectorAll('ytd-reel-video-renderer[is-active]');
+      console.log(
+        TAG,
+        'shorts diag — reels:', reels.length,
+        'active:', activeReels.length,
+        'rootIsActiveReel:', root !== document,
+        'player:', !!player,
+        'ccBtn:', !!ccBtn,
+      );
+    }
 
     if (!player && !ccBtn) {
       if (attempt + 1 < ENABLE_RETRY_MS.length) {
@@ -184,7 +220,7 @@
       return;
     }
 
-    // 시도 1: setOption (silently 실패 가능)
+    // 시도 1: setOption (silently 실패 가능, 영상에 따라 동작)
     try {
       if (player?.loadModule) player.loadModule('captions');
       if (player?.setOption) player.setOption('captions', 'track', { languageCode: 'en' });
@@ -192,17 +228,23 @@
       console.warn(TAG, 'setOption failed:', e);
     }
 
-    // 시도 2: CC 버튼 click — setOption보다 확실히 fetch를 트리거
-    let clickedNow = false;
+    // 시도 2: CC 버튼 click — fetch를 강제 trigger
+    // 자막이 꺼져있으면 click 한 번으로 켜기 + fetch.
+    // 자막이 이미 켜져있는데 fetch가 안 일어난 영상(YouTube 캐시 등)에서는
+    // off → on 토글로 강제 재fetch.
+    let toggled: 'none' | 'on' | 'off+on' = 'none';
     if (ccBtn) {
       const pressed = ccBtn.getAttribute('aria-pressed');
-      if (pressed !== 'true') {
-        ccBtn.click();
-        clickedNow = true;
+      if (pressed === 'true') {
+        ccBtn.click(); // off
+        setTimeout(() => ccBtn.click(), 200); // on
+        toggled = 'off+on';
+      } else {
+        ccBtn.click(); // on
+        toggled = 'on';
       }
     }
 
-    // 진단: 현재 트랙 상태
     let tracklist: unknown = undefined;
     try {
       tracklist = player?.getOption?.('captions', 'tracklist');
@@ -214,11 +256,10 @@
       'enable captions attempt', attempt,
       '— ccBtn:', !!ccBtn,
       'aria-pressed before:', ccBtn?.getAttribute('aria-pressed'),
-      'clickedNow:', clickedNow,
+      'toggled:', toggled,
       'tracklist count:', Array.isArray(tracklist) ? tracklist.length : 'n/a',
     );
 
-    // ccBtn 없으면 player 준비 더 기다리기
     if (!ccBtn && attempt + 1 < ENABLE_RETRY_MS.length) {
       setTimeout(() => tryEnableCaptions(attempt + 1), ENABLE_RETRY_MS[attempt + 1]);
     }

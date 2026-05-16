@@ -12,22 +12,36 @@ export interface MountTarget {
 }
 
 export function findMountTarget(): MountTarget | null {
-  // Shorts 활성 reel 우선 (URL이 /shorts/* 이면 무조건 reel 모드)
-  const shortsHost = document.querySelector<HTMLElement>(
-    'ytd-reel-video-renderer[is-active] #shorts-player',
-  );
-  if (shortsHost) {
-    const video = shortsHost.querySelector<HTMLVideoElement>('video');
-    if (video) return { host: shortsHost, video, mode: 'shorts' };
+  const isShortsUrl = location.pathname.startsWith('/shorts/');
+
+  if (isShortsUrl) {
+    // YouTube가 Shorts player DOM을 자주 바꾸므로 후보 셀렉터를 여러 개 시도.
+    const candidates = [
+      'ytd-reel-video-renderer[is-active] #shorts-player',
+      'ytd-reel-video-renderer[is-active]',
+      '#shorts-player',
+      '#movie_player', // Shorts에서도 결국 #movie_player를 쓰는 경우
+    ];
+    for (const sel of candidates) {
+      const host = document.querySelector<HTMLElement>(sel);
+      if (host) {
+        const video = host.querySelector<HTMLVideoElement>('video');
+        if (video) {
+          console.log('[YDT/container] shorts host:', sel);
+          return { host, video, mode: 'shorts' };
+        }
+      }
+    }
+    console.warn('[YDT/container] shorts: no host matched');
+    return null;
   }
 
-  // 일반/Theater — #movie_player가 video를 감싸는 player 컨테이너
+  // 일반/Theater
   const player = document.querySelector<HTMLElement>('#movie_player');
   if (player) {
     const video = player.querySelector<HTMLVideoElement>('video');
     if (video) return { host: player, video, mode: 'normal' };
   }
-
   return null;
 }
 

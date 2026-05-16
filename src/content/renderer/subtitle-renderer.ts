@@ -16,6 +16,9 @@ export class SubtitleRenderer {
   private mode: Mode = 'normal';
   private rafId: number | null = null;
   private lastIdx = -2; // -1은 "no cue", -2는 "강제 첫 업데이트"
+  // 사용자가 native CC 버튼을 직접 끄면 우리 자막도 같이 숨긴다.
+  // visibility(cue 단위)와 별개 차원이므로 display를 쓴다.
+  private userHidden = false;
 
   constructor() {
     injectStyles();
@@ -62,6 +65,8 @@ export class SubtitleRenderer {
     this.video = target.video;
     this.mode = target.mode;
 
+    if (this.userHidden) container.style.display = 'none';
+
     console.log(TAG, 'mounted (mode:', this.mode, ')');
     this.startLoop();
   }
@@ -74,6 +79,21 @@ export class SubtitleRenderer {
     this.targetEl = null;
     this.video = null;
     this.lastIdx = -2;
+  }
+
+  // cue만 비우고 container/loop는 유지. SPA navigate처럼 새 영상으로 가는 도중
+  // unmount하면 직후 도착한 새 cue가 파괴되는 race가 있어 이걸 쓴다.
+  clearCues(): void {
+    this.cues = [];
+    this.lastIdx = -2;
+    if (this.sourceEl) this.sourceEl.textContent = '';
+    if (this.targetEl) this.targetEl.textContent = '';
+    if (this.container) this.container.style.visibility = 'hidden';
+  }
+
+  setUserVisible(visible: boolean): void {
+    this.userHidden = !visible;
+    if (this.container) this.container.style.display = visible ? '' : 'none';
   }
 
   private startLoop(): void {
