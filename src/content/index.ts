@@ -6,6 +6,7 @@ import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/type
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { loadSettings } from '../shared/settings';
+import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT]';
 console.log(TAG, 'content script loaded on', location.href);
@@ -107,9 +108,20 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
 const TRANSLATE_BATCH_SIZE = 50;
 
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
+  if (!requestVideoId) return;
   const texts = cues.map((c) => c.text);
-  const all: string[] = [];
+  const cacheKey = makeKey(requestVideoId, 'en', 'ko', 'google-free');
 
+  // 1) 캐시 hit
+  const cached = await getCached(cacheKey);
+  if (cached && cached.length === texts.length) {
+    console.log(TAG, `cache hit: ${cached.length} translations`);
+    if (currentVideoId() === requestVideoId) renderer.setTargetTexts(cached);
+    return;
+  }
+
+  // 2) miss — 배치로 fetch
+  const all: string[] = [];
   for (let i = 0; i < texts.length; i += TRANSLATE_BATCH_SIZE) {
     const batch = texts.slice(i, i + TRANSLATE_BATCH_SIZE);
     let res: { ok: true; translations: string[] } | { ok: false; error: string };
@@ -125,12 +137,10 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
       return;
     }
 
-    // 요청 도중 영상이 바뀌었으면 결과 무시 (stale)
     if (currentVideoId() !== requestVideoId) {
       console.log(TAG, 'translate: video changed mid-flight, dropping');
       return;
     }
-
     if (!res.ok) {
       console.error(TAG, 'translate failed:', res.error);
       return;
@@ -140,6 +150,11 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
     renderer.setTargetTexts(all);
   }
   console.log(TAG, `translate complete: ${all.length}/${texts.length}`);
+
+  // 3) 전체 길이 일치할 때만 캐시 (alignment 어긋난 결과 캐싱 방지)
+  if (all.length === texts.length) {
+    void setCached(cacheKey, all).catch((e) => console.warn(TAG, 'cache write failed:', e));
+  }
 }
 
 // 영상이 실제로 바뀌었고 아직 새 cue가 도착하지 않은 경우만 cue 비움.
