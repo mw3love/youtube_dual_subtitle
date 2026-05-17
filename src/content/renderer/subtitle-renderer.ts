@@ -1,4 +1,4 @@
-import type { Cue } from '../../shared/types';
+import type { Cue, Word } from '../../shared/types';
 import type { DisplayMode } from '../../shared/settings';
 import { createContainer, findMountTarget, type Mode } from './container';
 import { injectStyles } from './styles';
@@ -7,6 +7,8 @@ const TAG = '[YDT/renderer]';
 
 // rAF 루프 안에서 매 프레임 cue를 찾는다. video.timeupdate 이벤트는 ~250ms 간격이라
 // 자막 onset/offset이 끊겨 보일 수 있어 부적합.
+// word reveal 모드에서는 같은 cue 내에서도 매 프레임 진행도가 바뀌므로 lastIdx 캐시
+// 빠른 경로 다음에 word 진행도 갱신을 추가 처리한다.
 
 export class SubtitleRenderer {
   private cues: Cue[] = [];
@@ -22,6 +24,9 @@ export class SubtitleRenderer {
   // visibility(cue 단위)와 별개 차원이므로 display를 쓴다.
   private userHidden = false;
   private displayMode: DisplayMode = 'dual';
+  private wordRevealEnabled = true;
+  private wordSpans: HTMLSpanElement[] = [];
+  private lastWordRevealed = -1;
 
   constructor() {
     injectStyles();
@@ -90,6 +95,8 @@ export class SubtitleRenderer {
     this.targetEl = null;
     this.video = null;
     this.lastIdx = -2;
+    this.wordSpans = [];
+    this.lastWordRevealed = -1;
   }
 
   // cue만 비우고 container/loop는 유지. SPA navigate처럼 새 영상으로 가는 도중
@@ -97,6 +104,8 @@ export class SubtitleRenderer {
   clearCues(): void {
     this.cues = [];
     this.lastIdx = -2;
+    this.wordSpans = [];
+    this.lastWordRevealed = -1;
     if (this.sourceEl) this.sourceEl.textContent = '';
     if (this.targetEl) this.targetEl.textContent = '';
     if (this.container) this.container.style.visibility = 'hidden';
@@ -110,6 +119,12 @@ export class SubtitleRenderer {
   setDisplayMode(mode: DisplayMode): void {
     this.displayMode = mode;
     this.applyDisplayMode();
+  }
+
+  setWordRevealEnabled(enabled: boolean): void {
+    if (this.wordRevealEnabled === enabled) return;
+    this.wordRevealEnabled = enabled;
+    this.lastIdx = -2; // 다음 update에서 source 재구성
   }
 
   private applyDisplayMode(): void {
@@ -136,20 +151,73 @@ export class SubtitleRenderer {
     if (!this.video || !this.sourceEl || !this.targetEl || !this.container) return;
     const t = this.video.currentTime;
     const idx = this.findCueIndex(t);
-    if (idx === this.lastIdx) return;
-    this.lastIdx = idx;
 
-    if (idx === -1) {
-      this.container.style.visibility = 'hidden';
-      this.sourceEl.textContent = '';
-      this.targetEl.textContent = '';
-    } else {
+    if (idx !== this.lastIdx) {
+      this.lastIdx = idx;
+      if (idx === -1) {
+        this.container.style.visibility = 'hidden';
+        this.sourceEl.textContent = '';
+        this.targetEl.textContent = '';
+        this.wordSpans = [];
+        this.lastWordRevealed = -1;
+        return;
+      }
       const cue = this.cues[idx];
-      this.sourceEl.textContent = cue.text;
-      // 번역 도착 전이거나 alignment 어긋난 인덱스는 영어 placeholder.
+      this.renderSource(cue);
       this.targetEl.textContent = this.targetTexts[idx] || cue.text;
       this.container.style.visibility = 'visible';
+      this.lastWordRevealed = -1;
     }
+
+    if (this.wordRevealEnabled && this.wordSpans.length > 0 && this.lastIdx >= 0) {
+      const words = this.cues[this.lastIdx].words;
+      if (words) this.advanceWordReveal(words, t);
+    }
+  }
+
+  // lastWordRevealed에서 forward/backward로 한 칸씩 이동해 새 revealed 위치를 찾는다.
+  // 정주행은 보통 0–1회 비교로 끝나고 seek/rewind 시에만 여러 칸 이동.
+  private advanceWordReveal(words: Word[], t: number): void {
+    let revealed = this.lastWordRevealed;
+    while (revealed + 1 < words.length && t >= words[revealed + 1].start) {
+      revealed++;
+    }
+    while (revealed >= 0 && t < words[revealed].start) {
+      revealed--;
+    }
+    if (revealed === this.lastWordRevealed) return;
+    if (revealed > this.lastWordRevealed) {
+      for (let i = this.lastWordRevealed + 1; i <= revealed; i++) {
+        this.wordSpans[i]?.classList.add('is-revealed');
+      }
+    } else {
+      for (let i = this.lastWordRevealed; i > revealed; i--) {
+        this.wordSpans[i]?.classList.remove('is-revealed');
+      }
+    }
+    this.lastWordRevealed = revealed;
+  }
+
+  private renderSource(cue: Cue): void {
+    if (!this.sourceEl) return;
+    if (!this.wordRevealEnabled || !cue.words || cue.words.length === 0) {
+      this.sourceEl.textContent = cue.text;
+      this.wordSpans = [];
+      return;
+    }
+    this.sourceEl.textContent = '';
+    const spans: HTMLSpanElement[] = [];
+    for (let i = 0; i < cue.words.length; i++) {
+      const span = document.createElement('span');
+      span.className = 'ydt-word';
+      span.textContent = cue.words[i].text;
+      this.sourceEl.appendChild(span);
+      if (i < cue.words.length - 1) {
+        this.sourceEl.appendChild(document.createTextNode(' '));
+      }
+      spans.push(span);
+    }
+    this.wordSpans = spans;
   }
 
   // cue 수십~수백 개 + rAF 60fps. 선형이면 ~10k cmp/sec — 무시 가능.

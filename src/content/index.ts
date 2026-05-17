@@ -212,6 +212,7 @@ function applySettings(s: Settings): void {
   currentSettings = s;
   renderer.setUserVisible(s.subtitlesEnabled);
   renderer.setDisplayMode(s.displayMode);
+  renderer.setWordRevealEnabled(s.wordRevealEnabled);
   applyStyleSettings({
     sourceStyle: s.sourceStyle,
     targetStyle: s.targetStyle,

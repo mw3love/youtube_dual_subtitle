@@ -34,6 +34,8 @@ export const SettingsSchema = z.object({
   targetStyle: CueStyleSchema,
   // 자막 컨테이너 세로 위치 — bottom: N% (광고나 UI에 가릴 때 조정)
   bottomOffsetPercent: z.number().int().min(0).max(50),
+  // 영어(원문) 자막을 단어 단위로 음성에 맞춰 점진 표시. 한글 줄은 영향 없음.
+  wordRevealEnabled: z.boolean(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -46,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sourceStyle: { fontSize: 22, color: '#ffffff', fontWeight: 500 },
   targetStyle: { fontSize: 18, color: '#cccccc', fontWeight: 400 },
   bottomOffsetPercent: 10,
+  wordRevealEnabled: true,
 };
 
 export async function loadSettings(): Promise<Settings> {

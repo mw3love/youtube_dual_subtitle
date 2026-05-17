@@ -38,6 +38,15 @@ const STYLES = `
   font-weight: var(--ydt-source-weight, 500);
 }
 
+/* 단어 단위 reveal — 영어 자막에만 적용. 음성에 맞춰 unrevealed → revealed로 opacity fade. */
+.ydt-source .ydt-word {
+  opacity: 0.25;
+  transition: opacity 80ms linear;
+}
+.ydt-source .ydt-word.is-revealed {
+  opacity: 1;
+}
+
 .ydt-target {
   color: var(--ydt-target-color, #cccccc);
   font-size: var(--ydt-target-size, 18px);

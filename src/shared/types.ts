@@ -1,7 +1,15 @@
+export interface Word {
+  text: string;
+  start: number; // 초 단위, video timeline 절대시각
+  end: number;
+}
+
 export interface Cue {
   start: number;
   end: number;
   text: string;
+  // 단어별 reveal용. 자동자막은 JSON3 tOffsetMs에서, 수동자막은 균등 보간으로 채운다.
+  words?: Word[];
 }
 
 export interface CaptionTrackInfo {

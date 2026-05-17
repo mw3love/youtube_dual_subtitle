@@ -240,6 +240,19 @@ function Options() {
             ))}
           </select>
         </Row>
+        <Row
+          label="단어 단위 표시"
+          hint="자동자막에서 가장 정확합니다"
+        >
+          <input
+            type="checkbox"
+            checked={settings.wordRevealEnabled}
+            onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#666' }}>
+            음성에 맞춰 영어 단어가 하나씩 나타납니다 (한글은 줄 단위 그대로)
+          </span>
+        </Row>
       </Section>
 
       <Section title="언어">
