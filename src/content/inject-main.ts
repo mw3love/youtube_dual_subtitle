@@ -207,7 +207,9 @@
   // (캐시된 메타로 만족하는 듯). 일정 시간 안에 capture 신호가 안 오면 강제 off+on
   // 토글로 다시 시도. 같은 videoId당 최대 N회.
 
-  const CAPTURE_TIMEOUT_MS = 5000;
+  // 첫 click이 page fetch를 발화 못 한 경우 강제 재토글까지 기다리는 시간.
+  // 너무 길면 영상 첫 N초 무자막 — 정상 fetch latency(보통 100~500ms)는 통과할 정도로.
+  const CAPTURE_TIMEOUT_MS = 1500;
   const MAX_CAPTURE_RETRIES = 2;
   const captureTimers = new Map<string, number>();
   const captureRetries = new Map<string, number>();
@@ -458,4 +460,24 @@
   window.addEventListener('yt-navigate-finish', () => {
     tryBroadcast('navigate');
   });
+
+  // 재생목록 자동 다음 재생 / 같은 영상 재진입은 yt-navigate-finish가 발화 안 될 수 있다.
+  // video element의 src 교체 시 발화하는 'emptied'를 통합 신호로 사용해
+  //   1) capture 상태(중복 방지용 Set) 리셋 — 재진입 영상이 다시 처리되도록
+  //   2) 새 영상 트랙 재broadcast — playerResponse 갱신 후 RETRY로 잡힘
+  document.addEventListener(
+    'emptied',
+    (ev) => {
+      if (!(ev.target instanceof HTMLVideoElement)) return;
+      const r = ev.target.getBoundingClientRect();
+      if (r.width < 100 || r.height < 100) return; // 광고/preload 등 hidden 무시
+      console.log(TAG, 'emptied — reset capture state, rebroadcast');
+      capturedVideoIds.clear();
+      captureRetries.clear();
+      captureTimers.forEach((t) => clearTimeout(t));
+      captureTimers.clear();
+      tryBroadcast('video-emptied');
+    },
+    true,
+  );
 })();

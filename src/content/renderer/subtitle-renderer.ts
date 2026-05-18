@@ -192,6 +192,25 @@ export class SubtitleRenderer {
 
   private update(): void {
     if (!this.video || !this.sourceEl || !this.targetEl || !this.container) return;
+
+    // Shorts swipe 감지: 다음 reel이 preload 상태면 loadeddata가 swipe 시점에
+    // 발화되지 않아 broadcast 경로가 누락된다. video element 자체가 viewport
+    // 밖으로 사라진 것을 직접 감지해 즉시 재마운트.
+    if (this.mode === 'shorts') {
+      const r = this.video.getBoundingClientRect();
+      const offscreen =
+        !this.video.isConnected ||
+        r.width < 100 ||
+        r.bottom <= 0 ||
+        r.top >= window.innerHeight;
+      if (offscreen) {
+        console.log(TAG, 'active video offscreen — clearing cues and remounting');
+        this.clearCues();
+        this.mount();
+        return;
+      }
+    }
+
     const t = this.video.currentTime;
     const idx = this.findCueIndex(t);
 
@@ -207,7 +226,11 @@ export class SubtitleRenderer {
       }
       const cue = this.cues[idx];
       this.renderSource(cue);
-      this.targetEl.textContent = this.targetTexts[idx] || cue.text;
+      // dual 모드는 위에 source가 이미 보이므로 번역이 아직 없으면 빈 줄로 둔다
+      // (영어 fallback이 깜빡이며 한글로 바뀌는 현상 방지). source/translation-only는
+      // 한 줄만 보이므로 번역 미도착 시 source를 보여주는 게 빈 화면보다 낫다.
+      const fallback = this.displayMode === 'dual' ? '' : cue.text;
+      this.targetEl.textContent = this.targetTexts[idx] || fallback;
       this.container.style.visibility = 'visible';
       this.lastWordRevealed = -1;
     }

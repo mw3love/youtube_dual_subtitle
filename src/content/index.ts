@@ -117,6 +117,10 @@ function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
 // 일반 영상은 이 Set을 사용하지 않음 — 페이지 자체 fetch가 인터셉트로 처리됨.
 const requestedShortsVideoIds = new Set<string>();
 
+// 같은 videoId의 timedtext가 두 번 잡히는 경우(Shorts: page xhr + 우리 direct fetch)
+// 두 번째 처리는 setCues 재할당으로 잠깐 깜빡임 유발 → 첫 번째만 처리.
+const processedTimedtextVideoIds = new Set<string>();
+
 function handleCaptionTracks(payload: {
   reason: string;
   videoId: string | null;
@@ -129,6 +133,14 @@ function handleCaptionTracks(payload: {
       (t) => `${t.languageCode}${t.kind === 'asr' ? '(asr)' : ''}/${t.name ?? '-'}`,
     ),
   );
+  // Shorts swipe는 yt-navigate-finish가 발동되지 않아 기존 clearCues 경로가 누락된다.
+  // 새 트랙이 broadcast된 시점에 mountedVideoId와 다르면 즉시 이전 cue를 비워
+  // 다음 영상 첫 1~2초간 이전 자막이 잘못된 timing으로 보이는 현상을 막는다.
+  if (payload.videoId && payload.videoId !== mountedVideoId) {
+    console.log(TAG, `new video ${payload.videoId} (was ${mountedVideoId}) — clearing cues`);
+    renderer.clearCues();
+    lastCues = [];
+  }
   const chosen = pickTrack(payload.tracks);
   if (!chosen) {
     console.log(TAG, 'no caption tracks for', payload.videoId, `(reason: ${payload.reason})`);
@@ -158,6 +170,18 @@ function handleCaptionTracks(payload: {
 }
 
 function handleTimedtextResponse(payload: { url: string; body: string }): void {
+  // URL에서 videoId 추출 (payload.url은 /api/timedtext?v=...). 같은 영상의 중복 응답 dedup.
+  let urlVideoId: string | null = null;
+  try {
+    urlVideoId = new URL(payload.url, location.origin).searchParams.get('v');
+  } catch {
+    // ignore
+  }
+  if (urlVideoId && processedTimedtextVideoIds.has(urlVideoId)) {
+    console.log(TAG, `timedtext already processed for ${urlVideoId}, skipping duplicate`);
+    return;
+  }
+
   // YouTube의 timedtext는 fmt=json3 또는 fmt=srv3, 우리가 받은 그대로 parse 시도.
   // fmt 미지정 시 srv1(XML)이 올 수 있어 그건 일단 무시하고 JSON만 처리.
   if (!payload.body.trimStart().startsWith('{')) {
@@ -174,6 +198,7 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
     mountedVideoId = currentVideoId();
     lastCues = cues;
+    if (urlVideoId) processedTimedtextVideoIds.add(urlVideoId);
     void translateCues(cues, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
@@ -184,6 +209,10 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
 // 작은 배치로 나눠 부른다. 각 배치 결과가 도착하는 대로 renderer에 점진 반영해
 // 사용자가 영상 시작부터 곧장 번역을 본다.
 const TRANSLATE_BATCH_SIZE = 50;
+// 첫 batch는 작게 — 영상 첫 cue 시점에 번역이 도착하도록.
+// google-free는 batch=1회 HTTP라 작아도 손해 적고, chrome-builtin은 N회 순차라
+// 첫 batch가 50이면 첫 cue 번역까지 수십 초 → 첫 N개만 우선 처리.
+const FIRST_BATCH_SIZE = 8;
 
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
@@ -201,10 +230,12 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
     return;
   }
 
-  // 2) miss — 배치로 fetch
+  // 2) miss — 배치로 fetch. 첫 batch만 작게, 이후는 표준 크기.
   const all: string[] = [];
-  for (let i = 0; i < texts.length; i += TRANSLATE_BATCH_SIZE) {
-    const batch = texts.slice(i, i + TRANSLATE_BATCH_SIZE);
+  let i = 0;
+  while (i < texts.length) {
+    const size = i === 0 ? FIRST_BATCH_SIZE : TRANSLATE_BATCH_SIZE;
+    const batch = texts.slice(i, i + size);
     let res: { ok: true; translations: string[] } | { ok: false; error: string };
     try {
       res = (await chrome.runtime.sendMessage({
@@ -230,6 +261,7 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
 
     all.push(...res.translations);
     renderer.setTargetTexts(all);
+    i += batch.length;
   }
   console.log(TAG, `translate complete: ${all.length}/${texts.length}`);
 
@@ -248,6 +280,28 @@ window.addEventListener('yt-navigate-finish', () => {
     renderer.clearCues();
   }
 });
+
+// 재생목록 자동 다음 재생(쇼츠 재생목록 포함)은 yt-navigate-finish가 발화되지 않아
+// 위 핸들러로 처리 안 된다. video element가 새 src로 교체될 때 발화하는 'emptied'
+// 이벤트를 직접 감지해 cleanup. document capture phase로 모든 video를 잡는다.
+// emptied는 같은 영상의 단순 play/pause/seek에는 발화하지 않아 false trigger 적음.
+document.addEventListener(
+  'emptied',
+  (ev) => {
+    if (!(ev.target instanceof HTMLVideoElement)) return;
+    const r = ev.target.getBoundingClientRect();
+    // 화면 밖 hidden video element(광고 preroll, preload 등) 무시
+    if (r.width < 100 || r.height < 100) return;
+    console.log(TAG, 'video emptied — clearing cues (next video transition)');
+    renderer.clearCues();
+    lastCues = [];
+    // 같은 영상 재진입 시 dedup이 cue 표시를 막지 않도록 timedtext 처리 이력 초기화.
+    // (Shorts direct-fetch 이력도 같이 비워 재진입 영상이 Shorts면 다시 요청 가능)
+    processedTimedtextVideoIds.clear();
+    requestedShortsVideoIds.clear();
+  },
+  true,
+);
 
 // settings를 한 번에 적용 — display mode·visibility·styles 모두.
 // 호출 흐름: boot 시 1회, storage.onChanged 시마다.
