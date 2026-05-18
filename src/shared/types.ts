@@ -47,4 +47,12 @@ export interface FetchTimedtextMessage {
   videoId: string | null;
 }
 
-export type ContentToMainMessage = FetchTimedtextMessage;
+// isolated → MAIN. 우리 subtitlesEnabled 상태를 MAIN에 전달해 자동 CC 토글이
+// 사용자 의도와 충돌하지 않게 한다. false면 자동 토글/강제 재토글 모두 skip.
+export interface SubtitlesEnabledMessage {
+  source: 'YDT_CONTENT';
+  type: 'SUBTITLES_ENABLED';
+  enabled: boolean;
+}
+
+export type ContentToMainMessage = FetchTimedtextMessage | SubtitlesEnabledMessage;

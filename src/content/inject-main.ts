@@ -9,6 +9,11 @@
 (() => {
   const TAG = '[YDT/main]';
 
+  // isolated가 사용자 설정을 알려주는 boolean. false면 자동 CC 토글을 보류해
+  // CC 버튼 시각 상태와 우리 자막 표시 상태가 어긋나지 않게 한다.
+  // 초기값 true — 메시지 수신 전 첫 영상에서 일단 잡도록. 직후 isolated가 실제 값으로 갱신.
+  let subtitlesEnabled = true;
+
   // ───────────────────────── 1. fetch + XHR monkey-patch (즉시) ─────────────────────────
   // YouTube가 timedtext를 fetch / XMLHttpRequest 중 어느 쪽으로 호출하는지 불분명하므로 둘 다.
   // 캡처된 videoId를 기억해 자동 CC 재토글이 무한 반복되지 않게 한다.
@@ -225,6 +230,7 @@
 
   function armCaptureTimeout(videoId: string | null): void {
     if (!videoId) return;
+    if (!subtitlesEnabled) return; // 자막 기능 off면 강제 재토글도 안 함
     if (capturedVideoIds.has(videoId)) return; // 이미 잡음
     const existing = captureTimers.get(videoId);
     if (existing !== undefined) clearTimeout(existing);
@@ -246,6 +252,7 @@
   }
 
   function forceToggleCaptions(): void {
+    if (!subtitlesEnabled) return;
     // capturedVideoIds 체크 없이 무조건 off+on. 자막이 이미 켜져있어도 강제 재fetch.
     const isShorts = location.pathname.startsWith('/shorts/');
     if (isShorts) {
@@ -306,6 +313,8 @@
   }
 
   function tryEnableCaptions(attempt: number): void {
+    // 사용자가 자막 기능을 꺼놨으면 자동 토글 보류 — CC 버튼 ON인데 우리 자막 OFF인 미스매치 방지.
+    if (!subtitlesEnabled) return;
     const vid = getVideoId();
     if (vid && capturedVideoIds.has(vid)) {
       // 이미 이 영상의 자막을 한 번 잡았으니 더 시도하지 않는다.
@@ -432,11 +441,23 @@
   window.addEventListener('message', (ev) => {
     if (ev.source !== window) return;
     const data = ev.data as
-      | { source?: string; type?: string; baseUrl?: string; videoId?: string | null }
+      | {
+          source?: string;
+          type?: string;
+          baseUrl?: string;
+          videoId?: string | null;
+          enabled?: boolean;
+        }
       | undefined;
-    if (!data || data.source !== 'YDT_CONTENT' || data.type !== 'FETCH_TIMEDTEXT') return;
-    if (typeof data.baseUrl !== 'string' || !data.baseUrl) return;
-    void fetchTimedtextDirect(data.baseUrl, data.videoId ?? null);
+    if (!data || data.source !== 'YDT_CONTENT') return;
+    if (data.type === 'FETCH_TIMEDTEXT') {
+      if (typeof data.baseUrl !== 'string' || !data.baseUrl) return;
+      void fetchTimedtextDirect(data.baseUrl, data.videoId ?? null);
+    } else if (data.type === 'SUBTITLES_ENABLED') {
+      if (typeof data.enabled !== 'boolean') return;
+      subtitlesEnabled = data.enabled;
+      console.log(TAG, 'subtitlesEnabled =', subtitlesEnabled);
+    }
   });
 
   // Shorts swipe 감지 — 활성 video element가 새 source를 로드하면 loadeddata 발화.

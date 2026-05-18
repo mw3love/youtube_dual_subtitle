@@ -377,9 +377,51 @@ function applySettings(s: Settings): void {
     lineHeight: s.lineHeight,
   });
   renderer.setPositions(s.subtitlePosition);
+  // MAIN world에도 전달 — inject-main의 자동 CC 토글이 사용자 설정에 맞춰 동작하도록.
+  window.postMessage(
+    { source: 'YDT_CONTENT', type: 'SUBTITLES_ENABLED', enabled: s.subtitlesEnabled },
+    location.origin,
+  );
 }
 
 void loadSettings().then(applySettings);
+
+// CC 버튼 양방향 동기 — 사용자가 native CC를 직접 클릭하면 우리 subtitlesEnabled도 따라감.
+// 우리 C 키 토글이나 자동 토글로 인한 변화도 같이 감지되지만 saveSettings가 idempotent +
+// 이미 같은 값이면 storage.onChanged가 안 발화하므로 무한 루프는 없음.
+let ccButtonObserver: MutationObserver | null = null;
+let observedCcButton: HTMLElement | null = null;
+
+function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
+  const pressed = btn.getAttribute('aria-pressed') === 'true';
+  if (!currentSettings) return;
+  if (currentSettings.subtitlesEnabled === pressed) return;
+  console.log(TAG, `CC button -> subtitlesEnabled=${pressed} (was ${currentSettings.subtitlesEnabled})`);
+  void saveSettings({ subtitlesEnabled: pressed });
+}
+
+function attachCcObserver(): void {
+  const btn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
+  if (!btn || btn === observedCcButton) return;
+  ccButtonObserver?.disconnect();
+  observedCcButton = btn;
+  ccButtonObserver = new MutationObserver(() => syncSubtitlesEnabledFromCc(btn));
+  ccButtonObserver.observe(btn, { attributes: true, attributeFilter: ['aria-pressed'] });
+  // 첫 attach 시 현재 상태도 한 번 sync — 사용자가 우리 로드 전에 이미 토글했을 수 있음.
+  syncSubtitlesEnabledFromCc(btn);
+}
+
+// player가 DOM에 늦게 들어올 수 있어 짧게 retry. Shorts는 CC 버튼 없으므로 자연스럽게 패스.
+const CC_OBSERVER_RETRY_MS = [0, 500, 1500, 3000];
+function ensureCcObserver(attempt = 0): void {
+  attachCcObserver();
+  if (!observedCcButton && attempt + 1 < CC_OBSERVER_RETRY_MS.length) {
+    setTimeout(() => ensureCcObserver(attempt + 1), CC_OBSERVER_RETRY_MS[attempt + 1]);
+  }
+}
+ensureCcObserver();
+// SPA navigate로 player가 새로 mount될 수 있어 재시도.
+window.addEventListener('yt-navigate-finish', () => ensureCcObserver());
 
 // C 키로 듀얼 자막 on/off. YouTube native 핸들러도 함께 발화하도록 preventDefault 안 함 —
 // 하단 자막 버튼 시각 상태도 자동 동기화된다. native 자막은 hide-native-captions CSS로 안 보임.
