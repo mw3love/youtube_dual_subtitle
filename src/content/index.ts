@@ -358,6 +358,9 @@ document.addEventListener(
     // 트랙 언어 정보 reset — 새 영상의 handleCaptionTracks가 다시 세팅한다.
     currentTrackLang = null;
     renderer.setSuppressTarget(false);
+    // Shorts swipe / 일반 영상 자동 다음 재생 시 CC 버튼 element가 새로 mount될 수 있어
+    // observer 재attach. (yt-navigate-finish는 이 케이스에서 발화 안 함)
+    ensureCcObserver();
   },
   true,
 );
@@ -401,7 +404,20 @@ function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
 }
 
 function attachCcObserver(): void {
-  const btn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
+  // Shorts는 .ytmClosedCaptioningButtonButton(가시), 일반은 .ytp-subtitles-button.
+  // 화면에 실제로 보이는 쪽을 우선. Shorts 페이지엔 둘 다 존재하는데 일반 셀렉터는 hidden.
+  const candidates = [
+    '.ytmClosedCaptioningButtonButton',
+    '.ytp-subtitles-button',
+  ];
+  let btn: HTMLElement | null = null;
+  for (const sel of candidates) {
+    const el = document.querySelector<HTMLElement>(sel);
+    if (el && el.getBoundingClientRect().width > 0) {
+      btn = el;
+      break;
+    }
+  }
   if (!btn || btn === observedCcButton) return;
   ccButtonObserver?.disconnect();
   observedCcButton = btn;
@@ -422,20 +438,37 @@ function ensureCcObserver(attempt = 0): void {
 ensureCcObserver();
 // SPA navigate로 player가 새로 mount될 수 있어 재시도.
 window.addEventListener('yt-navigate-finish', () => ensureCcObserver());
+// Shorts swipe 등 navigate 이벤트가 발화 안 되는 케이스 안전망 — 1초 폴링으로 보강.
+// attachCcObserver는 같은 element면 idempotent skip이라 비용 무시 가능.
+setInterval(() => attachCcObserver(), 1000);
 
-// C 키로 듀얼 자막 on/off. YouTube native 핸들러도 함께 발화하도록 preventDefault 안 함 —
-// 하단 자막 버튼 시각 상태도 자동 동기화된다. native 자막은 hide-native-captions CSS로 안 보임.
+// C 키로 듀얼 자막 on/off.
+// YouTube native 'c' 핸들러는 .ytp-subtitles-button만 click하므로 Shorts에선 CC 시각 동기가
+// 안 된다. 우리가 책임지고 setting 토글 + 적절한 CC 버튼 click 둘 다 수행.
+// capture phase + stopImmediatePropagation으로 native 중복 발화 차단 — 안 그러면 일반 영상에서
+// 우리 click과 native click이 합쳐져 토글이 상쇄될 수 있음.
 // input/textarea/contenteditable focus 시는 통과 (검색창 'c' 입력 보호).
-document.addEventListener('keydown', (ev) => {
-  if (ev.key !== 'c') return;
-  if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-  const t = ev.target as HTMLElement | null;
-  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-  if (!currentSettings) return;
-  const next = !currentSettings.subtitlesEnabled;
-  void saveSettings({ subtitlesEnabled: next });
-  console.log(TAG, `toggled: ${next ? 'on' : 'off'} via shortcut`);
-});
+document.addEventListener(
+  'keydown',
+  (ev) => {
+    if (ev.key !== 'c') return;
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    const t = ev.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    if (!currentSettings) return;
+    ev.stopImmediatePropagation();
+    const next = !currentSettings.subtitlesEnabled;
+    void saveSettings({ subtitlesEnabled: next });
+    // CC 버튼이 있고 상태가 우리와 다르면 click해 시각 동기. MutationObserver가
+    // 같은 값으로 또 saveSettings 호출해도 storage no-op이라 안전.
+    const btn = observedCcButton;
+    if (btn && (btn.getAttribute('aria-pressed') === 'true') !== next) {
+      btn.click();
+    }
+    console.log(TAG, `toggled: ${next ? 'on' : 'off'} via shortcut`);
+  },
+  true,
+);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
 const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend']);

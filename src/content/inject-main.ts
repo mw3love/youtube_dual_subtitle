@@ -180,7 +180,9 @@
     return m?.[1] ?? null;
   }
 
-  const RETRY_DELAYS_MS = [0, 250, 500, 1000, 1500];
+  // Shorts swipe 직후 player의 새 playerResponse가 load되는 데 시간이 걸리는 경우가 있어
+  // 짧은 retry로는 빈 트랙으로 끝나 cue를 못 잡는다. 최대 7초까지 늘려 안정성 확보.
+  const RETRY_DELAYS_MS = [0, 250, 500, 1000, 2000, 4000, 7000];
 
   function tryBroadcast(reason: string, attempt = 0): void {
     const { tracks: raw, via } = getTracks();
@@ -322,9 +324,16 @@
       return;
     }
 
-    // Shorts는 .ytp-subtitles-button이 DOM에 없어 click path가 futile.
-    // 캡션 캡처는 isolated → MAIN FETCH_TIMEDTEXT 경로로 처리.
-    if (location.pathname.startsWith('/shorts/')) return;
+    // Shorts는 .ytp-subtitles-button이 hidden이지만 별도 .ytmClosedCaptioningButtonButton이
+    // DOM에 있다. timedtext capture는 isolated의 direct fetch로 이미 처리되므로 여기서는
+    // CC 버튼 시각 상태만 subtitlesEnabled와 매칭시키는 게 목적.
+    if (location.pathname.startsWith('/shorts/')) {
+      const shortsCc = document.querySelector<HTMLElement>('.ytmClosedCaptioningButtonButton');
+      if (shortsCc && shortsCc.getAttribute('aria-pressed') !== 'true') {
+        shortsCc.click();
+      }
+      return;
+    }
 
     const player = document.querySelector('#movie_player') as
       | (Element & {
@@ -501,4 +510,18 @@
     },
     true,
   );
+
+  // Shorts swipe / 자동 다음 재생은 yt-navigate-finish와 emptied 모두 누락될 수 있다.
+  // location.pathname 변화를 1초 폴링으로 감지해 최종 안전망 — 변화 시 capture 상태 리셋 + rebroadcast.
+  let lastPathname = location.pathname;
+  setInterval(() => {
+    if (location.pathname === lastPathname) return;
+    console.log(TAG, `pathname ${lastPathname} -> ${location.pathname}, rebroadcast`);
+    lastPathname = location.pathname;
+    capturedVideoIds.clear();
+    captureRetries.clear();
+    captureTimers.forEach((t) => clearTimeout(t));
+    captureTimers.clear();
+    tryBroadcast('pathname-change');
+  }, 1000);
 })();
