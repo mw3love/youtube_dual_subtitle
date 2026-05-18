@@ -180,14 +180,16 @@ export class SubtitleRenderer {
 
   // 컨테이너가 영상 영역 + 핸들이 화면 안에 남도록 위치를 보정한다.
   // 컨테이너 폭이 결정되기 전(첫 cue 도착 전)엔 vRect/cRect width가 0이라 보정 불가 → 원본 그대로.
-  private clampPosition(pos: Position): Position {
+  // widthOverride: 드래그 중 wrap feedback loop(cRect.width가 줄면 maxX가 커져 더 우측으로
+  // 가고, 다시 wrap이 깊어지는 무한 진행) 방지용으로 드래그 시작 시점의 폭을 고정해 전달.
+  private clampPosition(pos: Position, widthOverride?: number): Position {
     if (!this.container || !this.video) return pos;
     const vRect = this.video.getBoundingClientRect();
-    const cRect = this.container.getBoundingClientRect();
-    if (vRect.width === 0 || cRect.width === 0) return pos;
+    const cWidth = widthOverride ?? this.container.getBoundingClientRect().width;
+    if (vRect.width === 0 || cWidth === 0) return pos;
     // 핸들이 컨테이너 좌측 -18px 위치라 추가 margin 필요. 24px = 핸들 폭 + 6px 여유.
     const HANDLE_MARGIN_PX = 24;
-    const halfWidthPct = ((cRect.width / 2) / vRect.width) * 100;
+    const halfWidthPct = ((cWidth / 2) / vRect.width) * 100;
     const handleMarginPct = (HANDLE_MARGIN_PX / vRect.width) * 100;
     const minX = halfWidthPct + handleMarginPct;
     const maxX = 100 - halfWidthPct;
@@ -383,6 +385,7 @@ export class SubtitleRenderer {
         yPercent: ((startBottomGap - dy) / vRect.height) * 100,
       };
       // 컨테이너 폭 + 핸들 마진을 고려해 동적 clamp — 좌측 끝 드래그 시 핸들이 화면 밖으로 나가지 않게.
+      // CSS의 width: max-content로 컨테이너 폭이 left 위치와 독립이라 wrap loop 없음.
       const clamped = this.clampPosition(raw);
       this.positions[this.mode] = clamped;
       applySubtitlePosition(clamped.xPercent, clamped.yPercent);

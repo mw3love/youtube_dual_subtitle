@@ -18,6 +18,11 @@ const STYLES = `
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  /* width: max-content는 핵심 — absolute element의 width auto는 spec상
+     'containing block 폭 - left'로 shrink-to-fit이 되어, 우측으로 드래그할수록
+     컨테이너가 자동 wrap된다. max-content로 자연 폭을 고정해야 한다.
+     max-width 90%는 매우 긴 cue의 경우만 wrap 유도. */
+  width: max-content;
   max-width: 90%;
   text-align: center;
   pointer-events: auto;
@@ -100,10 +105,8 @@ const STYLES = `
 :fullscreen .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 1.4); }
 :fullscreen .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * 1.4); }
 
-/* Shorts 보정 — 사용자 설정 배율 적용 (기본 1.0 = 옵션 크기 그대로) */
-.ydt-container[data-mode="shorts"] {
-  bottom: 18%;
-}
+/* Shorts 보정 — 폰트 스케일만. bottom 위치는 일반 룰의 --ydt-y로 통일 처리
+   (applyCurrentPosition이 mode별 storage 값을 박음 — Shorts default 18%). */
 .ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * var(--ydt-shorts-scale, 1)); }
 .ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * var(--ydt-shorts-scale, 1)); }
 `;
