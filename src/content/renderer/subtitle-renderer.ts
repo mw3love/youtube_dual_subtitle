@@ -111,6 +111,10 @@ export class SubtitleRenderer {
 
     console.log(TAG, 'mounted (mode:', this.mode, ')');
     this.startLoop();
+
+    // 첫 cue 도착 전엔 컨테이너 폭이 0이라 clamp가 no-op. 짧은 지연 후 한 번 더 시도해
+    // 사용자가 이전에 좌측 끝까지 드래그해 핸들이 화면 밖이 된 storage 위치를 자동 복구.
+    setTimeout(() => this.applyCurrentPosition(), 300);
   }
 
   unmount(): void {
@@ -174,9 +178,34 @@ export class SubtitleRenderer {
     this.onPositionChange = cb;
   }
 
+  // 컨테이너가 영상 영역 + 핸들이 화면 안에 남도록 위치를 보정한다.
+  // 컨테이너 폭이 결정되기 전(첫 cue 도착 전)엔 vRect/cRect width가 0이라 보정 불가 → 원본 그대로.
+  private clampPosition(pos: Position): Position {
+    if (!this.container || !this.video) return pos;
+    const vRect = this.video.getBoundingClientRect();
+    const cRect = this.container.getBoundingClientRect();
+    if (vRect.width === 0 || cRect.width === 0) return pos;
+    // 핸들이 컨테이너 좌측 -18px 위치라 추가 margin 필요. 24px = 핸들 폭 + 6px 여유.
+    const HANDLE_MARGIN_PX = 24;
+    const halfWidthPct = ((cRect.width / 2) / vRect.width) * 100;
+    const handleMarginPct = (HANDLE_MARGIN_PX / vRect.width) * 100;
+    const minX = halfWidthPct + handleMarginPct;
+    const maxX = 100 - halfWidthPct;
+    return {
+      xPercent: Math.max(minX, Math.min(maxX, pos.xPercent)),
+      yPercent: Math.max(0, Math.min(95, pos.yPercent)),
+    };
+  }
+
   private applyCurrentPosition(): void {
     const pos = this.positions[this.mode];
-    applySubtitlePosition(pos.xPercent, pos.yPercent);
+    const clamped = this.clampPosition(pos);
+    // 화면 밖이었던 저장 위치를 다시 화면 안으로 복구 — storage도 함께 갱신.
+    if (clamped.xPercent !== pos.xPercent || clamped.yPercent !== pos.yPercent) {
+      this.positions[this.mode] = clamped;
+      this.onPositionChange?.(this.mode, clamped);
+    }
+    applySubtitlePosition(clamped.xPercent, clamped.yPercent);
   }
 
   private applyDisplayMode(): void {
@@ -349,13 +378,14 @@ export class SubtitleRenderer {
       const dx = e.clientX - startMouseX;
       const dy = e.clientY - startMouseY;
       const vRect = this.video.getBoundingClientRect();
-      let xPercent = ((startCenterX + dx) / vRect.width) * 100;
-      let yPercent = ((startBottomGap - dy) / vRect.height) * 100;
-      // 화면 밖 못 나가도록 살짝 clamp. 너무 좁히면 의도 위치 못 가니 5~95 정도.
-      xPercent = Math.max(5, Math.min(95, xPercent));
-      yPercent = Math.max(0, Math.min(95, yPercent));
-      this.positions[this.mode] = { xPercent, yPercent };
-      applySubtitlePosition(xPercent, yPercent);
+      const raw = {
+        xPercent: ((startCenterX + dx) / vRect.width) * 100,
+        yPercent: ((startBottomGap - dy) / vRect.height) * 100,
+      };
+      // 컨테이너 폭 + 핸들 마진을 고려해 동적 clamp — 좌측 끝 드래그 시 핸들이 화면 밖으로 나가지 않게.
+      const clamped = this.clampPosition(raw);
+      this.positions[this.mode] = clamped;
+      applySubtitlePosition(clamped.xPercent, clamped.yPercent);
     };
 
     const onUp = (_e: PointerEvent): void => {
