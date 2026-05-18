@@ -24,6 +24,9 @@ export class SubtitleRenderer {
   // 사용자가 native CC 버튼을 직접 끄면 우리 자막도 같이 숨긴다.
   // visibility(cue 단위)와 별개 차원이므로 display를 쓴다.
   private userHidden = false;
+  // 원본 언어와 번역 언어가 같을 때(예: 한국어 영상 + 번역=한국어) target 줄을 숨긴다.
+  // displayMode와 별개 — 사용자 설정은 유지하되 모국어 paraphrase 노출만 차단.
+  private suppressTarget = false;
   private displayMode: DisplayMode = 'dual';
   private wordRevealEnabled = true;
   private wordSpans: HTMLSpanElement[] = [];
@@ -150,6 +153,12 @@ export class SubtitleRenderer {
     this.applyDisplayMode();
   }
 
+  setSuppressTarget(suppress: boolean): void {
+    if (this.suppressTarget === suppress) return;
+    this.suppressTarget = suppress;
+    this.applyDisplayMode();
+  }
+
   setWordRevealEnabled(enabled: boolean): void {
     if (this.wordRevealEnabled === enabled) return;
     this.wordRevealEnabled = enabled;
@@ -172,6 +181,12 @@ export class SubtitleRenderer {
 
   private applyDisplayMode(): void {
     if (!this.sourceEl || !this.targetEl) return;
+    if (this.suppressTarget) {
+      // 모국어 자막 케이스 — displayMode와 무관하게 source만 표시.
+      this.sourceEl.style.display = '';
+      this.targetEl.style.display = 'none';
+      return;
+    }
     this.sourceEl.style.display = this.displayMode === 'translation-only' ? 'none' : '';
     this.targetEl.style.display = this.displayMode === 'source-only' ? 'none' : '';
   }

@@ -117,9 +117,47 @@ function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
 // 일반 영상은 이 Set을 사용하지 않음 — 페이지 자체 fetch가 인터셉트로 처리됨.
 const requestedShortsVideoIds = new Set<string>();
 
-// 같은 videoId의 timedtext가 두 번 잡히는 경우(Shorts: page xhr + 우리 direct fetch)
+// 같은 트랙의 timedtext가 연속해서 두 번 잡히는 경우(Shorts: page xhr + 우리 direct fetch)
 // 두 번째 처리는 setCues 재할당으로 잠깐 깜빡임 유발 → 첫 번째만 처리.
-const processedTimedtextVideoIds = new Set<string>();
+// 직전 1개 key만 보관하므로 사용자가 다른 트랙 갔다가 같은 트랙으로 돌아오면 새로 처리된다.
+// key는 (videoId | lang | tlang | kind) 조합. PoToken 같은 변동 파라미터에는 영향 없음.
+let lastProcessedTrackKey: string | null = null;
+
+function trackKeyFromUrl(url: string): string | null {
+  try {
+    const u = new URL(url, location.origin);
+    const v = u.searchParams.get('v');
+    if (!v) return null;
+    const lang = u.searchParams.get('lang') ?? '';
+    const tlang = u.searchParams.get('tlang') ?? '';
+    const kind = u.searchParams.get('kind') ?? '';
+    return `${v}|${lang}|${tlang}|${kind}`;
+  } catch {
+    return null;
+  }
+}
+
+function effectiveLangFromUrl(url: string): string | null {
+  // 자동번역 트랙은 tlang에 표시 언어. 일반 트랙은 lang에 원본 언어.
+  try {
+    const u = new URL(url, location.origin);
+    return u.searchParams.get('tlang') || u.searchParams.get('lang');
+  } catch {
+    return null;
+  }
+}
+
+// 현재 선택된 트랙의 언어 코드. 원본 언어 == 번역 언어일 때 번역 호출을 skip하기 위해 추적.
+// handleCaptionTracks에서 갱신, emptied(영상 전환)에서 reset.
+let currentTrackLang: string | null = null;
+
+// 트랙 언어가 번역 대상 언어와 같으면 true (sub-tag도 매치: 'ko' === 'ko-KR').
+function isTrackLangMatchingTarget(): boolean {
+  if (!currentTrackLang) return false;
+  const lang = currentTrackLang.toLowerCase();
+  const tgt = targetLang().toLowerCase();
+  return lang === tgt || lang.startsWith(`${tgt}-`) || tgt.startsWith(`${lang}-`);
+}
 
 function handleCaptionTracks(payload: {
   reason: string;
@@ -151,6 +189,11 @@ function handleCaptionTracks(payload: {
     `chosen track for ${payload.videoId}: lang=${chosen.languageCode} kind=${chosen.kind ?? 'manual'} name=${chosen.name ?? '-'}`,
   );
 
+  // 트랙 언어 == 번역 언어면 번역 줄을 숨긴다(모국어 영상에서 의미 없는 paraphrase 방지).
+  // cue 도착 전에 미리 적용해 layout 변경을 최소화.
+  currentTrackLang = chosen.languageCode ?? null;
+  renderer.setSuppressTarget(isTrackLangMatchingTarget());
+
   // Shorts: 페이지가 자체 fetch를 trigger 안 하므로 MAIN에 직접 fetch 요청.
   // 일반 영상은 CC 버튼 click이 페이지 fetch를 발화 → 우리 monkey-patch가 가로채므로 추가 동작 불필요.
   const isShorts = location.pathname.startsWith('/shorts/');
@@ -170,15 +213,11 @@ function handleCaptionTracks(payload: {
 }
 
 function handleTimedtextResponse(payload: { url: string; body: string }): void {
-  // URL에서 videoId 추출 (payload.url은 /api/timedtext?v=...). 같은 영상의 중복 응답 dedup.
-  let urlVideoId: string | null = null;
-  try {
-    urlVideoId = new URL(payload.url, location.origin).searchParams.get('v');
-  } catch {
-    // ignore
-  }
-  if (urlVideoId && processedTimedtextVideoIds.has(urlVideoId)) {
-    console.log(TAG, `timedtext already processed for ${urlVideoId}, skipping duplicate`);
+  // 직전 처리와 같은 트랙이면 Shorts 중복(page xhr + direct fetch)으로 보고 skip.
+  // 다른 트랙 갔다가 같은 트랙으로 돌아오면 lastKey가 갱신돼 있어 다시 처리된다.
+  const key = trackKeyFromUrl(payload.url);
+  if (key && key === lastProcessedTrackKey) {
+    console.log(TAG, `same track as last (${key}), skipping duplicate`);
     return;
   }
 
@@ -193,12 +232,21 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     const cues = parseJson3(json);
     console.log(TAG, `cues parsed: ${cues.length}`);
     if (cues.length === 0) return;
+
+    // 트랙 lang을 URL에서 추출해 suppress 상태 재평가 — 사용자가 CC 메뉴에서 트랙을 바꾸면
+    // handleCaptionTracks가 다시 호출되지 않으므로 여기서 currentTrackLang을 갱신해야 한다.
+    const urlLang = effectiveLangFromUrl(payload.url);
+    if (urlLang && urlLang !== currentTrackLang) {
+      currentTrackLang = urlLang;
+      renderer.setSuppressTarget(isTrackLangMatchingTarget());
+    }
+
     renderer.setCues(cues);
     // setCues 직후 mountedVideoId 갱신 — yt-navigate-finish가 이후 발생해도
     // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
     mountedVideoId = currentVideoId();
     lastCues = cues;
-    if (urlVideoId) processedTimedtextVideoIds.add(urlVideoId);
+    if (key) lastProcessedTrackKey = key;
     void translateCues(cues, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
@@ -216,6 +264,14 @@ const FIRST_BATCH_SIZE = 8;
 
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
+
+  // 트랙 언어가 번역 언어와 같으면 호출 자체를 skip — API 호출 절감 + paraphrase 방지.
+  // (suppress flag는 handleCaptionTracks에서 미리 set돼 있어 UI상 target 줄이 hide 상태)
+  if (isTrackLangMatchingTarget()) {
+    console.log(TAG, `track lang (${currentTrackLang}) matches target (${targetLang()}) — skip translation`);
+    return;
+  }
+
   const texts = cues.map((c) => c.text);
   const src = preferredSource();
   const tgt = targetLang();
@@ -297,8 +353,11 @@ document.addEventListener(
     lastCues = [];
     // 같은 영상 재진입 시 dedup이 cue 표시를 막지 않도록 timedtext 처리 이력 초기화.
     // (Shorts direct-fetch 이력도 같이 비워 재진입 영상이 Shorts면 다시 요청 가능)
-    processedTimedtextVideoIds.clear();
+    lastProcessedTrackKey = null;
     requestedShortsVideoIds.clear();
+    // 트랙 언어 정보 reset — 새 영상의 handleCaptionTracks가 다시 세팅한다.
+    currentTrackLang = null;
+    renderer.setSuppressTarget(false);
   },
   true,
 );
@@ -347,6 +406,13 @@ chrome.storage.onChanged.addListener((changes, area) => {
     .then((s) => {
       console.log(TAG, 'settings changed:', Object.keys(changes));
       applySettings(s);
+
+      // targetLang 변경 시 suppress 재평가 — 한국어 영상에서 target=ko↔en 토글에 즉시 반응.
+      // (translateCues가 호출되면 그 안에서도 한 번 더 체크해 호출만 skip되지만, 미리 setSuppress해
+      //  UI 깜빡임을 줄인다.)
+      if (changes.targetLang) {
+        renderer.setSuppressTarget(isTrackLangMatchingTarget());
+      }
 
       const needsRetranslate = Object.keys(changes).some((k) => RETRANSLATE_KEYS.has(k));
       if (needsRetranslate && lastCues.length > 0 && mountedVideoId) {
