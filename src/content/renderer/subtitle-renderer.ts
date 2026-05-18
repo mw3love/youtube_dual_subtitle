@@ -1,7 +1,7 @@
 import type { Cue, Word } from '../../shared/types';
-import type { DisplayMode } from '../../shared/settings';
+import type { DisplayMode, Position } from '../../shared/settings';
 import { createContainer, findMountTarget, type Mode } from './container';
-import { injectStyles } from './styles';
+import { applySubtitlePosition, injectStyles } from './styles';
 
 const TAG = '[YDT/renderer]';
 
@@ -16,6 +16,7 @@ export class SubtitleRenderer {
   private container: HTMLElement | null = null;
   private sourceEl: HTMLElement | null = null;
   private targetEl: HTMLElement | null = null;
+  private handleEl: HTMLElement | null = null;
   private video: HTMLVideoElement | null = null;
   private mode: Mode = 'normal';
   private rafId: number | null = null;
@@ -27,6 +28,16 @@ export class SubtitleRenderer {
   private wordRevealEnabled = true;
   private wordSpans: HTMLSpanElement[] = [];
   private lastWordRevealed = -1;
+
+  // 자막 위치 — 일반/쇼츠 각각. 드래그로 갱신.
+  private positions: { normal: Position; shorts: Position } = {
+    normal: { xPercent: 50, yPercent: 10 },
+    shorts: { xPercent: 50, yPercent: 18 },
+  };
+  // 드래그로 위치 변경 시 호출되는 콜백 — content script가 storage에 저장.
+  private onPositionChange: ((mode: Mode, pos: Position) => void) | null = null;
+  private dragHandlers: { move: (e: PointerEvent) => void; up: (e: PointerEvent) => void } | null =
+    null;
 
   constructor() {
     injectStyles();
@@ -48,14 +59,23 @@ export class SubtitleRenderer {
 
   // host/video가 아직 없을 수 있어 retry.
   private mountRetries = 0;
+  private mountRetryTimer: number | null = null;
   private readonly MOUNT_RETRY_DELAYS = [0, 300, 600, 1200, 2400];
 
   mount(): void {
+    // 이전 retry가 보류 중이면 취소 — 다음 retry가 이 호출에서 다시 결정.
+    if (this.mountRetryTimer !== null) {
+      clearTimeout(this.mountRetryTimer);
+      this.mountRetryTimer = null;
+    }
     const target = findMountTarget();
     if (!target) {
       if (this.mountRetries + 1 < this.MOUNT_RETRY_DELAYS.length) {
         this.mountRetries++;
-        setTimeout(() => this.mount(), this.MOUNT_RETRY_DELAYS[this.mountRetries]);
+        this.mountRetryTimer = window.setTimeout(
+          () => this.mount(),
+          this.MOUNT_RETRY_DELAYS[this.mountRetries],
+        );
       } else {
         console.warn(TAG, 'mount: no host/video found after retries');
       }
@@ -71,17 +91,20 @@ export class SubtitleRenderer {
     // 다른 video거나 stale이면 재구성
     this.unmount();
 
-    const { container, sourceEl, targetEl } = createContainer(target.mode);
+    const { container, sourceEl, targetEl, handleEl } = createContainer(target.mode);
     target.host.appendChild(container);
 
     this.container = container;
     this.sourceEl = sourceEl;
     this.targetEl = targetEl;
+    this.handleEl = handleEl;
     this.video = target.video;
     this.mode = target.mode;
 
     if (this.userHidden) container.style.display = 'none';
     this.applyDisplayMode();
+    this.applyCurrentPosition();
+    this.attachDragHandlers();
 
     console.log(TAG, 'mounted (mode:', this.mode, ')');
     this.startLoop();
@@ -89,10 +112,16 @@ export class SubtitleRenderer {
 
   unmount(): void {
     this.stopLoop();
+    this.detachDragHandlers();
+    if (this.mountRetryTimer !== null) {
+      clearTimeout(this.mountRetryTimer);
+      this.mountRetryTimer = null;
+    }
     this.container?.remove();
     this.container = null;
     this.sourceEl = null;
     this.targetEl = null;
+    this.handleEl = null;
     this.video = null;
     this.lastIdx = -2;
     this.wordSpans = [];
@@ -125,6 +154,20 @@ export class SubtitleRenderer {
     if (this.wordRevealEnabled === enabled) return;
     this.wordRevealEnabled = enabled;
     this.lastIdx = -2; // 다음 update에서 source 재구성
+  }
+
+  setPositions(positions: { normal: Position; shorts: Position }): void {
+    this.positions = positions;
+    this.applyCurrentPosition();
+  }
+
+  setOnPositionChange(cb: (mode: Mode, pos: Position) => void): void {
+    this.onPositionChange = cb;
+  }
+
+  private applyCurrentPosition(): void {
+    const pos = this.positions[this.mode];
+    applySubtitlePosition(pos.xPercent, pos.yPercent);
   }
 
   private applyDisplayMode(): void {
@@ -219,6 +262,78 @@ export class SubtitleRenderer {
     }
     this.wordSpans = spans;
   }
+
+  // ─── 드래그 핸들러 ───
+  // pointerdown on 핸들 → pointermove로 위치 갱신 → pointerup으로 종료 + 저장.
+  // 좌표 계산: 영상 element의 boundingClientRect 기준, %로 환산.
+  private attachDragHandlers(): void {
+    if (!this.handleEl) return;
+    this.handleEl.addEventListener('pointerdown', this.onPointerDown);
+  }
+
+  private detachDragHandlers(): void {
+    if (this.handleEl) {
+      this.handleEl.removeEventListener('pointerdown', this.onPointerDown);
+    }
+    if (this.dragHandlers) {
+      document.removeEventListener('pointermove', this.dragHandlers.move);
+      document.removeEventListener('pointerup', this.dragHandlers.up);
+      this.dragHandlers = null;
+    }
+  }
+
+  private onPointerDown = (ev: PointerEvent): void => {
+    if (ev.button !== 0) return; // left button only
+    if (!this.container || !this.video || !this.handleEl) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const videoRect = this.video.getBoundingClientRect();
+    if (videoRect.width === 0 || videoRect.height === 0) return;
+
+    // 시작 시점의 컨테이너 중앙 좌표 (영상 내 px)
+    const cRect = this.container.getBoundingClientRect();
+    const startCenterX = cRect.left + cRect.width / 2 - videoRect.left;
+    const startBottomGap = videoRect.bottom - cRect.bottom; // 영상 하단과 컨테이너 하단 사이 거리
+
+    const startMouseX = ev.clientX;
+    const startMouseY = ev.clientY;
+
+    this.container.classList.add('is-dragging');
+    try {
+      this.handleEl.setPointerCapture(ev.pointerId);
+    } catch {
+      // some browsers
+    }
+
+    const onMove = (e: PointerEvent): void => {
+      if (!this.container || !this.video) return;
+      const dx = e.clientX - startMouseX;
+      const dy = e.clientY - startMouseY;
+      const vRect = this.video.getBoundingClientRect();
+      let xPercent = ((startCenterX + dx) / vRect.width) * 100;
+      let yPercent = ((startBottomGap - dy) / vRect.height) * 100;
+      // 화면 밖 못 나가도록 살짝 clamp. 너무 좁히면 의도 위치 못 가니 5~95 정도.
+      xPercent = Math.max(5, Math.min(95, xPercent));
+      yPercent = Math.max(0, Math.min(95, yPercent));
+      this.positions[this.mode] = { xPercent, yPercent };
+      applySubtitlePosition(xPercent, yPercent);
+    };
+
+    const onUp = (_e: PointerEvent): void => {
+      if (!this.dragHandlers) return;
+      document.removeEventListener('pointermove', this.dragHandlers.move);
+      document.removeEventListener('pointerup', this.dragHandlers.up);
+      this.dragHandlers = null;
+      this.container?.classList.remove('is-dragging');
+      // 마지막 위치 저장
+      this.onPositionChange?.(this.mode, this.positions[this.mode]);
+    };
+
+    this.dragHandlers = { move: onMove, up: onUp };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  };
 
   // cue 수십~수백 개 + rAF 60fps. 선형이면 ~10k cmp/sec — 무시 가능.
   // 대신 lastIdx부터 시작해 일반 재생 시 ~1회 비교로 끝남.

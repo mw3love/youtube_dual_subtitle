@@ -74,11 +74,17 @@ export function createContainer(mode: Mode): {
   container: HTMLElement;
   sourceEl: HTMLElement;
   targetEl: HTMLElement;
+  handleEl: HTMLElement;
 } {
   const container = document.createElement('div');
   container.className = 'ydt-container';
   container.dataset.mode = mode;
   container.style.visibility = 'hidden';
+
+  const handleEl = document.createElement('div');
+  handleEl.className = 'ydt-handle';
+  handleEl.title = '드래그하여 자막 위치 이동';
+  handleEl.textContent = '⋮⋮';
 
   const sourceEl = document.createElement('div');
   sourceEl.className = 'ydt-cue ydt-source';
@@ -86,7 +92,8 @@ export function createContainer(mode: Mode): {
   const targetEl = document.createElement('div');
   targetEl.className = 'ydt-cue ydt-target';
 
+  container.appendChild(handleEl);
   container.appendChild(sourceEl);
   container.appendChild(targetEl);
-  return { container, sourceEl, targetEl };
+  return { container, sourceEl, targetEl, handleEl };
 }

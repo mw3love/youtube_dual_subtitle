@@ -11,33 +11,8 @@ import {
   type SourceLang,
   type TargetLang,
 } from '../shared/settings';
+import { DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
-
-const SOURCE_LANGS: Array<{ value: SourceLang; label: string }> = [
-  { value: 'en', label: '영어 (English)' },
-  { value: 'ja', label: '일본어 (日本語)' },
-  { value: 'zh', label: '중국어 (中文)' },
-  { value: 'es', label: '스페인어 (Español)' },
-  { value: 'fr', label: '프랑스어 (Français)' },
-  { value: 'de', label: '독일어 (Deutsch)' },
-  { value: 'auto', label: '자동 감지 (백엔드에 따라 동작 다를 수 있음)' },
-];
-
-const TARGET_LANGS: Array<{ value: TargetLang; label: string }> = [
-  { value: 'ko', label: '한국어' },
-  { value: 'en', label: 'English' },
-  { value: 'ja', label: '日本語' },
-  { value: 'zh', label: '中文' },
-  { value: 'es', label: 'Español' },
-  { value: 'fr', label: 'Français' },
-  { value: 'de', label: 'Deutsch' },
-];
-
-const DISPLAY_MODES: Array<{ value: DisplayMode; label: string }> = [
-  { value: 'dual', label: '듀얼 (원문 + 번역)' },
-  { value: 'translation-only', label: '번역만' },
-  { value: 'source-only', label: '원문만' },
-];
 
 const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 400, label: '보통' },
@@ -48,7 +23,7 @@ const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 16, margin: '0 0 12px', borderBottom: '1px solid #eee', paddingBottom: 6 }}>
+      <h2 style={{ fontSize: 16, margin: '0 0 12px', borderBottom: '1px solid #2e2e2e', paddingBottom: 6 }}>
         {title}
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
@@ -60,8 +35,10 @@ function Row({ label, children, hint }: { label: string; children: React.ReactNo
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       <label style={{ minWidth: 140, fontSize: 13 }}>{label}</label>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>{children}</div>
-      {hint && <span style={{ fontSize: 11, color: '#888' }}>{hint}</span>}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        {children}
+        {hint && <span style={{ fontSize: 11, color: '#999', marginLeft: 2 }}>{hint}</span>}
+      </div>
     </div>
   );
 }
@@ -87,7 +64,7 @@ function StyleEditor({
           onChange={(e) => onChange({ ...style, fontSize: Number(e.target.value) || 22 })}
           style={{ width: 70 }}
         />
-        <span style={{ fontSize: 12, color: '#888' }}>px</span>
+        <span style={{ fontSize: 12, color: '#999' }}>px</span>
       </Row>
       <Row label="색">
         <input
@@ -121,13 +98,15 @@ function StyleEditor({
 }
 
 function Preview({ settings }: { settings: Settings }) {
-  const { sourceStyle, targetStyle, displayMode } = settings;
+  const { sourceStyle, targetStyle, displayMode, backgroundOpacity, lineHeight } = settings;
+  const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
   return (
     <div
       style={{
-        background: '#222',
+        background: '#000',
         padding: 24,
         borderRadius: 6,
+        border: '1px solid #2e2e2e',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -138,13 +117,13 @@ function Preview({ settings }: { settings: Settings }) {
       {displayMode !== 'translation-only' && (
         <div
           style={{
-            background: 'rgba(0,0,0,0.75)',
+            background: cueBg,
             padding: '4px 10px',
             borderRadius: 4,
             color: sourceStyle.color,
             fontSize: sourceStyle.fontSize,
             fontWeight: sourceStyle.fontWeight,
-            lineHeight: 1.3,
+            lineHeight,
           }}
         >
           Sample English subtitle
@@ -153,13 +132,13 @@ function Preview({ settings }: { settings: Settings }) {
       {displayMode !== 'source-only' && (
         <div
           style={{
-            background: 'rgba(0,0,0,0.75)',
+            background: cueBg,
             padding: '4px 10px',
             borderRadius: 4,
             color: targetStyle.color,
             fontSize: targetStyle.fontSize,
             fontWeight: targetStyle.fontWeight,
-            lineHeight: 1.3,
+            lineHeight,
           }}
         >
           샘플 한국어 자막
@@ -173,10 +152,12 @@ function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [cacheCount, setCacheCount] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<'idle' | 'pending' | 'saved'>('idle');
   // color picker / slider처럼 빠르게 변하는 입력은 매 onChange마다 storage.sync.set을
   // 부르면 분당 120회 throttle에 걸려 결국 저장 실패. UI는 즉시 갱신하되 저장만 디바운스.
   const pendingPatchRef = useRef<Partial<Settings>>({});
   const saveTimerRef = useRef<number | null>(null);
+  const savedFadeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     void loadSettings().then((s) => {
@@ -189,12 +170,16 @@ function Options() {
   const update = (patch: Partial<Settings>): void => {
     setSettings((prev) => ({ ...prev, ...patch }));
     pendingPatchRef.current = { ...pendingPatchRef.current, ...patch };
+    setSaveState('pending');
     if (saveTimerRef.current !== null) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = window.setTimeout(() => {
+    saveTimerRef.current = window.setTimeout(async () => {
       const toSave = pendingPatchRef.current;
       pendingPatchRef.current = {};
       saveTimerRef.current = null;
-      void saveSettings(toSave);
+      await saveSettings(toSave);
+      setSaveState('saved');
+      if (savedFadeTimerRef.current !== null) clearTimeout(savedFadeTimerRef.current);
+      savedFadeTimerRef.current = window.setTimeout(() => setSaveState('idle'), 2000);
     }, 250);
   };
 
@@ -205,23 +190,53 @@ function Options() {
     alert(`${n}개 캐시 항목을 삭제했습니다.`);
   };
 
+  const onResetSettings = async (): Promise<void> => {
+    if (!confirm('모든 설정을 기본값으로 되돌립니다. 번역 캐시는 그대로 유지됩니다. 계속할까요?'))
+      return;
+    // 보류 중인 디바운스 저장이 있다면 리셋 직후 덮어쓰지 못하도록 취소.
+    if (saveTimerRef.current !== null) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingPatchRef.current = {};
+    setSettings(DEFAULT_SETTINGS);
+    await saveSettings(DEFAULT_SETTINGS);
+    setSaveState('saved');
+    if (savedFadeTimerRef.current !== null) clearTimeout(savedFadeTimerRef.current);
+    savedFadeTimerRef.current = window.setTimeout(() => setSaveState('idle'), 2000);
+  };
+
+  const dangerButtonStyle: React.CSSProperties = {
+    padding: '4px 10px',
+    borderColor: '#6b2a2a',
+    color: '#ffb3b3',
+  };
+
   if (!loaded) return <div style={{ padding: 24 }}>설정 불러오는 중…</div>;
 
   return (
     <div
       style={{
-        maxWidth: 720,
+        maxWidth: 900,
         margin: '40px auto',
         padding: 24,
         fontFamily: 'system-ui, sans-serif',
-        color: '#222',
+        color: '#e8e8e8',
       }}
     >
-      <h1 style={{ fontSize: 22, margin: '0 0 4px' }}>YouTube Dual Subtitle</h1>
-      <p style={{ color: '#888', fontSize: 12, margin: '0 0 24px' }}>v0.1.0 · 변경 즉시 모든 YouTube 탭에 반영됩니다.</p>
+      <h1 style={{ fontSize: 22, margin: '0 0 4px', display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span>YouTube Dual Subtitle</span>
+        {saveState === 'pending' && (
+          <span style={{ fontSize: 11, color: '#888', fontWeight: 400 }}>저장 중…</span>
+        )}
+        {saveState === 'saved' && (
+          <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>● 저장됨</span>
+        )}
+      </h1>
+      <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>v0.1.0 · 변경 즉시 모든 YouTube 탭에 반영됩니다.</p>
 
       <Section title="기본">
-        <Row label="자막 표시">
+        <Row label="자막 표시" hint="단축키: C (YouTube 페이지에서)">
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}
@@ -240,17 +255,14 @@ function Options() {
             ))}
           </select>
         </Row>
-        <Row
-          label="단어 단위 표시"
-          hint="자동자막에서 가장 정확합니다"
-        >
+        <Row label="단어 단위 표시">
           <input
             type="checkbox"
             checked={settings.wordRevealEnabled}
             onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
           />
-          <span style={{ fontSize: 12, color: '#666' }}>
-            음성에 맞춰 영어 단어가 하나씩 나타납니다 (한글은 줄 단위 그대로)
+          <span style={{ fontSize: 12, color: '#999' }}>
+            음성에 맞춰 영어 단어가 점진 표시 (한글은 줄 단위). 자동자막에서 가장 정확.
           </span>
         </Row>
       </Section>
@@ -283,60 +295,155 @@ function Options() {
       </Section>
 
       <Section title="번역 백엔드">
-        <Row label="엔진">
-          <label style={{ display: 'flex', gap: 6, fontSize: 13 }}>
-            <input
-              type="radio"
-              checked={settings.backend === 'google-free'}
-              onChange={() => update({ backend: 'google-free' as BackendId })}
-            />
-            Google 무료
-          </label>
-          <label style={{ display: 'flex', gap: 6, fontSize: 13 }}>
-            <input
-              type="radio"
-              checked={settings.backend === 'chrome-builtin'}
-              onChange={() => update({ backend: 'chrome-builtin' as BackendId })}
-            />
-            Chrome 내장 (오프라인)
-          </label>
-        </Row>
-        <Row label="캐시">
-          <button onClick={onClearCache} style={{ padding: '4px 10px' }}>
-            비우기
-          </button>
-          <span style={{ fontSize: 12, color: '#666' }}>
-            현재 {cacheCount ?? '…'}개 영상
-          </span>
-        </Row>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>엔진</label>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                checked={settings.backend === 'google-free'}
+                onChange={() => update({ backend: 'google-free' as BackendId })}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <div>Google 무료</div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  클라우드 번역. 영↔한 등 주요 페어 품질 상위. 빈번 호출 시 잠시 차단될 수 있음.
+                </div>
+              </span>
+            </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                checked={settings.backend === 'chrome-builtin'}
+                onChange={() => update({ backend: 'chrome-builtin' as BackendId })}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <div>Chrome 내장 (오프라인)</div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  로컬 모델. 오프라인·차단 없음·자막 외부 전송 없음. 긴 문장은 약간 어색할 수 있음.
+                </div>
+              </span>
+            </label>
+          </div>
+        </div>
+        <div
+          style={{
+            marginLeft: 152,
+            marginTop: 8,
+            padding: '8px 12px',
+            background: '#222',
+            borderLeft: '3px solid #3ea6ff',
+            borderRadius: 3,
+            fontSize: 12,
+            color: '#bbb',
+          }}
+        >
+          Tip — 처음엔 Google 무료, 차단·오프라인 상황엔 Chrome 내장으로 전환 권장.
+        </div>
       </Section>
 
       <Section title="스타일">
-        <StyleEditor
-          label="원문 (영어 등)"
-          style={settings.sourceStyle}
-          onChange={(sourceStyle) => update({ sourceStyle })}
-        />
-        <StyleEditor
-          label="번역 (한국어 등)"
-          style={settings.targetStyle}
-          onChange={(targetStyle) => update({ targetStyle })}
-        />
-        <Row label="화면 하단 여백">
-          <input
-            type="range"
-            min={0}
-            max={50}
-            value={settings.bottomOffsetPercent}
-            onChange={(e) => update({ bottomOffsetPercent: Number(e.target.value) })}
-            style={{ width: 200 }}
-          />
-          <span style={{ fontSize: 12, color: '#666' }}>{settings.bottomOffsetPercent}%</span>
-        </Row>
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>미리보기</div>
-          <Preview settings={settings} />
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 280px',
+            gap: 24,
+            alignItems: 'start',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <StyleEditor
+              label="원문 (영어 등)"
+              style={settings.sourceStyle}
+              onChange={(sourceStyle) => update({ sourceStyle })}
+            />
+            <StyleEditor
+              label="번역 (한국어 등)"
+              style={settings.targetStyle}
+              onChange={(targetStyle) => update({ targetStyle })}
+            />
+            <Row label="쇼츠 자막 크기 배율" hint="100%이면 일반 영상과 동일">
+              <input
+                type="range"
+                min={0.5}
+                max={1.8}
+                step={0.05}
+                value={settings.shortsFontScale}
+                onChange={(e) => update({ shortsFontScale: Number(e.target.value) })}
+                style={{ width: 200 }}
+              />
+              <span style={{ fontSize: 12, color: '#999' }}>
+                {Math.round(settings.shortsFontScale * 100)}%
+              </span>
+            </Row>
+            <Row label="자막 배경 투명도" hint="높을수록 박스 진함">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={settings.backgroundOpacity}
+                onChange={(e) => update({ backgroundOpacity: Number(e.target.value) })}
+                style={{ width: 200 }}
+              />
+              <span style={{ fontSize: 12, color: '#999' }}>
+                {Math.round(settings.backgroundOpacity * 100)}%
+              </span>
+            </Row>
+            <Row label="자막 줄 높이" hint="원문/번역 두 줄 사이 간격">
+              <input
+                type="range"
+                min={1}
+                max={2}
+                step={0.05}
+                value={settings.lineHeight}
+                onChange={(e) => update({ lineHeight: Number(e.target.value) })}
+                style={{ width: 200 }}
+              />
+              <span style={{ fontSize: 12, color: '#999' }}>
+                {settings.lineHeight.toFixed(2)}
+              </span>
+            </Row>
+            <Row label="자막 위치" hint="영상 위에서 좌측 ⋮⋮ 핸들을 드래그">
+              <button
+                onClick={() =>
+                  update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })
+                }
+                style={{ padding: '4px 10px' }}
+              >
+                기본 위치로 되돌리기
+              </button>
+              <span style={{ fontSize: 11, color: '#777' }}>
+                일반: {Math.round(settings.subtitlePosition.normal.xPercent)}% /{' '}
+                {Math.round(settings.subtitlePosition.normal.yPercent)}% · 쇼츠:{' '}
+                {Math.round(settings.subtitlePosition.shorts.xPercent)}% /{' '}
+                {Math.round(settings.subtitlePosition.shorts.yPercent)}%
+              </span>
+            </Row>
+          </div>
+          <div style={{ position: 'sticky', top: 16 }}>
+            <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>미리보기</div>
+            <Preview settings={settings} />
+          </div>
         </div>
+      </Section>
+
+      <Section title="관리">
+        <Row label="번역 캐시">
+          <button onClick={onClearCache} style={dangerButtonStyle}>
+            비우기
+          </button>
+          <span style={{ fontSize: 12, color: '#999' }}>
+            현재 {cacheCount ?? '…'}개 영상
+          </span>
+        </Row>
+        <Row label="설정 초기화" hint="번역 캐시는 영향 없음">
+          <button onClick={onResetSettings} style={dangerButtonStyle}>
+            기본값으로 되돌리기
+          </button>
+        </Row>
       </Section>
     </div>
   );

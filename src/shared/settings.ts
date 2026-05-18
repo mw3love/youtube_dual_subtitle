@@ -24,6 +24,15 @@ export const CueStyleSchema = z.object({
 });
 export type CueStyle = z.infer<typeof CueStyleSchema>;
 
+// 자막 위치 — 영상 영역 좌하단 기준 백분율.
+// xPercent: 영상 폭의 N% 지점에 컨테이너 중앙이 위치
+// yPercent: 영상 하단에서 N% 위에 컨테이너 하단이 위치
+export const PositionSchema = z.object({
+  xPercent: z.number().min(0).max(100),
+  yPercent: z.number().min(0).max(95),
+});
+export type Position = z.infer<typeof PositionSchema>;
+
 export const SettingsSchema = z.object({
   subtitlesEnabled: z.boolean(),
   backend: BackendIdSchema,
@@ -32,10 +41,20 @@ export const SettingsSchema = z.object({
   displayMode: DisplayModeSchema,
   sourceStyle: CueStyleSchema,
   targetStyle: CueStyleSchema,
-  // 자막 컨테이너 세로 위치 — bottom: N% (광고나 UI에 가릴 때 조정)
-  bottomOffsetPercent: z.number().int().min(0).max(50),
   // 영어(원문) 자막을 단어 단위로 음성에 맞춰 점진 표시. 한글 줄은 영향 없음.
   wordRevealEnabled: z.boolean(),
+  // 쇼츠 모드 자막 크기 배율. 좁은 세로 화면에서 일반 영상과 다르게 보정하고 싶을 때.
+  // 1.0이면 옵션 폰트 크기 그대로 적용. 좁은 폭 보정용으로 보통 1.0 초과가 자연스러움.
+  shortsFontScale: z.number().min(0.5).max(1.8),
+  // 자막 박스 배경 투명도 (0=완전 투명, 1=완전 불투명).
+  backgroundOpacity: z.number().min(0).max(1),
+  // 자막 줄 높이 — 원문/번역 두 줄 간격에 영향.
+  lineHeight: z.number().min(1.0).max(2.0),
+  // 자막 위치 — 일반 영상과 쇼츠 각각 별도 저장. 마우스 드래그로 조정.
+  subtitlePosition: z.object({
+    normal: PositionSchema,
+    shorts: PositionSchema,
+  }),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -45,10 +64,16 @@ export const DEFAULT_SETTINGS: Settings = {
   sourceLang: 'en',
   targetLang: 'ko',
   displayMode: 'dual',
-  sourceStyle: { fontSize: 22, color: '#ffffff', fontWeight: 500 },
+  sourceStyle: { fontSize: 22, color: '#ffa200', fontWeight: 500 },
   targetStyle: { fontSize: 18, color: '#cccccc', fontWeight: 400 },
-  bottomOffsetPercent: 10,
   wordRevealEnabled: true,
+  shortsFontScale: 1.2,
+  backgroundOpacity: 0.75,
+  lineHeight: 1.3,
+  subtitlePosition: {
+    normal: { xPercent: 50, yPercent: 10 },
+    shorts: { xPercent: 50, yPercent: 18 },
+  },
 };
 
 export async function loadSettings(): Promise<Settings> {

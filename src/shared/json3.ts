@@ -105,5 +105,15 @@ export function parseJson3(json: unknown): Cue[] {
       words: words.length > 0 ? words : undefined,
     });
   }
+  // YouTube ASR(특히 Shorts)은 각 event의 dDurationMs를 다음 event 시작 이후까지 깔아둔다.
+  // 그 결과 cue들이 광범위하게 겹치고, renderer가 "다음 cue로 넘어감"을 인지하는 시점이
+  // 새 발화 시작보다 1~2s 늦어진다(노래방 reveal도 같은 이유로 한 프레임에 다 끝남).
+  // 인접 cue가 겹치면 앞 cue의 end를 다음 cue의 start로 클립해 활성 경계만 보정한다.
+  // 단어 timing은 절대 시각이라 손대지 않음.
+  for (let i = 0; i < cues.length - 1; i++) {
+    if (cues[i].end > cues[i + 1].start) {
+      cues[i].end = cues[i + 1].start;
+    }
+  }
   return cues;
 }

@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>YDT 아이콘 — 컨셉 2 색 변형</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #1a1a1a;
+        color: #e8e8e8;
+        font-family: system-ui, -apple-system, "Noto Sans KR", sans-serif;
+      }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      .lead { color: #999; font-size: 13px; margin: 0 0 28px; }
+
+      .row {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: 24px;
+        align-items: center;
+        padding: 20px 0;
+        border-bottom: 1px solid #2e2e2e;
+      }
+      .row:last-child { border-bottom: none; }
+
+      .meta h2 { font-size: 15px; margin: 0 0 6px; }
+      .meta p { font-size: 12px; color: #999; margin: 0; line-height: 1.5; }
+      .meta code { color: #ffa200; font-size: 11px; }
+
+      .sizes {
+        display: flex;
+        gap: 32px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+      }
+      .size { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+      .size .label { font-size: 10px; color: #888; }
+
+      .icon-cell {
+        background:
+          linear-gradient(45deg, #232323 25%, transparent 25%),
+          linear-gradient(-45deg, #232323 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #232323 75%),
+          linear-gradient(-45deg, transparent 75%, #232323 75%);
+        background-size: 8px 8px;
+        background-position: 0 0, 0 4px, 4px -4px, -4px 0px;
+        background-color: #1a1a1a;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .icon-cell svg { display: block; }
+
+      footer { margin-top: 32px; color: #777; font-size: 12px; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <h1>컨셉 2 — 자막 두 줄 (색 변형 비교)</h1>
+    <p class="lead">
+      4가지 색 변형을 16 / 32 / 48 / 128 px로. 변형 라벨(2A~2D) 중 하나 골라주세요.
+      라인 길이·두께 같은 디테일도 더 조정 가능.
+    </p>
+
+    <div class="row">
+      <div class="meta">
+        <h2>2A — 주황 배경 + 다크 라인</h2>
+        <p>밝은 톤. 라이트모드 Chrome 툴바에서도 잘 보임. <code>bg #ffa200</code>·<code>line #1a1a1a</code></p>
+      </div>
+      <div class="sizes" id="row1"></div>
+    </div>
+
+    <div class="row">
+      <div class="meta">
+        <h2>2B — 다크 배경 + 듀얼 라인</h2>
+        <p>확장 다크 톤과 일치. 위 라인 주황(원문), 아래 흰색(번역) — 실제 자막색 표현. <code>bg #1f1f1f</code></p>
+      </div>
+      <div class="sizes" id="row2"></div>
+    </div>
+
+    <div class="row">
+      <div class="meta">
+        <h2>2C — 다크 배경 + 단일 톤</h2>
+        <p>가장 미니멀. 라인 둘 다 주황, 아래는 옅게. 1색 팔레트라 시각적 결속력 강함. <code>bg #1f1f1f</code></p>
+      </div>
+      <div class="sizes" id="row3"></div>
+    </div>
+
+    <div class="row">
+      <div class="meta">
+        <h2>2D — 주황 배경 + 듀얼 라인</h2>
+        <p>밝은 + 컬러풀. 위 다크, 아래 흰색 — 두 줄의 대비 강조. 활기있어 보임. <code>bg #ffa200</code></p>
+      </div>
+      <div class="sizes" id="row4"></div>
+    </div>
+
+    <footer>
+      체커판 = 투명 영역 시각화. 모서리 라운드(rx=24)는 모든 변형 공통. 다른 톤(파랑 #3ea6ff 등)도 가능.
+    </footer>
+
+    <script>
+      function svgFor(bgColor, topLineColor, bottomLineColor, bottomOpacity, size) {
+        return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="${size}" height="${size}">
+          <rect x="6" y="6" width="116" height="116" rx="24" fill="${bgColor}"/>
+          <rect x="22" y="48" width="84" height="14" rx="7" fill="${topLineColor}"/>
+          <rect x="34" y="74" width="60" height="14" rx="7" fill="${bottomLineColor}" opacity="${bottomOpacity}"/>
+        </svg>`;
+      }
+
+      const variants = [
+        // 2A — 주황 배경 + 다크 라인 (원본)
+        ['#ffa200', '#1a1a1a', '#1a1a1a', 0.55],
+        // 2B — 다크 배경 + 주황/흰색 듀얼 라인
+        ['#1f1f1f', '#ffa200', '#ffffff', 1.0],
+        // 2C — 다크 배경 + 단일 주황 톤
+        ['#1f1f1f', '#ffa200', '#ffa200', 0.55],
+        // 2D — 주황 배경 + 다크/흰색 듀얼 라인
+        ['#ffa200', '#1a1a1a', '#ffffff', 1.0],
+      ];
+
+      const sizes = [16, 32, 48, 128];
+
+      variants.forEach((v, i) => {
+        const container = document.getElementById(`row${i + 1}`);
+        sizes.forEach((s) => {
+          const cell = document.createElement('div');
+          cell.className = 'size';
+          cell.innerHTML = `
+            <div class="icon-cell" style="width:${s}px;height:${s}px;">
+              ${svgFor(v[0], v[1], v[2], v[3], s)}
+            </div>
+            <div class="label">${s}×${s}</div>
+          `;
+          container.appendChild(cell);
+        });
+      });
+    </script>
+  </body>
+</html>

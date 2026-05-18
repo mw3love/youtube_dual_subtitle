@@ -5,8 +5,13 @@ import manifest from './src/manifest';
 
 const here = new URL('./', import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1');
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), crx({ manifest })],
+  // production 빌드에서 디버그 콘솔 제거. warn/error는 유지해 실제 문제는 사용자가 볼 수 있음.
+  esbuild: {
+    pure: mode === 'production' ? ['console.log', 'console.info', 'console.debug'] : [],
+    drop: mode === 'production' ? ['debugger'] : [],
+  },
   build: {
     rollupOptions: {
       // CRXJS는 manifest entry로 등록된 HTML만 처리한다. offscreen은 background에서
@@ -21,4 +26,4 @@ export default defineConfig({
     strictPort: true,
     hmr: { port: 5174 },
   },
-});
+}));

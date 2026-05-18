@@ -5,3 +5,6 @@ dist
 *.local
 *.log
 desktop.ini
+
+# Chrome Web Store 업로드용 빌드 산출물 (dist를 압축한 결과, 매 빌드마다 재생성)
+*.zip

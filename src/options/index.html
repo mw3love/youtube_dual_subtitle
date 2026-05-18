@@ -3,6 +3,52 @@
   <head>
     <meta charset="UTF-8" />
     <title>YouTube Dual Subtitle — 설정</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        background: #1a1a1a;
+        color: #e8e8e8;
+      }
+      input[type='number'],
+      input[type='text'],
+      select {
+        background: #2a2a2a;
+        color: #e8e8e8;
+        border: 1px solid #3a3a3a;
+        border-radius: 3px;
+        padding: 2px 4px;
+        font-family: inherit;
+      }
+      input[type='color'] {
+        background: transparent;
+        border: 1px solid #3a3a3a;
+        border-radius: 3px;
+      }
+      input[type='range'] {
+        accent-color: #3ea6ff;
+      }
+      button {
+        background: #303030;
+        color: #e8e8e8;
+        border: 1px solid #444;
+        border-radius: 3px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      button:hover {
+        background: #3a3a3a;
+      }
+      input:focus-visible,
+      select:focus-visible,
+      button:focus-visible {
+        outline: 2px solid #3ea6ff;
+        outline-offset: 1px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

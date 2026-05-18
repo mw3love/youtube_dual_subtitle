@@ -10,9 +10,36 @@ import { loadSettings, saveSettings, type Settings } from '../shared/settings';
 import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT]';
+
+// 중복 주입 가드 — 동일 페이지에 content script가 두 번 실행되면 listener가 중복 등록되어
+// 동일 메시지가 여러 번 처리됨. CRX HMR / 수동 reload / manifest 갱신 등에서 발생 가능.
+declare global {
+  interface Window {
+    __YDT_LOADED__?: true;
+  }
+}
+if (window.__YDT_LOADED__) {
+  console.warn(TAG, 'content script already loaded — skipping duplicate init');
+} else {
+  window.__YDT_LOADED__ = true;
+  initContent();
+}
+
+function initContent(): void {
 console.log(TAG, 'content script loaded on', location.href);
 
 const renderer = new SubtitleRenderer();
+renderer.setOnPositionChange((mode, pos) => {
+  // 드래그로 위치 변경 시 settings 갱신. 다른 필드는 건드리지 않음.
+  if (!currentSettings) return;
+  const next = {
+    ...currentSettings.subtitlePosition,
+    [mode]: pos,
+  };
+  void saveSettings({ subtitlePosition: next });
+  // 로컬 cache도 동기화 — storage.onChanged가 돌아오기 전에 일관성 유지
+  currentSettings = { ...currentSettings, subtitlePosition: next };
+});
 
 function currentVideoId(): string | null {
   const q = new URLSearchParams(location.search).get('v');
@@ -50,6 +77,22 @@ window.addEventListener('message', (ev) => {
   } else if (data.type === 'TIMEDTEXT_RESPONSE') {
     handleTimedtextResponse(data);
   }
+});
+
+// 팝업이 현재 탭 상태를 묻는다.
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  const m = msg as { type?: string };
+  if (m?.type === 'YDT_GET_STATUS') {
+    sendResponse({
+      hasCues: lastCues.length > 0,
+      cueCount: lastCues.length,
+      videoId: mountedVideoId,
+      subtitlesEnabled: currentSettings?.subtitlesEnabled ?? false,
+      sourceLang: currentSettings?.sourceLang ?? 'en',
+      targetLang: currentSettings?.targetLang ?? 'ko',
+    });
+  }
+  return false;
 });
 
 function trackScore(t: CaptionTrackInfo, preferred: string): number {
@@ -216,8 +259,11 @@ function applySettings(s: Settings): void {
   applyStyleSettings({
     sourceStyle: s.sourceStyle,
     targetStyle: s.targetStyle,
-    bottomOffsetPercent: s.bottomOffsetPercent,
+    shortsFontScale: s.shortsFontScale,
+    backgroundOpacity: s.backgroundOpacity,
+    lineHeight: s.lineHeight,
   });
+  renderer.setPositions(s.subtitlePosition);
 }
 
 void loadSettings().then(applySettings);
@@ -243,14 +289,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;
   // 변경 키가 무엇이든 settings 전체를 다시 읽어 일관되게 반영.
   // partial diff 적용은 복잡하고 zod 검증 우회 위험.
-  void loadSettings().then((s) => {
-    console.log(TAG, 'settings changed:', Object.keys(changes));
-    applySettings(s);
+  void loadSettings()
+    .then((s) => {
+      console.log(TAG, 'settings changed:', Object.keys(changes));
+      applySettings(s);
 
-    const needsRetranslate = Object.keys(changes).some((k) => RETRANSLATE_KEYS.has(k));
-    if (needsRetranslate && lastCues.length > 0 && mountedVideoId) {
-      console.log(TAG, 'retranslating with new settings');
-      void translateCues(lastCues, mountedVideoId);
-    }
-  });
+      const needsRetranslate = Object.keys(changes).some((k) => RETRANSLATE_KEYS.has(k));
+      if (needsRetranslate && lastCues.length > 0 && mountedVideoId) {
+        console.log(TAG, 'retranslating with new settings');
+        void translateCues(lastCues, mountedVideoId);
+      }
+    })
+    .catch((e) => console.warn(TAG, 'reload settings failed:', e));
 });
+
+} // end initContent

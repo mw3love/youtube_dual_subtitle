@@ -9,8 +9,9 @@ const STYLES = `
 
 .ydt-container {
   position: absolute;
-  left: 50%;
-  bottom: var(--ydt-bottom, 10%);
+  /* x는 컨테이너 중앙 기준 (translate(-50%, 0))이라 left가 영상의 어느 비율에 있든 중앙이 그 점. */
+  left: var(--ydt-x, 50%);
+  bottom: var(--ydt-y, 10%);
   transform: translateX(-50%);
   z-index: 60;
   display: flex;
@@ -24,12 +25,54 @@ const STYLES = `
   font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
 }
 
+/* 드래그 핸들 — 자막 좌측에 호버 시 표시. ⋮⋮ 6점 패턴 */
+/* display:none이 아니라 opacity로 토글: hit test 유지되어 컨테이너→핸들 이동 중에도 호버 안 풀림. */
+.ydt-handle {
+  position: absolute;
+  /* 컨테이너 좌측 끝에 핸들 우측이 살짝 겹치게 — 마우스 이동 시 갭 0 */
+  left: -18px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: move;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 3px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  line-height: 1;
+  letter-spacing: -1px;
+  user-select: none;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+}
+.ydt-container:hover .ydt-handle,
+.ydt-handle:hover {
+  opacity: 1;
+}
+.ydt-handle:hover {
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+}
+/* 드래그 중에는 호버 무관하게 보임 */
+.ydt-container.is-dragging .ydt-handle {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+}
+.ydt-container.is-dragging {
+  outline: 1px dashed rgba(62, 166, 255, 0.5);
+}
+
 .ydt-cue {
   padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, var(--ydt-bg-opacity, 0.75));
   border-radius: 4px;
   user-select: text;
-  line-height: 1.3;
+  line-height: var(--ydt-line-height, 1.3);
 }
 
 .ydt-source {
@@ -57,12 +100,12 @@ const STYLES = `
 :fullscreen .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 1.4); }
 :fullscreen .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * 1.4); }
 
-/* Shorts 보정 — 약간 작게 */
+/* Shorts 보정 — 사용자 설정 배율 적용 (기본 1.0 = 옵션 크기 그대로) */
 .ydt-container[data-mode="shorts"] {
   bottom: 18%;
 }
-.ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 0.72); }
-.ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * 0.72); }
+.ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * var(--ydt-shorts-scale, 1)); }
+.ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * var(--ydt-shorts-scale, 1)); }
 `;
 
 let injected = false;
@@ -85,10 +128,13 @@ export function injectStyles(): void {
 }
 
 // :root에 CSS 변수로 박아서 :fullscreen / [data-mode="shorts"]까지 한 번에 반영.
+// 위치(--ydt-x, --ydt-y)는 renderer가 모드에 따라 직접 갱신.
 export function applyStyleSettings(opts: {
   sourceStyle: CueStyle;
   targetStyle: CueStyle;
-  bottomOffsetPercent: number;
+  shortsFontScale: number;
+  backgroundOpacity: number;
+  lineHeight: number;
 }): void {
   const root = document.documentElement.style;
   root.setProperty('--ydt-source-color', opts.sourceStyle.color);
@@ -97,5 +143,14 @@ export function applyStyleSettings(opts: {
   root.setProperty('--ydt-target-color', opts.targetStyle.color);
   root.setProperty('--ydt-target-size', `${opts.targetStyle.fontSize}px`);
   root.setProperty('--ydt-target-weight', String(opts.targetStyle.fontWeight));
-  root.setProperty('--ydt-bottom', `${opts.bottomOffsetPercent}%`);
+  root.setProperty('--ydt-shorts-scale', String(opts.shortsFontScale));
+  root.setProperty('--ydt-bg-opacity', String(opts.backgroundOpacity));
+  root.setProperty('--ydt-line-height', String(opts.lineHeight));
+}
+
+// 자막 위치를 CSS 변수로 박는다. renderer가 모드별로 호출.
+export function applySubtitlePosition(xPercent: number, yPercent: number): void {
+  const root = document.documentElement.style;
+  root.setProperty('--ydt-x', `${xPercent}%`);
+  root.setProperty('--ydt-y', `${yPercent}%`);
 }
