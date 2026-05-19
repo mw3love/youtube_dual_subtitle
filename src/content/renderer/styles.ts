@@ -30,11 +30,12 @@ const STYLES = `
   font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
 }
 
-/* 드래그 핸들 — 자막 좌측에 호버 시 표시. ⋮⋮ 6점 패턴 */
+/* 드래그 핸들 — 보이는 자막 행 좌측에 호버 시 표시. ⋮⋮ 6점 패턴 */
 /* display:none이 아니라 opacity로 토글: hit test 유지되어 컨테이너→핸들 이동 중에도 호버 안 풀림. */
+/* 부모는 행(.ydt-cue, position:relative). 행마다 폭이 달라도 그 행의 좌측에 자동 정렬된다. */
 .ydt-handle {
   position: absolute;
-  /* 컨테이너 좌측 끝에 핸들 우측이 살짝 겹치게 — 마우스 이동 시 갭 0 */
+  /* 행 좌측 끝에 핸들 우측이 살짝 겹치게 — 마우스 이동 시 갭 0 */
   left: -18px;
   top: 50%;
   transform: translateY(-50%);
@@ -73,6 +74,7 @@ const STYLES = `
 }
 
 .ydt-cue {
+  position: relative; /* .ydt-handle의 absolute 기준점 */
   padding: 4px 10px;
   background: rgba(0, 0, 0, var(--ydt-bg-opacity, 0.75));
   border-radius: 4px;

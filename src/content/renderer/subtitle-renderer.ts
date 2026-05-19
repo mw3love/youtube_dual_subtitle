@@ -16,6 +16,9 @@ export class SubtitleRenderer {
   private container: HTMLElement | null = null;
   private sourceEl: HTMLElement | null = null;
   private targetEl: HTMLElement | null = null;
+  // 행 내부의 텍스트 전용 span. 콘텐츠 wipe가 핸들을 휩쓸지 않도록 분리.
+  private sourceTextEl: HTMLElement | null = null;
+  private targetTextEl: HTMLElement | null = null;
   private handleEl: HTMLElement | null = null;
   private video: HTMLVideoElement | null = null;
   private mode: Mode = 'normal';
@@ -94,12 +97,15 @@ export class SubtitleRenderer {
     // 다른 video거나 stale이면 재구성
     this.unmount();
 
-    const { container, sourceEl, targetEl, handleEl } = createContainer(target.mode);
+    const { container, sourceEl, targetEl, sourceTextEl, targetTextEl, handleEl } =
+      createContainer(target.mode);
     target.host.appendChild(container);
 
     this.container = container;
     this.sourceEl = sourceEl;
     this.targetEl = targetEl;
+    this.sourceTextEl = sourceTextEl;
+    this.targetTextEl = targetTextEl;
     this.handleEl = handleEl;
     this.video = target.video;
     this.mode = target.mode;
@@ -128,6 +134,8 @@ export class SubtitleRenderer {
     this.container = null;
     this.sourceEl = null;
     this.targetEl = null;
+    this.sourceTextEl = null;
+    this.targetTextEl = null;
     this.handleEl = null;
     this.video = null;
     this.lastIdx = -2;
@@ -142,8 +150,8 @@ export class SubtitleRenderer {
     this.lastIdx = -2;
     this.wordSpans = [];
     this.lastWordRevealed = -1;
-    if (this.sourceEl) this.sourceEl.textContent = '';
-    if (this.targetEl) this.targetEl.textContent = '';
+    if (this.sourceTextEl) this.sourceTextEl.textContent = '';
+    if (this.targetTextEl) this.targetTextEl.textContent = '';
     if (this.container) this.container.style.visibility = 'hidden';
   }
 
@@ -185,17 +193,24 @@ export class SubtitleRenderer {
   private clampPosition(pos: Position, widthOverride?: number): Position {
     if (!this.container || !this.video) return pos;
     const vRect = this.video.getBoundingClientRect();
-    const cWidth = widthOverride ?? this.container.getBoundingClientRect().width;
+    const cRect = this.container.getBoundingClientRect();
+    const cWidth = widthOverride ?? cRect.width;
+    const cHeight = cRect.height;
     if (vRect.width === 0 || cWidth === 0) return pos;
-    // 핸들이 컨테이너 좌측 -18px 위치라 추가 margin 필요. 24px = 핸들 폭 + 6px 여유.
+    // 핸들이 행 좌측 -18px 위치라 추가 margin 필요. 24px = 핸들 폭 + 6px 여유.
     const HANDLE_MARGIN_PX = 24;
     const halfWidthPct = ((cWidth / 2) / vRect.width) * 100;
     const handleMarginPct = (HANDLE_MARGIN_PX / vRect.width) * 100;
     const minX = halfWidthPct + handleMarginPct;
     const maxX = 100 - halfWidthPct;
+    // y는 bottom 기준 %. 위쪽으로 갈수록 yPercent가 커진다. 컨테이너 윗변이 영상 위로
+    // 삐져나가지 않으려면 yPercent + (height/videoHeight)% <= 100. 영상이 컨테이너보다
+    // 작은 극단(작은 Shorts viewport 등)에서 maxY가 음수가 될 수 있어 0 floor.
+    const heightPct = vRect.height > 0 ? (cHeight / vRect.height) * 100 : 0;
+    const maxY = Math.max(0, 100 - heightPct);
     return {
       xPercent: Math.max(minX, Math.min(maxX, pos.xPercent)),
-      yPercent: Math.max(0, Math.min(95, pos.yPercent)),
+      yPercent: Math.max(0, Math.min(maxY, pos.yPercent)),
     };
   }
 
@@ -216,10 +231,22 @@ export class SubtitleRenderer {
       // 모국어 자막 케이스 — displayMode와 무관하게 source만 표시.
       this.sourceEl.style.display = '';
       this.targetEl.style.display = 'none';
-      return;
+    } else {
+      this.sourceEl.style.display = this.displayMode === 'translation-only' ? 'none' : '';
+      this.targetEl.style.display = this.displayMode === 'source-only' ? 'none' : '';
     }
-    this.sourceEl.style.display = this.displayMode === 'translation-only' ? 'none' : '';
-    this.targetEl.style.display = this.displayMode === 'source-only' ? 'none' : '';
+    this.applyHandleParent();
+  }
+
+  // 핸들을 보이는 자막 행에 부착한다. 원문이 보이면 원문 행, 아니면 번역 행.
+  // 행이 display:none이면 그 자식인 핸들도 사라지므로 반드시 보이는 행에 둬야 한다.
+  private applyHandleParent(): void {
+    if (!this.handleEl || !this.sourceEl || !this.targetEl) return;
+    const sourceVisible = this.sourceEl.style.display !== 'none';
+    const desired = sourceVisible ? this.sourceEl : this.targetEl;
+    if (this.handleEl.parentElement !== desired) {
+      desired.appendChild(this.handleEl);
+    }
   }
 
   private startLoop(): void {
@@ -237,7 +264,15 @@ export class SubtitleRenderer {
   }
 
   private update(): void {
-    if (!this.video || !this.sourceEl || !this.targetEl || !this.container) return;
+    if (
+      !this.video ||
+      !this.sourceEl ||
+      !this.targetEl ||
+      !this.sourceTextEl ||
+      !this.targetTextEl ||
+      !this.container
+    )
+      return;
 
     // Shorts swipe 감지: 다음 reel이 preload 상태면 loadeddata가 swipe 시점에
     // 발화되지 않아 broadcast 경로가 누락된다. video element 자체가 viewport
@@ -264,8 +299,8 @@ export class SubtitleRenderer {
       this.lastIdx = idx;
       if (idx === -1) {
         this.container.style.visibility = 'hidden';
-        this.sourceEl.textContent = '';
-        this.targetEl.textContent = '';
+        this.sourceTextEl.textContent = '';
+        this.targetTextEl.textContent = '';
         this.wordSpans = [];
         this.lastWordRevealed = -1;
         return;
@@ -276,7 +311,7 @@ export class SubtitleRenderer {
       // (영어 fallback이 깜빡이며 한글로 바뀌는 현상 방지). source/translation-only는
       // 한 줄만 보이므로 번역 미도착 시 source를 보여주는 게 빈 화면보다 낫다.
       const fallback = this.displayMode === 'dual' ? '' : cue.text;
-      this.targetEl.textContent = this.targetTexts[idx] || fallback;
+      this.targetTextEl.textContent = this.targetTexts[idx] || fallback;
       this.container.style.visibility = 'visible';
       this.lastWordRevealed = -1;
     }
@@ -311,21 +346,21 @@ export class SubtitleRenderer {
   }
 
   private renderSource(cue: Cue): void {
-    if (!this.sourceEl) return;
+    if (!this.sourceTextEl) return;
     if (!this.wordRevealEnabled || !cue.words || cue.words.length === 0) {
-      this.sourceEl.textContent = cue.text;
+      this.sourceTextEl.textContent = cue.text;
       this.wordSpans = [];
       return;
     }
-    this.sourceEl.textContent = '';
+    this.sourceTextEl.textContent = '';
     const spans: HTMLSpanElement[] = [];
     for (let i = 0; i < cue.words.length; i++) {
       const span = document.createElement('span');
       span.className = 'ydt-word';
       span.textContent = cue.words[i].text;
-      this.sourceEl.appendChild(span);
+      this.sourceTextEl.appendChild(span);
       if (i < cue.words.length - 1) {
-        this.sourceEl.appendChild(document.createTextNode(' '));
+        this.sourceTextEl.appendChild(document.createTextNode(' '));
       }
       spans.push(span);
     }
