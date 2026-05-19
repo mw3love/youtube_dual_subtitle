@@ -41,6 +41,29 @@ renderer.setOnPositionChange((mode, pos) => {
   currentSettings = { ...currentSettings, subtitlePosition: next };
 });
 
+// 휠로 폰트 크기 조절 → CSS 변수는 즉시 반영, storage 저장은 debounce.
+// chrome.storage.sync 쿼터(분당 120회)를 빠른 휠 스크롤이 넘기지 않도록 ~300ms 묶음.
+let fontSizeSaveTimer: number | null = null;
+renderer.setOnFontSizeChange((sourceSize, targetSize) => {
+  if (!currentSettings) return;
+  const sourceStyle = { ...currentSettings.sourceStyle, fontSize: sourceSize };
+  const targetStyle = { ...currentSettings.targetStyle, fontSize: targetSize };
+  // 즉시 화면 반영 — applySettings를 거치지 않고 CSS 변수만 갱신해도 충분.
+  applyStyleSettings({
+    sourceStyle,
+    targetStyle,
+    shortsFontScale: currentSettings.shortsFontScale,
+    backgroundOpacity: currentSettings.backgroundOpacity,
+    lineHeight: currentSettings.lineHeight,
+  });
+  currentSettings = { ...currentSettings, sourceStyle, targetStyle };
+  if (fontSizeSaveTimer !== null) clearTimeout(fontSizeSaveTimer);
+  fontSizeSaveTimer = window.setTimeout(() => {
+    fontSizeSaveTimer = null;
+    void saveSettings({ sourceStyle, targetStyle });
+  }, 300);
+});
+
 function currentVideoId(): string | null {
   const q = new URLSearchParams(location.search).get('v');
   if (q) return q;
@@ -372,6 +395,7 @@ function applySettings(s: Settings): void {
   renderer.setUserVisible(s.subtitlesEnabled);
   renderer.setDisplayMode(s.displayMode);
   renderer.setWordRevealEnabled(s.wordRevealEnabled);
+  renderer.setFontSizes(s.sourceStyle.fontSize, s.targetStyle.fontSize);
   applyStyleSettings({
     sourceStyle: s.sourceStyle,
     targetStyle: s.targetStyle,

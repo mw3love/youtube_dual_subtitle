@@ -45,6 +45,12 @@ export class SubtitleRenderer {
   private dragHandlers: { move: (e: PointerEvent) => void; up: (e: PointerEvent) => void } | null =
     null;
 
+  // 휠로 폰트 크기 조절 시 현재값을 알아야 step 적용 가능 — applySettings 시점에 동기화.
+  // 렌더링 자체에는 안 쓰임(CSS var로 처리). 휠 delta 계산용 캐시.
+  private sourceFontSize = 22;
+  private targetFontSize = 18;
+  private onFontSizeChange: ((source: number, target: number) => void) | null = null;
+
   constructor() {
     injectStyles();
   }
@@ -114,6 +120,7 @@ export class SubtitleRenderer {
     this.applyDisplayMode();
     this.applyCurrentPosition();
     this.attachDragHandlers();
+    this.attachWheelHandler();
 
     console.log(TAG, 'mounted (mode:', this.mode, ')');
     this.startLoop();
@@ -126,6 +133,7 @@ export class SubtitleRenderer {
   unmount(): void {
     this.stopLoop();
     this.detachDragHandlers();
+    this.detachWheelHandler();
     if (this.mountRetryTimer !== null) {
       clearTimeout(this.mountRetryTimer);
       this.mountRetryTimer = null;
@@ -184,6 +192,16 @@ export class SubtitleRenderer {
 
   setOnPositionChange(cb: (mode: Mode, pos: Position) => void): void {
     this.onPositionChange = cb;
+  }
+
+  // 휠 핸들러가 새 크기를 계산할 수 있도록 현재값을 알려준다. applySettings마다 호출.
+  setFontSizes(sourceSize: number, targetSize: number): void {
+    this.sourceFontSize = sourceSize;
+    this.targetFontSize = targetSize;
+  }
+
+  setOnFontSizeChange(cb: (source: number, target: number) => void): void {
+    this.onFontSizeChange = cb;
   }
 
   // 컨테이너가 영상 영역 + 핸들이 화면 안에 남도록 위치를 보정한다.
@@ -439,6 +457,43 @@ export class SubtitleRenderer {
     this.dragHandlers = { move: onMove, up: onUp };
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
+  };
+
+  // ─── 휠 폰트 크기 조절 ───
+  // 자막 컨테이너 위에서 휠 → source/target 폰트 크기를 1px씩 ±. passive:false로 페이지 스크롤 차단.
+  // 범위는 settings 스키마와 동일(8~72). 한쪽이 bound에 닿아도 다른 쪽이 움직일 수 있으면 진행.
+  // YouTube player가 wheel을 자체 핸들러로 가로채는 경우가 있어 document에 capture phase로
+  // 부착하고 target이 컨테이너 안일 때만 처리한다 — 일반 listener는 YouTube보다 늦게 발화 가능.
+  private readonly FONT_SIZE_MIN = 8;
+  private readonly FONT_SIZE_MAX = 72;
+
+  private attachWheelHandler(): void {
+    document.addEventListener('wheel', this.onWheel, { passive: false, capture: true });
+  }
+
+  private detachWheelHandler(): void {
+    document.removeEventListener('wheel', this.onWheel, { capture: true } as EventListenerOptions);
+  }
+
+  private onWheel = (ev: WheelEvent): void => {
+    if (!this.container) return;
+    const target = ev.target as Node | null;
+    if (!target || !this.container.contains(target)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const step = ev.deltaY < 0 ? 1 : -1;
+    const nextSource = Math.max(
+      this.FONT_SIZE_MIN,
+      Math.min(this.FONT_SIZE_MAX, this.sourceFontSize + step),
+    );
+    const nextTarget = Math.max(
+      this.FONT_SIZE_MIN,
+      Math.min(this.FONT_SIZE_MAX, this.targetFontSize + step),
+    );
+    if (nextSource === this.sourceFontSize && nextTarget === this.targetFontSize) return;
+    this.sourceFontSize = nextSource;
+    this.targetFontSize = nextTarget;
+    this.onFontSizeChange?.(nextSource, nextTarget);
   };
 
   // cue 수십~수백 개 + rAF 60fps. 선형이면 ~10k cmp/sec — 무시 가능.
