@@ -9,6 +9,10 @@ export type BackendId = z.infer<typeof BackendIdSchema>;
 export const DisplayModeSchema = z.enum(['dual', 'translation-only', 'source-only']);
 export type DisplayMode = z.infer<typeof DisplayModeSchema>;
 
+// 누적 표시 레이아웃 — cue마다 한 줄(stacked) vs 한 문단처럼 이어 흘림(inline).
+export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
+export type HistoryLayout = z.infer<typeof HistoryLayoutSchema>;
+
 // 자주 보는 소스 언어만. 더 필요하면 사용자가 'auto' 선택 가능 (M5+ 백엔드가 감지).
 export const SourceLangSchema = z.enum(['en', 'ja', 'zh', 'es', 'fr', 'de', 'auto']);
 export type SourceLang = z.infer<typeof SourceLangSchema>;
@@ -43,6 +47,13 @@ export const SettingsSchema = z.object({
   targetStyle: CueStyleSchema,
   // 영어(원문) 자막을 단어 단위로 음성에 맞춰 점진 표시. 한글 줄은 영향 없음.
   wordRevealEnabled: z.boolean(),
+  // 싱글 자막(번역만/원문만/모국어 영상) 모드에서 현재 줄 + 직전 줄을 누적 표시.
+  // 1=현재 줄만(기존 동작), 2~3=누적 + 공백 구간 sticky 유지. 듀얼 모드에는 영향 없음.
+  singleContextLines: z.number().int().min(1).max(3),
+  // 누적 표시 시 직전 줄을 흐리게 처리해 지금 말하는 줄과 구분.
+  dimHistory: z.boolean(),
+  // 누적 표시 레이아웃 — 'stacked'는 cue마다 한 줄, 'inline'은 한 문단처럼 이어 흘림.
+  historyLayout: HistoryLayoutSchema,
   // 쇼츠 모드 자막 크기 배율. 좁은 세로 화면에서 일반 영상과 다르게 보정하고 싶을 때.
   // 1.0이면 옵션 폰트 크기 그대로 적용. 좁은 폭 보정용으로 보통 1.0 초과가 자연스러움.
   shortsFontScale: z.number().min(0.5).max(1.8),
@@ -67,6 +78,9 @@ export const DEFAULT_SETTINGS: Settings = {
   sourceStyle: { fontSize: 22, color: '#ffa200', fontWeight: 500 },
   targetStyle: { fontSize: 18, color: '#cccccc', fontWeight: 400 },
   wordRevealEnabled: true,
+  singleContextLines: 2,
+  dimHistory: true,
+  historyLayout: 'stacked',
   shortsFontScale: 1.2,
   backgroundOpacity: 0.75,
   lineHeight: 1.3,

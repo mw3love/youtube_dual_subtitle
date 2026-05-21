@@ -397,6 +397,9 @@ function applySettings(s: Settings): void {
   renderer.setUserVisible(s.subtitlesEnabled);
   renderer.setDisplayMode(s.displayMode);
   renderer.setWordRevealEnabled(s.wordRevealEnabled);
+  renderer.setSingleContextLines(s.singleContextLines);
+  renderer.setDimHistory(s.dimHistory);
+  renderer.setHistoryLayout(s.historyLayout);
   renderer.setFontSizes(s.sourceStyle.fontSize, s.targetStyle.fontSize);
   applyStyleSettings({
     sourceStyle: s.sourceStyle,

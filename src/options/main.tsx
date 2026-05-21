@@ -7,6 +7,7 @@ import {
   type BackendId,
   type CueStyle,
   type DisplayMode,
+  type HistoryLayout,
   type Settings,
   type SourceLang,
   type TargetLang,
@@ -263,6 +264,43 @@ function Options() {
           />
           <span style={{ fontSize: 12, color: '#999' }}>
             음성에 맞춰 영어 단어가 점진 표시 (한글은 줄 단위). 자동자막에서 가장 정확.
+          </span>
+        </Row>
+        <Row label="싱글 자막 누적 줄 수" hint="번역만 / 원문만 모드에서 적용 · 듀얼 모드 무관">
+          <select
+            value={settings.singleContextLines}
+            onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
+          >
+            <option value={1}>1줄 (현재 줄만)</option>
+            <option value={2}>2줄 (현재 + 직전 1줄)</option>
+            <option value={3}>3줄 (현재 + 직전 2줄)</option>
+          </select>
+          <span style={{ fontSize: 12, color: '#999' }}>
+            한 줄만 보는 모드에서 직전 자막을 함께 쌓아 맥락을 넓힙니다. 공백 구간엔 직전 자막 유지.
+          </span>
+        </Row>
+        <Row label="누적 자막 레이아웃" hint="누적 2줄 이상에서 적용">
+          <select
+            value={settings.historyLayout}
+            disabled={settings.singleContextLines === 1}
+            onChange={(e) => update({ historyLayout: e.target.value as HistoryLayout })}
+          >
+            <option value="stacked">줄 스택 (cue마다 한 줄)</option>
+            <option value="inline">한 줄 연결 (이어 흐름)</option>
+          </select>
+          <span style={{ fontSize: 12, color: '#999' }}>
+            인라인은 직전·현재 자막을 한 문단처럼 이어 흘립니다(폭 초과 시 줄바꿈).
+          </span>
+        </Row>
+        <Row label="이전 줄 흐리게" hint="누적 2줄 이상에서 적용">
+          <input
+            type="checkbox"
+            checked={settings.dimHistory}
+            disabled={settings.singleContextLines === 1}
+            onChange={(e) => update({ dimHistory: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#999' }}>
+            직전 자막을 흐리게 표시해 지금 말하는 줄과 구분합니다.
           </span>
         </Row>
       </Section>

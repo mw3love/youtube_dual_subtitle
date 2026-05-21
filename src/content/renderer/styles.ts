@@ -57,7 +57,7 @@ const STYLES = `
 }
 
 .ydt-cue {
-  position: relative; /* .ydt-handle의 absolute 기준점 */
+  position: relative;
   padding: 4px 10px;
   background: rgba(0, 0, 0, var(--ydt-bg-opacity, 0.75));
   border-radius: 4px;
@@ -85,6 +85,9 @@ const STYLES = `
   font-size: var(--ydt-target-size, 18px);
   font-weight: var(--ydt-target-weight, 400);
 }
+
+/* 누적(롤링) 모드 히스토리 영역 — 표시 여부·레이아웃(블록/인라인)·흐림(opacity)은
+   renderer가 동적으로 제어. 색/크기는 부모 .ydt-cue에서 그대로 상속. */
 
 /* Fullscreen 보정 — 변수 기준으로 ~1.4배 */
 :fullscreen .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * 1.4); }

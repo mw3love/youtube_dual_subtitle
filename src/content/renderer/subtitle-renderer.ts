@@ -1,5 +1,5 @@
 import type { Cue, Word } from '../../shared/types';
-import type { DisplayMode, Position } from '../../shared/settings';
+import type { DisplayMode, HistoryLayout, Position } from '../../shared/settings';
 import { createContainer, findMountTarget, type Mode } from './container';
 import { applySubtitlePosition, injectStyles } from './styles';
 
@@ -19,6 +19,9 @@ export class SubtitleRenderer {
   // 행 내부의 텍스트 전용 span. 콘텐츠 wipe가 형제 노드를 휩쓸지 않도록 분리.
   private sourceTextEl: HTMLElement | null = null;
   private targetTextEl: HTMLElement | null = null;
+  // 누적(롤링) 모드에서 직전 cue들이 쌓이는 영역 — 현재 줄 위. 행마다 하나씩.
+  private sourceHistoryEl: HTMLElement | null = null;
+  private targetHistoryEl: HTMLElement | null = null;
   private video: HTMLVideoElement | null = null;
   private mode: Mode = 'normal';
   private rafId: number | null = null;
@@ -33,6 +36,11 @@ export class SubtitleRenderer {
   private wordRevealEnabled = true;
   private wordSpans: HTMLSpanElement[] = [];
   private lastWordRevealed = -1;
+  // 싱글 자막 모드에서 화면에 함께 쌓을 줄 수(현재 줄 포함). 1이면 누적 없음(기존 동작).
+  private singleContextLines = 2;
+  // 누적 표시 시 직전 줄을 흐리게 할지(현재 줄 구분), 누적 레이아웃(줄 스택/한 줄 연결).
+  private dimHistory = true;
+  private historyLayout: HistoryLayout = 'stacked';
 
   // 자막 위치 — 일반/쇼츠 각각. 드래그로 갱신.
   private positions: { normal: Position; shorts: Position } = {
@@ -102,9 +110,15 @@ export class SubtitleRenderer {
     // 다른 video거나 stale이면 재구성
     this.unmount();
 
-    const { container, sourceEl, targetEl, sourceTextEl, targetTextEl } = createContainer(
-      target.mode,
-    );
+    const {
+      container,
+      sourceEl,
+      targetEl,
+      sourceTextEl,
+      targetTextEl,
+      sourceHistoryEl,
+      targetHistoryEl,
+    } = createContainer(target.mode);
     target.host.appendChild(container);
 
     this.container = container;
@@ -112,6 +126,8 @@ export class SubtitleRenderer {
     this.targetEl = targetEl;
     this.sourceTextEl = sourceTextEl;
     this.targetTextEl = targetTextEl;
+    this.sourceHistoryEl = sourceHistoryEl;
+    this.targetHistoryEl = targetHistoryEl;
     this.video = target.video;
     this.mode = target.mode;
 
@@ -143,6 +159,8 @@ export class SubtitleRenderer {
     this.targetEl = null;
     this.sourceTextEl = null;
     this.targetTextEl = null;
+    this.sourceHistoryEl = null;
+    this.targetHistoryEl = null;
     this.video = null;
     this.lastIdx = -2;
     this.wordSpans = [];
@@ -158,6 +176,7 @@ export class SubtitleRenderer {
     this.lastWordRevealed = -1;
     if (this.sourceTextEl) this.sourceTextEl.textContent = '';
     if (this.targetTextEl) this.targetTextEl.textContent = '';
+    this.clearHistory();
     if (this.container) this.container.style.visibility = 'hidden';
   }
 
@@ -167,20 +186,44 @@ export class SubtitleRenderer {
   }
 
   setDisplayMode(mode: DisplayMode): void {
+    const changed = this.displayMode !== mode;
     this.displayMode = mode;
     this.applyDisplayMode();
+    // 듀얼↔싱글 전환 시 누적 윈도우가 즉시 나타나거나 사라지도록 다음 update를 강제.
+    if (changed) this.lastIdx = -2;
   }
 
   setSuppressTarget(suppress: boolean): void {
     if (this.suppressTarget === suppress) return;
     this.suppressTarget = suppress;
     this.applyDisplayMode();
+    // suppress 전환은 보이는 줄(원문↔번역)을 바꾸므로 누적 윈도우도 재구성.
+    this.lastIdx = -2;
   }
 
   setWordRevealEnabled(enabled: boolean): void {
     if (this.wordRevealEnabled === enabled) return;
     this.wordRevealEnabled = enabled;
     this.lastIdx = -2; // 다음 update에서 source 재구성
+  }
+
+  // 싱글 자막 모드에서 함께 쌓을 줄 수(현재 줄 포함). 1이면 누적 없음.
+  setSingleContextLines(n: number): void {
+    if (this.singleContextLines === n) return;
+    this.singleContextLines = n;
+    this.lastIdx = -2; // 다음 update에서 누적 윈도우 재구성
+  }
+
+  setDimHistory(dim: boolean): void {
+    if (this.dimHistory === dim) return;
+    this.dimHistory = dim;
+    this.lastIdx = -2; // 다음 update에서 누적 윈도우 재렌더
+  }
+
+  setHistoryLayout(layout: HistoryLayout): void {
+    if (this.historyLayout === layout) return;
+    this.historyLayout = layout;
+    this.lastIdx = -2; // 다음 update에서 누적 윈도우 재렌더
   }
 
   setPositions(positions: { normal: Position; shorts: Position }): void {
@@ -295,6 +338,20 @@ export class SubtitleRenderer {
 
     const t = this.video.currentTime;
     const idx = this.findCueIndex(t);
+    const rolling = this.isRollingActive();
+
+    // 누적 모드 sticky: 발화 사이 공백(직전 cue 종료 후 다음 cue 시작 전)에는 직전 윈도우를
+    // 그대로 둬 자막이 깜빡이며 사라지지 않게 한다. 되감기로 직전 cue 시작 이전까지 간
+    // 경우(t < 직전 cue end)는 제외 — 일반 경로로 떨어져 숨김 처리된다.
+    if (
+      idx === -1 &&
+      rolling &&
+      this.lastIdx >= 0 &&
+      this.lastIdx < this.cues.length &&
+      t >= this.cues[this.lastIdx].end
+    ) {
+      return;
+    }
 
     if (idx !== this.lastIdx) {
       this.lastIdx = idx;
@@ -302,6 +359,7 @@ export class SubtitleRenderer {
         this.container.style.visibility = 'hidden';
         this.sourceTextEl.textContent = '';
         this.targetTextEl.textContent = '';
+        this.clearHistory();
         this.wordSpans = [];
         this.lastWordRevealed = -1;
         return;
@@ -313,6 +371,9 @@ export class SubtitleRenderer {
       // 한 줄만 보이므로 번역 미도착 시 source를 보여주는 게 빈 화면보다 낫다.
       const fallback = this.displayMode === 'dual' ? '' : cue.text;
       this.targetTextEl.textContent = this.targetTexts[idx] || fallback;
+      // 싱글 자막 모드에서는 직전 cue들을 현재 줄 위에 누적 표시해 맥락을 넓힌다.
+      if (rolling) this.renderHistory(idx);
+      else this.clearHistory();
       this.container.style.visibility = 'visible';
       this.lastWordRevealed = -1;
     }
@@ -366,6 +427,81 @@ export class SubtitleRenderer {
       spans.push(span);
     }
     this.wordSpans = spans;
+  }
+
+  // ─── 누적(롤링) 윈도우 ───
+  // 싱글 자막(번역만 / 원문만 / 모국어 영상) 모드에서만 직전 cue를 현재 줄 위에 쌓는다.
+  // 듀얼 모드는 두 줄이 모두 보이므로 누적하지 않는다(공부용 — 한 조각 단위가 적절).
+
+  // 화면에 한 줄만 보이는 경우 그 줄이 원문인지 번역인지. 듀얼이면 null.
+  private visibleSingleRow(): 'source' | 'target' | null {
+    if (this.suppressTarget) return 'source'; // 모국어 영상 — 원문 줄만
+    if (this.displayMode === 'translation-only') return 'target';
+    if (this.displayMode === 'source-only') return 'source';
+    return null; // dual — 두 줄 모두 표시
+  }
+
+  private isRollingActive(): boolean {
+    return this.singleContextLines >= 2 && this.visibleSingleRow() !== null;
+  }
+
+  // 현재 cue 위에 직전 (singleContextLines - 1)개 cue를 누적 표시한다.
+  // 보이는 줄이 번역 줄이면 번역 텍스트를, 원문 줄이면 원문 텍스트를 쓴다.
+  // 레이아웃: 'stacked'는 cue마다 한 줄, 'inline'은 현재 줄과 한 문단처럼 이어 흘림.
+  private renderHistory(currentIdx: number): void {
+    const row = this.visibleSingleRow();
+    const histEl = row === 'target' ? this.targetHistoryEl : this.sourceHistoryEl;
+    // 보이지 않는 행의 history는 비워둔다 — 모드 전환 잔상 방지.
+    const otherEl = row === 'target' ? this.sourceHistoryEl : this.targetHistoryEl;
+    if (otherEl) {
+      otherEl.textContent = '';
+      otherEl.style.display = 'none';
+    }
+    if (!histEl) return;
+
+    const start = Math.max(0, currentIdx - (this.singleContextLines - 1));
+    const texts: string[] = [];
+    for (let k = start; k < currentIdx; k++) {
+      // 번역 줄인데 해당 cue 번역이 아직 도착 전이면 원문으로 임시 대체.
+      // (대부분 직전 cue라 이미 번역돼 있고, setTargetTexts가 오면 재렌더된다.)
+      texts.push(
+        row === 'target' ? this.targetTexts[k] || this.cues[k].text : this.cues[k].text,
+      );
+    }
+
+    // 흐림은 history 컨테이너 전체에 opacity로 — 스택/인라인 레이아웃 모두 동일 적용.
+    histEl.style.opacity = this.dimHistory ? '0.5' : '';
+
+    if (texts.length === 0) {
+      histEl.textContent = '';
+      histEl.style.display = 'none';
+      return;
+    }
+
+    if (this.historyLayout === 'inline') {
+      // 한 줄 연결 — 직전 자막들을 이어붙이고 끝에 공백 하나로 현재 줄과 분리.
+      // display:inline이라 뒤따르는 현재 줄 span과 한 문단처럼 흐른다(폭 초과 시 자연 줄바꿈).
+      histEl.textContent = `${texts.join(' ')} `;
+      histEl.style.display = 'inline';
+    } else {
+      // 줄 스택 — cue마다 한 줄(블록).
+      const lines = texts.map((t) => {
+        const line = document.createElement('div');
+        line.className = 'ydt-history-line';
+        line.textContent = t;
+        return line;
+      });
+      histEl.replaceChildren(...lines);
+      histEl.style.display = '';
+    }
+  }
+
+  private clearHistory(): void {
+    for (const el of [this.sourceHistoryEl, this.targetHistoryEl]) {
+      if (!el) continue;
+      el.textContent = '';
+      el.style.display = 'none';
+    }
   }
 
   // ─── 드래그 핸들러 ───

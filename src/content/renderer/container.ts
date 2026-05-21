@@ -76,6 +76,8 @@ export function createContainer(mode: Mode): {
   targetEl: HTMLElement;
   sourceTextEl: HTMLElement;
   targetTextEl: HTMLElement;
+  sourceHistoryEl: HTMLElement;
+  targetHistoryEl: HTMLElement;
 } {
   const container = document.createElement('div');
   container.className = 'ydt-container';
@@ -83,20 +85,37 @@ export function createContainer(mode: Mode): {
   container.style.visibility = 'hidden';
 
   // 행마다 텍스트 전용 span을 둔다. 콘텐츠 갱신은 이 span의 textContent만 비우므로
-  // 같은 행의 다른 자식이 휩쓸려 사라지지 않는다.
+  // 같은 행의 다른 자식(누적 윈도우)이 휩쓸려 사라지지 않는다.
+  // 누적(롤링) 모드에서 직전 cue들이 쌓이는 영역 — 현재 줄(텍스트 span) 위. 기본 비표시.
   const sourceEl = document.createElement('div');
   sourceEl.className = 'ydt-cue ydt-source';
+  const sourceHistoryEl = document.createElement('div');
+  sourceHistoryEl.className = 'ydt-history';
+  sourceHistoryEl.style.display = 'none';
   const sourceTextEl = document.createElement('span');
   sourceTextEl.className = 'ydt-cue-text';
+  sourceEl.appendChild(sourceHistoryEl);
   sourceEl.appendChild(sourceTextEl);
 
   const targetEl = document.createElement('div');
   targetEl.className = 'ydt-cue ydt-target';
+  const targetHistoryEl = document.createElement('div');
+  targetHistoryEl.className = 'ydt-history';
+  targetHistoryEl.style.display = 'none';
   const targetTextEl = document.createElement('span');
   targetTextEl.className = 'ydt-cue-text';
+  targetEl.appendChild(targetHistoryEl);
   targetEl.appendChild(targetTextEl);
 
   container.appendChild(sourceEl);
   container.appendChild(targetEl);
-  return { container, sourceEl, targetEl, sourceTextEl, targetTextEl };
+  return {
+    container,
+    sourceEl,
+    targetEl,
+    sourceTextEl,
+    targetTextEl,
+    sourceHistoryEl,
+    targetHistoryEl,
+  };
 }
