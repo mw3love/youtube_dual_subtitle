@@ -529,8 +529,9 @@ export class SubtitleRenderer {
     if (!this.container || !this.video) return;
 
     // 텍스트 위 down은 native 선택에 전적으로 양보. 드래그는 행 padding/gap/halo 띠에서만.
+    // 누적(롤링) 윗줄(.ydt-history)도 텍스트라 같이 양보 — 안 그러면 윗줄에서 선택이 막힌다.
     const target = ev.target as HTMLElement | null;
-    if (target?.closest('.ydt-cue-text')) return;
+    if (target?.closest('.ydt-cue-text, .ydt-history')) return;
 
     const videoRect = this.video.getBoundingClientRect();
     if (videoRect.width === 0 || videoRect.height === 0) return;

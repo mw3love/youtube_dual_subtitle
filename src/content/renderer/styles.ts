@@ -30,8 +30,9 @@ const STYLES = `
   font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
   cursor: move;
 }
-/* 텍스트 위에선 텍스트 커서. 드래그는 6px threshold로 텍스트 선택과 공존. */
-.ydt-cue-text, .ydt-word {
+/* 텍스트 위에선 텍스트 커서. 드래그는 6px threshold로 텍스트 선택과 공존.
+   누적(롤링) 윗줄(.ydt-history*)도 텍스트라 같은 규칙 적용 — 안 그러면 move cursor + 컨테이너 드래그가 발화돼 텍스트 선택이 막힌다. */
+.ydt-cue-text, .ydt-word, .ydt-history, .ydt-history-line {
   cursor: text;
 }
 
