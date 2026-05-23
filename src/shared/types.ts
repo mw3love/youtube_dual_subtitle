@@ -55,4 +55,13 @@ export interface SubtitlesEnabledMessage {
   enabled: boolean;
 }
 
-export type ContentToMainMessage = FetchTimedtextMessage | SubtitlesEnabledMessage;
+// isolated → MAIN. 워치독: 영상 진입 후 일정 시간 cue가 안 잡히면 호출.
+// capture 중복 방지 Set과 retry 카운터를 reset하고 tryBroadcast를 재발사하도록 요청.
+// ytInitialPlayerResponse 늦은 셋팅 / MAIN inject race / 페이지 timedtext 캐시 등 다중 원인 자가복구.
+export interface ForceBootMessage {
+  source: 'YDT_CONTENT';
+  type: 'FORCE_BOOT';
+  videoId: string | null;
+}
+
+export type ContentToMainMessage = FetchTimedtextMessage | SubtitlesEnabledMessage | ForceBootMessage;

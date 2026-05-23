@@ -270,6 +270,8 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     mountedVideoId = currentVideoId();
     lastCues = cues;
     if (key) lastProcessedTrackKey = key;
+    // 자막 들어왔으니 워치독 해제 — 재발사가 새 trigger(영상 변경) 때 다시 걸린다.
+    clearWatchdog();
     void translateCues(cues, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
@@ -493,6 +495,63 @@ document.addEventListener(
   },
   true,
 );
+
+// ──── Watchdog ────
+// 영상 진입 후 일정 시간 안에 cue가 안 잡히면 MAIN에 capture 상태 reset + 재부팅을 요청.
+// 자가복구 대상 원인:
+//   1) ytInitialPlayerResponse가 7초 안에 set 안 돼서 inject-main의 retry 체인이 빈 트랙으로 끝남
+//   2) MAIN world inject가 페이지 fetch 캡처 race에서 졌음
+//   3) 페이지가 timedtext 응답을 캐시해서 CC 토글에도 fetch가 안 일어남
+// 누적 지연: 8s, 38s, 98s — 광고 길이/네트워크 변동 고려.
+const WATCHDOG_DELAYS_MS = [8000, 30000, 60000];
+let watchdogVideoId: string | null = null;
+let watchdogTimers: number[] = [];
+
+function clearWatchdog(): void {
+  watchdogTimers.forEach((t) => clearTimeout(t));
+  watchdogTimers = [];
+  watchdogVideoId = null;
+}
+
+function armWatchdog(videoId: string): void {
+  clearWatchdog();
+  watchdogVideoId = videoId;
+  let elapsed = 0;
+  WATCHDOG_DELAYS_MS.forEach((delta, idx) => {
+    elapsed += delta;
+    const cumulative = elapsed;
+    const attempt = idx + 1;
+    const t = window.setTimeout(() => {
+      // 영상이 바뀌었거나 사용자가 자막 끄거나 이미 cue 도착한 경우는 skip.
+      if (watchdogVideoId !== videoId) return;
+      if (currentVideoId() !== videoId) return;
+      if (!currentSettings?.subtitlesEnabled) return;
+      if (lastCues.length > 0) return;
+      console.warn(
+        TAG,
+        `[health] watchdog ${attempt}/${WATCHDOG_DELAYS_MS.length}: no cues for ${videoId} after ${cumulative}ms — requesting force boot`,
+      );
+      window.postMessage(
+        { source: 'YDT_CONTENT', type: 'FORCE_BOOT', videoId },
+        location.origin,
+      );
+    }, elapsed);
+    watchdogTimers.push(t);
+  });
+}
+
+// 1초 폴링으로 videoId 변화 감지 → 새 영상마다 rearm.
+// yt-navigate-finish가 발화 안 되는 케이스(첫 페이지 로드, 일부 플레이리스트 전이)도 함께 커버.
+let lastWatchdogVideoId: string | null = null;
+function tickWatchdog(): void {
+  const vid = currentVideoId();
+  if (!vid) return;
+  if (vid === lastWatchdogVideoId) return;
+  lastWatchdogVideoId = vid;
+  armWatchdog(vid);
+}
+tickWatchdog();
+setInterval(tickWatchdog, 1000);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
 const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend']);

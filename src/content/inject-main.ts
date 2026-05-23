@@ -466,6 +466,21 @@
       if (typeof data.enabled !== 'boolean') return;
       subtitlesEnabled = data.enabled;
       console.log(TAG, 'subtitlesEnabled =', subtitlesEnabled);
+    } else if (data.type === 'FORCE_BOOT') {
+      // 워치독에서 호출. 현재 영상의 capture 상태를 reset하고 부트 시퀀스를 재발사.
+      // (stale 요청 — isolated가 보낸 후 영상이 바뀐 경우 — 은 무시)
+      const reqVid = typeof data.videoId === 'string' ? data.videoId : null;
+      const curVid = getVideoId();
+      if (reqVid && reqVid !== curVid) {
+        console.log(TAG, `[health] FORCE_BOOT stale (req=${reqVid}, cur=${curVid}) — ignored`);
+        return;
+      }
+      console.warn(TAG, `[health] FORCE_BOOT for ${curVid} — resetting capture state and re-broadcasting`);
+      capturedVideoIds.clear();
+      captureRetries.clear();
+      captureTimers.forEach((t) => clearTimeout(t));
+      captureTimers.clear();
+      tryBroadcast('watchdog');
     }
   });
 
