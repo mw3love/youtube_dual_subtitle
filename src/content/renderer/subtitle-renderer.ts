@@ -16,10 +16,9 @@ export class SubtitleRenderer {
   private container: HTMLElement | null = null;
   private sourceEl: HTMLElement | null = null;
   private targetEl: HTMLElement | null = null;
-  // 행 내부의 텍스트 전용 span. 콘텐츠 wipe가 핸들을 휩쓸지 않도록 분리.
+  // 행 내부의 텍스트 전용 span. 콘텐츠 wipe가 형제 노드를 휩쓸지 않도록 분리.
   private sourceTextEl: HTMLElement | null = null;
   private targetTextEl: HTMLElement | null = null;
-  private handleEl: HTMLElement | null = null;
   private video: HTMLVideoElement | null = null;
   private mode: Mode = 'normal';
   private rafId: number | null = null;
@@ -103,8 +102,9 @@ export class SubtitleRenderer {
     // 다른 video거나 stale이면 재구성
     this.unmount();
 
-    const { container, sourceEl, targetEl, sourceTextEl, targetTextEl, handleEl } =
-      createContainer(target.mode);
+    const { container, sourceEl, targetEl, sourceTextEl, targetTextEl } = createContainer(
+      target.mode,
+    );
     target.host.appendChild(container);
 
     this.container = container;
@@ -112,7 +112,6 @@ export class SubtitleRenderer {
     this.targetEl = targetEl;
     this.sourceTextEl = sourceTextEl;
     this.targetTextEl = targetTextEl;
-    this.handleEl = handleEl;
     this.video = target.video;
     this.mode = target.mode;
 
@@ -144,7 +143,6 @@ export class SubtitleRenderer {
     this.targetEl = null;
     this.sourceTextEl = null;
     this.targetTextEl = null;
-    this.handleEl = null;
     this.video = null;
     this.lastIdx = -2;
     this.wordSpans = [];
@@ -204,7 +202,7 @@ export class SubtitleRenderer {
     this.onFontSizeChange = cb;
   }
 
-  // 컨테이너가 영상 영역 + 핸들이 화면 안에 남도록 위치를 보정한다.
+  // 컨테이너가 영상 영역 안에 남도록 위치를 보정한다.
   // 컨테이너 폭이 결정되기 전(첫 cue 도착 전)엔 vRect/cRect width가 0이라 보정 불가 → 원본 그대로.
   // widthOverride: 드래그 중 wrap feedback loop(cRect.width가 줄면 maxX가 커져 더 우측으로
   // 가고, 다시 wrap이 깊어지는 무한 진행) 방지용으로 드래그 시작 시점의 폭을 고정해 전달.
@@ -215,11 +213,8 @@ export class SubtitleRenderer {
     const cWidth = widthOverride ?? cRect.width;
     const cHeight = cRect.height;
     if (vRect.width === 0 || cWidth === 0) return pos;
-    // 핸들이 행 좌측 -18px 위치라 추가 margin 필요. 24px = 핸들 폭 + 6px 여유.
-    const HANDLE_MARGIN_PX = 24;
     const halfWidthPct = ((cWidth / 2) / vRect.width) * 100;
-    const handleMarginPct = (HANDLE_MARGIN_PX / vRect.width) * 100;
-    const minX = halfWidthPct + handleMarginPct;
+    const minX = halfWidthPct;
     const maxX = 100 - halfWidthPct;
     // y는 bottom 기준 %. 위쪽으로 갈수록 yPercent가 커진다. 컨테이너 윗변이 영상 위로
     // 삐져나가지 않으려면 yPercent + (height/videoHeight)% <= 100. 영상이 컨테이너보다
@@ -252,18 +247,6 @@ export class SubtitleRenderer {
     } else {
       this.sourceEl.style.display = this.displayMode === 'translation-only' ? 'none' : '';
       this.targetEl.style.display = this.displayMode === 'source-only' ? 'none' : '';
-    }
-    this.applyHandleParent();
-  }
-
-  // 핸들을 보이는 자막 행에 부착한다. 원문이 보이면 원문 행, 아니면 번역 행.
-  // 행이 display:none이면 그 자식인 핸들도 사라지므로 반드시 보이는 행에 둬야 한다.
-  private applyHandleParent(): void {
-    if (!this.handleEl || !this.sourceEl || !this.targetEl) return;
-    const sourceVisible = this.sourceEl.style.display !== 'none';
-    const desired = sourceVisible ? this.sourceEl : this.targetEl;
-    if (this.handleEl.parentElement !== desired) {
-      desired.appendChild(this.handleEl);
     }
   }
 
@@ -386,16 +369,17 @@ export class SubtitleRenderer {
   }
 
   // ─── 드래그 핸들러 ───
-  // pointerdown on 핸들 → pointermove로 위치 갱신 → pointerup으로 종료 + 저장.
+  // pointerdown on 컨테이너 → 텍스트 위면 native 선택에 양보(드래그 안 함),
+  // 여백/gap/halo 띠에서 시작하면 즉시 드래그.
   // 좌표 계산: 영상 element의 boundingClientRect 기준, %로 환산.
   private attachDragHandlers(): void {
-    if (!this.handleEl) return;
-    this.handleEl.addEventListener('pointerdown', this.onPointerDown);
+    if (!this.container) return;
+    this.container.addEventListener('pointerdown', this.onPointerDown);
   }
 
   private detachDragHandlers(): void {
-    if (this.handleEl) {
-      this.handleEl.removeEventListener('pointerdown', this.onPointerDown);
+    if (this.container) {
+      this.container.removeEventListener('pointerdown', this.onPointerDown);
     }
     if (this.dragHandlers) {
       document.removeEventListener('pointermove', this.dragHandlers.move);
@@ -406,27 +390,30 @@ export class SubtitleRenderer {
 
   private onPointerDown = (ev: PointerEvent): void => {
     if (ev.button !== 0) return; // left button only
-    if (!this.container || !this.video || !this.handleEl) return;
-    ev.preventDefault();
-    ev.stopPropagation();
+    if (!this.container || !this.video) return;
+
+    // 텍스트 위 down은 native 선택에 전적으로 양보. 드래그는 행 padding/gap/halo 띠에서만.
+    const target = ev.target as HTMLElement | null;
+    if (target?.closest('.ydt-cue-text')) return;
 
     const videoRect = this.video.getBoundingClientRect();
     if (videoRect.width === 0 || videoRect.height === 0) return;
 
-    // 시작 시점의 컨테이너 중앙 좌표 (영상 내 px)
+    ev.preventDefault();
+    ev.stopPropagation();
+
     const cRect = this.container.getBoundingClientRect();
     const startCenterX = cRect.left + cRect.width / 2 - videoRect.left;
-    const startBottomGap = videoRect.bottom - cRect.bottom; // 영상 하단과 컨테이너 하단 사이 거리
-
+    const startBottomGap = videoRect.bottom - cRect.bottom;
     const startMouseX = ev.clientX;
     const startMouseY = ev.clientY;
 
-    this.container.classList.add('is-dragging');
     try {
-      this.handleEl.setPointerCapture(ev.pointerId);
+      this.container.setPointerCapture(ev.pointerId);
     } catch {
       // some browsers
     }
+    this.container.classList.add('is-dragging');
 
     const onMove = (e: PointerEvent): void => {
       if (!this.container || !this.video) return;
@@ -437,8 +424,6 @@ export class SubtitleRenderer {
         xPercent: ((startCenterX + dx) / vRect.width) * 100,
         yPercent: ((startBottomGap - dy) / vRect.height) * 100,
       };
-      // 컨테이너 폭 + 핸들 마진을 고려해 동적 clamp — 좌측 끝 드래그 시 핸들이 화면 밖으로 나가지 않게.
-      // CSS의 width: max-content로 컨테이너 폭이 left 위치와 독립이라 wrap loop 없음.
       const clamped = this.clampPosition(raw);
       this.positions[this.mode] = clamped;
       applySubtitlePosition(clamped.xPercent, clamped.yPercent);
@@ -450,7 +435,6 @@ export class SubtitleRenderer {
       document.removeEventListener('pointerup', this.dragHandlers.up);
       this.dragHandlers = null;
       this.container?.classList.remove('is-dragging');
-      // 마지막 위치 저장
       this.onPositionChange?.(this.mode, this.positions[this.mode]);
     };
 

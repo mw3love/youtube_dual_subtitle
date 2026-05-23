@@ -76,27 +76,19 @@ export function createContainer(mode: Mode): {
   targetEl: HTMLElement;
   sourceTextEl: HTMLElement;
   targetTextEl: HTMLElement;
-  handleEl: HTMLElement;
 } {
   const container = document.createElement('div');
   container.className = 'ydt-container';
   container.dataset.mode = mode;
   container.style.visibility = 'hidden';
 
-  const handleEl = document.createElement('div');
-  handleEl.className = 'ydt-handle';
-  handleEl.title = '드래그하여 자막 위치 이동';
-  handleEl.textContent = '⋮⋮';
-
   // 행마다 텍스트 전용 span을 둔다. 콘텐츠 갱신은 이 span의 textContent만 비우므로
-  // 같은 행의 형제(핸들)가 휩쓸려 사라지지 않는다.
+  // 같은 행의 다른 자식이 휩쓸려 사라지지 않는다.
   const sourceEl = document.createElement('div');
   sourceEl.className = 'ydt-cue ydt-source';
   const sourceTextEl = document.createElement('span');
   sourceTextEl.className = 'ydt-cue-text';
   sourceEl.appendChild(sourceTextEl);
-  // 핸들 기본 부모는 원문 행. translation-only 모드에선 renderer가 번역 행으로 옮긴다.
-  sourceEl.appendChild(handleEl);
 
   const targetEl = document.createElement('div');
   targetEl.className = 'ydt-cue ydt-target';
@@ -106,5 +98,5 @@ export function createContainer(mode: Mode): {
 
   container.appendChild(sourceEl);
   container.appendChild(targetEl);
-  return { container, sourceEl, targetEl, sourceTextEl, targetTextEl, handleEl };
+  return { container, sourceEl, targetEl, sourceTextEl, targetTextEl };
 }

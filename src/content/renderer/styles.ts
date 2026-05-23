@@ -28,49 +28,32 @@ const STYLES = `
   pointer-events: auto;
   user-select: text;
   font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
+  cursor: move;
+}
+/* 텍스트 위에선 텍스트 커서. 드래그는 6px threshold로 텍스트 선택과 공존. */
+.ydt-cue-text, .ydt-word {
+  cursor: text;
 }
 
-/* 드래그 핸들 — 보이는 자막 행 좌측에 호버 시 표시. ⋮⋮ 6점 패턴 */
-/* display:none이 아니라 opacity로 토글: hit test 유지되어 컨테이너→핸들 이동 중에도 호버 안 풀림. */
-/* 부모는 행(.ydt-cue, position:relative). 행마다 폭이 달라도 그 행의 좌측에 자동 정렬된다. */
-.ydt-handle {
+/* hit 영역 확장 + halo 채움 — 컨테이너 외곽 6px 띠를 가상 요소로 만들어
+   드래그 가능 영역을 넓히고 hover/dragging 시 cyan tint로 채운다. 가상 요소가
+   .ydt-cue 행 뒤에 있어 행 본체 가독성에는 영향 없고, 행 사이 4px gap에는
+   tint가 비쳐 두 자막이 한 패널처럼 묶여 보인다.
+   e.target은 여전히 .ydt-container라 핸들러 로직 그대로. */
+.ydt-container::before {
+  content: '';
   position: absolute;
-  /* 행 좌측 끝에 핸들 우측이 살짝 겹치게 — 마우스 이동 시 갭 0 */
-  left: -18px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: move;
-  background: rgba(0, 0, 0, 0.6);
-  border-radius: 3px;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 13px;
-  line-height: 1;
-  letter-spacing: -1px;
-  user-select: none;
-  opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  inset: -6px;
+  pointer-events: auto;
+  background: transparent;
+  border-radius: 6px;
+  transition: background 120ms ease;
 }
-.ydt-container:hover .ydt-handle,
-.ydt-handle:hover {
-  opacity: 1;
+.ydt-container:hover::before {
+  background: rgba(62, 166, 255, 0.2);
 }
-.ydt-handle:hover {
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-}
-/* 드래그 중에는 호버 무관하게 보임 */
-.ydt-container.is-dragging .ydt-handle {
-  opacity: 1;
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-}
-.ydt-container.is-dragging {
-  outline: 1px dashed rgba(62, 166, 255, 0.5);
+.ydt-container.is-dragging::before {
+  background: rgba(62, 166, 255, 0.4);
 }
 
 .ydt-cue {
