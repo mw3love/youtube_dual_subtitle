@@ -43,23 +43,23 @@ function StatusLine({ status }: { status: TabStatus }) {
       break;
     case 'not-youtube':
       color = '#888';
-      text = 'YouTube 페이지가 아님';
+      text = 'YouTube 화면이 아님';
       break;
     case 'unreachable':
       color = '#aa6633';
-      text = '확장이 페이지에 닿지 못함 (새로고침 필요)';
+      text = '페이지에 연결할 수 없음 · 새로고침 필요';
       break;
     case 'subtitles-off':
       color = '#888';
-      text = '자막 표시 꺼짐';
+      text = '자막 꺼짐';
       break;
     case 'no-cues':
       color = '#aa6633';
-      text = '이 영상에 자막 트랙 없음';
+      text = '이 영상에는 자막 없음';
       break;
     case 'active':
       color = '#3ea6ff';
-      text = `자막 활성 · ${status.cueCount} 줄`;
+      text = `자막 켜짐 · ${status.cueCount}줄`;
       break;
   }
   return (
@@ -158,7 +158,7 @@ function Popup() {
 
       <label style={rowStyle}>
         <span>
-          자막 표시
+          자막 켜기
           <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>단축키 C</span>
         </span>
         <input
@@ -169,8 +169,8 @@ function Popup() {
         />
       </label>
 
-      <label style={rowStyle} title="음성에 맞춰 영어 단어가 하나씩 나타납니다">
-        <span>단어 단위 표시</span>
+      <label style={rowStyle} title="노래방처럼 말하는 단어가 또렷해짐 (영어 자막)">
+        <span>노래방 모드</span>
         <input
           type="checkbox"
           checked={settings.wordRevealEnabled}
@@ -195,8 +195,8 @@ function Popup() {
         </select>
       </label>
 
-      <label style={rowStyle} title="영상 자막에서 이 언어를 우선 선택">
-        <span>원문 언어</span>
+      <label style={rowStyle} title="영상 자막에서 우선 고를 언어">
+        <span>영상 자막</span>
         <select
           value={settings.sourceLang}
           onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
@@ -212,7 +212,7 @@ function Popup() {
       </label>
 
       <label style={rowStyle}>
-        <span>번역 언어</span>
+        <span>바꿀 언어</span>
         <select
           value={settings.targetLang}
           onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
@@ -228,7 +228,7 @@ function Popup() {
       </label>
 
       <label style={rowStyle}>
-        <span>번역 엔진</span>
+        <span>번역 방식</span>
         <select
           value={settings.backend}
           onChange={(e) => update({ backend: e.target.value as BackendId })}
@@ -252,10 +252,12 @@ function Popup() {
           fontSize: 12,
         }}
       >
-        스타일·기타 설정 열기
+        자세히 설정하기
       </button>
 
-      <p style={{ margin: '8px 0 0', fontSize: 11, color: '#999' }}>v0.1.0</p>
+      <p style={{ margin: '8px 0 0', fontSize: 11, color: '#999' }}>
+        v{chrome.runtime.getManifest().version}
+      </p>
     </div>
   );
 }

@@ -24,7 +24,16 @@ const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section style={{ marginBottom: 28 }}>
-      <h2 style={{ fontSize: 16, margin: '0 0 12px', borderBottom: '1px solid #2e2e2e', paddingBottom: 6 }}>
+      <h2
+        style={{
+          fontSize: 16,
+          margin: '0 0 12px',
+          paddingBottom: 6,
+          borderBottom: '1px solid #2e2e2e',
+          color: '#ffa200',
+          fontWeight: 700,
+        }}
+      >
         {title}
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
@@ -55,7 +64,20 @@ function StyleEditor({
 }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div style={{ fontSize: 13, fontWeight: 500 }}>{label}</div>
+      <div
+        style={{
+          alignSelf: 'flex-start',
+          fontSize: 11,
+          fontWeight: 700,
+          color: '#bbb',
+          background: '#262626',
+          padding: '3px 10px',
+          borderRadius: 10,
+          letterSpacing: '0.3px',
+        }}
+      >
+        {label}
+      </div>
       <Row label="크기">
         <input
           type="number"
@@ -185,15 +207,14 @@ function Options() {
   };
 
   const onClearCache = async (): Promise<void> => {
-    if (!confirm('번역 캐시를 모두 비웁니다. 다음 영상 재생 시 다시 번역됩니다.')) return;
+    if (!confirm('저장된 번역을 모두 비울까요? 다음에 같은 영상을 봐도 다시 번역됨.')) return;
     const n = await clearCache();
     setCacheCount(0);
-    alert(`${n}개 캐시 항목을 삭제했습니다.`);
+    alert(`${n}개 영상의 번역을 비움.`);
   };
 
   const onResetSettings = async (): Promise<void> => {
-    if (!confirm('모든 설정을 기본값으로 되돌립니다. 번역 캐시는 그대로 유지됩니다. 계속할까요?'))
-      return;
+    if (!confirm('모든 옵션을 처음으로 되돌릴까요? 저장된 번역은 그대로 유지됨.')) return;
     // 보류 중인 디바운스 저장이 있다면 리셋 직후 덮어쓰지 못하도록 취소.
     if (saveTimerRef.current !== null) {
       clearTimeout(saveTimerRef.current);
@@ -213,7 +234,18 @@ function Options() {
     color: '#ffb3b3',
   };
 
-  if (!loaded) return <div style={{ padding: 24 }}>설정 불러오는 중…</div>;
+  // 슬라이더 값(퍼센트/배수)을 폰트 크기 'px' 값과 시각적으로 구분.
+  // accent 색 + monospace로 "조절된 값"임을 한눈에 인식.
+  const sliderValueStyle: React.CSSProperties = {
+    fontSize: 12,
+    color: '#ffa200',
+    fontWeight: 600,
+    fontFamily: 'ui-monospace, "Cascadia Code", Menlo, Consolas, monospace',
+    minWidth: 44,
+    display: 'inline-block',
+  };
+
+  if (!loaded) return <div style={{ padding: 24 }}>옵션 불러오는 중…</div>;
 
   return (
     <div
@@ -234,15 +266,40 @@ function Options() {
           <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>● 저장됨</span>
         )}
       </h1>
-      <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>v0.1.0 · 변경 즉시 모든 YouTube 탭에 반영됩니다.</p>
+      <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>
+        v{chrome.runtime.getManifest().version} · 여기서 바꾸면 YouTube 화면에 바로 적용됨
+      </p>
 
-      <Section title="기본">
-        <Row label="자막 표시" hint="단축키: C (YouTube 페이지에서)">
+      <Section title="시작하기">
+        <Row label="자막 켜기" hint="단축키 'C'">
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}
             onChange={(e) => update({ subtitlesEnabled: e.target.checked })}
           />
+        </Row>
+        <Row label="언어" hint="원문 → 번역문">
+          <select
+            value={settings.sourceLang}
+            onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
+          >
+            {SOURCE_LANGS.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+          <span style={{ color: '#777', fontSize: 13 }}>→</span>
+          <select
+            value={settings.targetLang}
+            onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
+          >
+            {TARGET_LANGS.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
         </Row>
         <Row label="표시 모드">
           <select
@@ -256,85 +313,8 @@ function Options() {
             ))}
           </select>
         </Row>
-        <Row label="단어 단위 표시">
-          <input
-            type="checkbox"
-            checked={settings.wordRevealEnabled}
-            onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
-          />
-          <span style={{ fontSize: 12, color: '#999' }}>
-            음성에 맞춰 영어 단어가 점진 표시 (한글은 줄 단위). 자동자막에서 가장 정확.
-          </span>
-        </Row>
-        <Row label="싱글 자막 누적 줄 수" hint="번역만 / 원문만 모드에서 적용 · 듀얼 모드 무관">
-          <select
-            value={settings.singleContextLines}
-            onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
-          >
-            <option value={1}>1줄 (현재 줄만)</option>
-            <option value={2}>2줄 (현재 + 직전 1줄)</option>
-            <option value={3}>3줄 (현재 + 직전 2줄)</option>
-          </select>
-          <span style={{ fontSize: 12, color: '#999' }}>
-            한 줄만 보는 모드에서 직전 자막을 함께 쌓아 맥락을 넓힙니다. 공백 구간엔 직전 자막 유지.
-          </span>
-        </Row>
-        <Row label="누적 자막 레이아웃" hint="누적 2줄 이상에서 적용">
-          <select
-            value={settings.historyLayout}
-            disabled={settings.singleContextLines === 1}
-            onChange={(e) => update({ historyLayout: e.target.value as HistoryLayout })}
-          >
-            <option value="stacked">줄 스택 (cue마다 한 줄)</option>
-            <option value="inline">한 줄 연결 (이어 흐름)</option>
-          </select>
-          <span style={{ fontSize: 12, color: '#999' }}>
-            인라인은 직전·현재 자막을 한 문단처럼 이어 흘립니다(폭 초과 시 줄바꿈).
-          </span>
-        </Row>
-        <Row label="이전 줄 흐리게" hint="누적 2줄 이상에서 적용">
-          <input
-            type="checkbox"
-            checked={settings.dimHistory}
-            disabled={settings.singleContextLines === 1}
-            onChange={(e) => update({ dimHistory: e.target.checked })}
-          />
-          <span style={{ fontSize: 12, color: '#999' }}>
-            직전 자막을 흐리게 표시해 지금 말하는 줄과 구분합니다.
-          </span>
-        </Row>
-      </Section>
-
-      <Section title="언어">
-        <Row label="원문 언어" hint="영상 자막에서 이 언어를 우선 선택">
-          <select
-            value={settings.sourceLang}
-            onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
-          >
-            {SOURCE_LANGS.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </Row>
-        <Row label="번역 언어">
-          <select
-            value={settings.targetLang}
-            onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
-          >
-            {TARGET_LANGS.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </Row>
-      </Section>
-
-      <Section title="번역 백엔드">
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>엔진</label>
+          <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>번역 방식</label>
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
               <input
@@ -344,9 +324,12 @@ function Options() {
                 style={{ marginTop: 2 }}
               />
               <span>
-                <div>Google 무료</div>
+                <div>
+                  Google 무료{' '}
+                  <span style={{ fontSize: 11, color: '#3ea6ff', marginLeft: 2 }}>추천</span>
+                </div>
                 <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                  클라우드 번역. 영↔한 등 주요 페어 품질 상위. 빈번 호출 시 잠시 차단될 수 있음.
+                  온라인 번역. 너무 자주 쓰면 잠깐 끊길 수 있음
                 </div>
               </span>
             </label>
@@ -360,29 +343,67 @@ function Options() {
               <span>
                 <div>Chrome 내장 (오프라인)</div>
                 <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                  로컬 모델. 오프라인·차단 없음·자막 외부 전송 없음. 긴 문장은 약간 어색할 수 있음.
+                  오프라인 번역. 긴 문장은 살짝 어색할 수 있음
                 </div>
               </span>
             </label>
           </div>
         </div>
-        <div
-          style={{
-            marginLeft: 152,
-            marginTop: 8,
-            padding: '8px 12px',
-            background: '#222',
-            borderLeft: '3px solid #3ea6ff',
-            borderRadius: 3,
-            fontSize: 12,
-            color: '#bbb',
-          }}
-        >
-          Tip — 처음엔 Google 무료, 차단·오프라인 상황엔 Chrome 내장으로 전환 권장.
-        </div>
       </Section>
 
-      <Section title="스타일">
+      <Section title="보기 옵션">
+        <Row label="노래방 모드">
+          <input
+            type="checkbox"
+            checked={settings.wordRevealEnabled}
+            onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#999' }}>
+            노래방처럼 실시간 자막 표시
+          </span>
+        </Row>
+      </Section>
+
+      <Section title="모국어 영상 자막">
+        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+          듀얼자막과 달리 직전 자막도 계속 보여줘서 흐름이 끊기지 않음
+        </p>
+        <Row label="이전 자막 포함한 전체줄 수">
+          <select
+            value={settings.singleContextLines}
+            onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
+          >
+            <option value={1}>한 줄만</option>
+            <option value={2}>두 줄 (지금 + 바로 앞)</option>
+            <option value={3}>세 줄 (지금 + 앞 두 줄)</option>
+          </select>
+        </Row>
+        {settings.singleContextLines > 1 && (
+          <>
+            <Row label="쌓는 방식">
+              <select
+                value={settings.historyLayout}
+                onChange={(e) => update({ historyLayout: e.target.value as HistoryLayout })}
+              >
+                <option value="stacked">줄로 쌓기</option>
+                <option value="inline">한 문단처럼 이어 보기</option>
+              </select>
+            </Row>
+            <Row label="지난 줄 흐리게 표시">
+              <input
+                type="checkbox"
+                checked={settings.dimHistory}
+                onChange={(e) => update({ dimHistory: e.target.checked })}
+              />
+              <span style={{ fontSize: 12, color: '#999' }}>
+                지금 말하는 줄이 더 잘 보이게 설정
+              </span>
+            </Row>
+          </>
+        )}
+      </Section>
+
+      <Section title="자막 스타일">
         <div
           style={{
             display: 'grid',
@@ -393,16 +414,25 @@ function Options() {
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <StyleEditor
-              label="원문 (영어 등)"
+              label="1. 원문 자막"
               style={settings.sourceStyle}
               onChange={(sourceStyle) => update({ sourceStyle })}
             />
             <StyleEditor
-              label="번역 (한국어 등)"
+              label="2. 번역 자막"
               style={settings.targetStyle}
               onChange={(targetStyle) => update({ targetStyle })}
             />
-            <Row label="쇼츠 자막 크기 배율" hint="100%이면 일반 영상과 동일">
+            {/* 위 두 StyleEditor와 아래 슬라이더 그룹을 시각적으로 분리.
+                슬라이더 값은 monospace + accent 색으로 표시해 폰트 크기(px)와 구분. */}
+            <div
+              style={{
+                height: 1,
+                background: '#2e2e2e',
+                margin: '6px 0 2px',
+              }}
+            />
+            <Row label="쇼츠 자막 크기" hint="100%면 일반 영상이랑 같음">
               <input
                 type="range"
                 min={0.5}
@@ -412,11 +442,11 @@ function Options() {
                 onChange={(e) => update({ shortsFontScale: Number(e.target.value) })}
                 style={{ width: 200 }}
               />
-              <span style={{ fontSize: 12, color: '#999' }}>
+              <span style={sliderValueStyle}>
                 {Math.round(settings.shortsFontScale * 100)}%
               </span>
             </Row>
-            <Row label="자막 배경 투명도" hint="높을수록 박스 진함">
+            <Row label="자막 배경 진하기" hint="올릴수록 진해짐">
               <input
                 type="range"
                 min={0}
@@ -426,11 +456,11 @@ function Options() {
                 onChange={(e) => update({ backgroundOpacity: Number(e.target.value) })}
                 style={{ width: 200 }}
               />
-              <span style={{ fontSize: 12, color: '#999' }}>
+              <span style={sliderValueStyle}>
                 {Math.round(settings.backgroundOpacity * 100)}%
               </span>
             </Row>
-            <Row label="자막 줄 높이" hint="원문/번역 두 줄 사이 간격">
+            <Row label="원문과 번역 사이">
               <input
                 type="range"
                 min={1}
@@ -440,26 +470,33 @@ function Options() {
                 onChange={(e) => update({ lineHeight: Number(e.target.value) })}
                 style={{ width: 200 }}
               />
-              <span style={{ fontSize: 12, color: '#999' }}>
-                {settings.lineHeight.toFixed(2)}
-              </span>
+              <span style={sliderValueStyle}>{settings.lineHeight.toFixed(2)}</span>
             </Row>
-            <Row label="자막 위치" hint="영상 위에서 좌측 ⋮⋮ 핸들을 드래그">
+            {/* 자막 위치 — Row 컴포넌트 대신 수동 레이아웃.
+                라벨·Reset이 두 줄 설명의 세로 중앙(두 줄 사이)에 위치하도록 alignItems: center. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <label style={{ minWidth: 140, fontSize: 13 }}>자막 위치</label>
               <button
                 onClick={() =>
                   update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })
                 }
                 style={{ padding: '4px 10px' }}
               >
-                기본 위치로 되돌리기
+                Reset
               </button>
-              <span style={{ fontSize: 11, color: '#777' }}>
-                일반: {Math.round(settings.subtitlePosition.normal.xPercent)}% /{' '}
-                {Math.round(settings.subtitlePosition.normal.yPercent)}% · 쇼츠:{' '}
-                {Math.round(settings.subtitlePosition.shorts.xPercent)}% /{' '}
-                {Math.round(settings.subtitlePosition.shorts.yPercent)}%
-              </span>
-            </Row>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                  fontSize: 11,
+                  color: '#999',
+                }}
+              >
+                <div>· 자막 드래그 = 이동</div>
+                <div>· 마우스 휠 = 크기 조절</div>
+              </div>
+            </div>
           </div>
           <div style={{ position: 'sticky', top: 16 }}>
             <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>미리보기</div>
@@ -469,19 +506,27 @@ function Options() {
       </Section>
 
       <Section title="관리">
-        <Row label="번역 캐시">
-          <button onClick={onClearCache} style={dangerButtonStyle}>
+        <Row label="저장된 번역">
+          <button onClick={onClearCache} style={{ padding: '4px 10px' }}>
             비우기
           </button>
           <span style={{ fontSize: 12, color: '#999' }}>
-            현재 {cacheCount ?? '…'}개 영상
+            현재 {cacheCount ?? '…'}개 영상 저장
           </span>
         </Row>
-        <Row label="설정 초기화" hint="번역 캐시는 영향 없음">
-          <button onClick={onResetSettings} style={dangerButtonStyle}>
-            기본값으로 되돌리기
-          </button>
-        </Row>
+        <div
+          style={{
+            marginTop: 8,
+            paddingTop: 12,
+            borderTop: '1px dashed #3a2a2a',
+          }}
+        >
+          <Row label="옵션 초기화" hint="모든 옵션 초기화">
+            <button onClick={onResetSettings} style={dangerButtonStyle}>
+              초기화
+            </button>
+          </Row>
+        </div>
       </Section>
     </div>
   );
