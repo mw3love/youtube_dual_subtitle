@@ -8,3 +8,6 @@ desktop.ini
 
 # Chrome Web Store 업로드용 빌드 산출물 (dist를 압축한 결과, 매 빌드마다 재생성)
 *.zip
+
+# Playwright MCP 도구가 남기는 로컬 로그/스냅샷
+.playwright-mcp/
