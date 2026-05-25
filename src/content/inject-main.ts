@@ -40,11 +40,12 @@
 
   // 페이지가 자체적으로 호출한 timedtext URL의 마지막 값.
   // raw baseUrl(playerResponse)에는 PoToken/cver 등 client validation params가 없어 200+empty body가 옴.
-  // 페이지가 호출한 full URL을 기억해 두면 retry 시 그걸 (tlang만 제거하고) 재사용 가능.
+  // 페이지가 호출한 full URL의 PoToken/cver를 재사용하되 lang/kind/tlang은 우리 chosen으로 교체.
+  // (이전엔 Shorts만 보관했으나 일반 영상에도 우리가 chosen 강제 fetch하므로 모든 영상에 보관.)
   let lastPageTimedtextUrl: string | null = null;
 
   function rememberPageUrl(url: string): void {
-    if (location.pathname.startsWith('/shorts/')) lastPageTimedtextUrl = url;
+    lastPageTimedtextUrl = url;
   }
 
   const origFetch = window.fetch;
@@ -202,9 +203,11 @@
     );
     console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'via:', via, 'videoId:', getVideoId(), 'attempts:', attempt);
 
-    // 트랙이 있고 페이지가 자막을 아직 안 켰다면, 자동으로 활성화 트리거
+    // M1: CC click을 여기서 발화하지 않음 — page가 sticky lang으로 fetch 시작하는 걸 막기 위해.
+    // 대신 isolated가 chosen 결정 후 FETCH_TIMEDTEXT 메시지 보내면, MAIN handler에서
+    // setOption(chosen) → CC click 순서로 발화 — page가 처음부터 chosen lang으로 fetch하도록.
+    // armCaptureTimeout은 그대로 발화 — page가 우리 click 없이 자체적으로 fetch하는 경우 안전망.
     if (tracks.length > 0) {
-      tryEnableCaptions(0);
       armCaptureTimeout(getVideoId());
     }
   }
@@ -258,17 +261,10 @@
     // capturedVideoIds 체크 없이 무조건 off+on. 자막이 이미 켜져있어도 강제 재fetch.
     const isShorts = location.pathname.startsWith('/shorts/');
     if (isShorts) {
-      // Shorts는 CC 버튼이 없어 click path가 의미 없음.
-      // 우선순위: 페이지가 호출했던 full URL(PoToken 포함) > raw baseUrl(부족하면 빈 응답)
-      const candidate = lastPageTimedtextUrl ?? lastShortsBaseUrl;
-      if (candidate) {
-        console.log(TAG, 'forceToggleCaptions: shorts direct fetch retry, src:', lastPageTimedtextUrl ? 'page' : 'baseUrl');
-        void fetchTimedtextDirect(candidate, getVideoId());
-      } else {
-        // playerResponse가 갓 갱신됐을 수 있으니 트랙 재broadcast로 isolated가 다시 driving.
-        console.log(TAG, 'forceToggleCaptions: shorts re-broadcast tracks');
-        tryBroadcast('shorts-retry');
-      }
+      // Shorts는 CC 버튼이 없어 click path가 의미 없음. chosen 정보가 여기 없으니
+      // 트랙 재broadcast로 isolated가 chosen 결정 + FETCH_TIMEDTEXT 재발사하도록.
+      console.log(TAG, 'forceToggleCaptions: shorts re-broadcast tracks');
+      tryBroadcast('shorts-retry');
       return;
     }
     const ccBtn = document.querySelector<HTMLElement>('.ytp-subtitles-button');
@@ -352,15 +348,10 @@
       return;
     }
 
-    // 시도 1: setOption (silently 실패 가능, 영상에 따라 동작)
-    try {
-      if (player?.loadModule) player.loadModule('captions');
-      if (player?.setOption) player.setOption('captions', 'track', { languageCode: 'en' });
-    } catch (e) {
-      console.warn(TAG, 'setOption failed:', e);
-    }
-
-    // 시도 2: CC 버튼 click — fetch를 강제 trigger
+    // CC 버튼 click — fetch를 강제 trigger
+    // (이전에는 setOption('captions','track',{languageCode:'en'})도 호출했으나
+    //  이 호출이 모든 영상에 영어 트랙을 강제하고 YouTube 계정 선호로 sticky되어
+    //  한국어 영상에 영어 자동번역이 발화되는 부작용 발생 — 제거.)
     // 자막이 꺼져있으면 click 한 번으로 켜기 + fetch.
     // 자막이 이미 켜져있는데 fetch가 안 일어난 영상(YouTube 캐시 등)에서는
     // off → on 토글로 강제 재fetch.
@@ -397,32 +388,80 @@
     }
   }
 
-  // ───────────────────────── 4. Shorts용 직접 fetch ─────────────────────────
-  // Shorts에는 .ytp-subtitles-button이 없어 페이지가 자체적으로 timedtext fetch를 trigger 안 함.
-  // isolated content script가 playerResponse에서 chosen track baseUrl을 뽑아 MAIN에 fetch를 요청하면,
-  // MAIN이 페이지 context(쿠키/origin)에서 직접 fetch해 기존 postCaptured 경로로 결과를 흘려보낸다.
-  // tlang은 강제 제거 — 소스 언어 cue가 필요(이중 번역 방지).
+  // ───────────────────────── 4. chosen 트랙 직접 fetch ─────────────────────────
+  // isolated가 pickTrack으로 결정한 chosen 트랙(lang/kind)을 우리가 강제 fetch한다.
+  // YouTube default는 사용자 hl=ko 기반으로 tlang=ko를 자동 추가하거나 한국어 manual 트랙을
+  // 잡아 우리 의도와 어긋남 → 페이지가 호출한 URL에서 PoToken/cver를 가져와 재사용하되
+  // lang/kind는 chosen으로 교체, tlang은 제거.
 
-  let lastShortsBaseUrl: string | null = null;
   const inflightDirect = new Set<string>();
 
-  async function fetchTimedtextDirect(rawUrl: string, videoId: string | null): Promise<void> {
-    // raw baseUrl(playerResponse)에는 PoToken/cver 등 client validation params가 없어
-    // origin server가 200 + empty body로 응답한다. 페이지가 자체 호출한 full URL이 있고
-    // 동일 videoId면 그걸 우선 사용해야 cue를 받을 수 있다.
-    let effectiveUrl = rawUrl;
-    if (lastPageTimedtextUrl) {
-      try {
-        const pageV = new URL(lastPageTimedtextUrl, location.origin).searchParams.get('v');
-        if (pageV && pageV === videoId) effectiveUrl = lastPageTimedtextUrl;
-      } catch {
-        // ignore
-      }
+  // S7+M2: page가 우리 chosen 트랙으로 fetch하도록 player에 트랙 set 요청.
+  // M2: tlang(자동번역 target) sticky를 명시적으로 무력화 — YouTube가 이전 영상의
+  // 자동번역 설정을 다음 영상에 sticky로 적용해 잘못된 lang으로 fetch하는 문제 해결.
+  // (예: 한국어 영상 보다 영어 영상 가면 영어+한국어자번역 sticky가 영어 영상에 적용)
+  function trySetTrack(lang: string, kind: 'asr' | undefined): void {
+    const player = document.querySelector('#movie_player') as
+      | (Element & {
+          loadModule?: (name: string) => void;
+          setOption?: (module: string, option: string, value: unknown) => void;
+        })
+      | null;
+    if (!player?.setOption) return;
+    // M2: 자동번역 sticky 해제 — track set 전에 호출. setOption 미공식 API라 여러 형태 시도.
+    try {
+      player.setOption('captions', 'translationLanguage', null);
+    } catch {
+      // ignore — 옵션 이름이 다를 수 있음
     }
+    try {
+      // value에 translationLanguage: null 명시 — track value 안에 통합돼 있을 가능성도 커버.
+      const value: Record<string, unknown> = { languageCode: lang, translationLanguage: null };
+      if (kind === 'asr') value.kind = 'asr';
+      player.setOption('captions', 'track', value);
+      console.log(TAG, `setOption track lang=${lang} kind=${kind ?? 'manual'} (tlang reset)`);
+    } catch (e) {
+      console.warn(TAG, 'setOption failed:', e);
+    }
+  }
+
+  async function waitForMatchingPageUrl(videoId: string | null): Promise<string | null> {
+    // page가 호출한 timedtext URL의 PoToken/cver는 client validation 통과에 필수.
+    // CC 토글이 page fetch를 트리거하지만 우리 direct fetch와 race될 수 있어 짧게 대기.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (lastPageTimedtextUrl) {
+        try {
+          const v = new URL(lastPageTimedtextUrl, location.origin).searchParams.get('v');
+          if (v === videoId) return lastPageTimedtextUrl;
+        } catch {
+          // ignore
+        }
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return null;
+  }
+
+  async function fetchTimedtextDirect(
+    rawUrl: string,
+    videoId: string | null,
+    chosenLang: string,
+    chosenKind: 'asr' | undefined,
+  ): Promise<void> {
+    // raw baseUrl에는 PoToken/cver가 없어 그대로 fetch하면 200+empty body가 옴.
+    // page fetch 도착 대기 (최대 5초). 도착 못 하면 raw로라도 시도 (실패 가능 인정).
+    const pageUrl = await waitForMatchingPageUrl(videoId);
+    const effectiveUrl = pageUrl ?? rawUrl;
+
     let normalized: string;
     try {
       const u = new URL(effectiveUrl, location.origin);
+      // 우리 chosen으로 트랙 식별자 강제 교체 — YouTube default 회피.
       u.searchParams.delete('tlang');
+      u.searchParams.set('lang', chosenLang);
+      if (chosenKind === 'asr') u.searchParams.set('kind', 'asr');
+      else u.searchParams.delete('kind');
       u.searchParams.set('fmt', 'json3');
       normalized = u.toString();
     } catch (e) {
@@ -431,7 +470,6 @@
     }
     if (inflightDirect.has(normalized)) return;
     inflightDirect.add(normalized);
-    lastShortsBaseUrl = rawUrl;
     try {
       const res = await origFetch.call(window, normalized);
       if (!res.ok) {
@@ -439,6 +477,7 @@
         return;
       }
       const body = await res.text();
+      console.log(TAG, `direct fetch ${res.status} body.len=${body.length} for ${videoId} (pageUrl=${!!pageUrl})`);
       if (body) postCaptured('direct', normalized, body);
     } catch (e) {
       console.warn(TAG, 'direct fetch failed', e);
@@ -461,7 +500,27 @@
     if (!data || data.source !== 'YDT_CONTENT') return;
     if (data.type === 'FETCH_TIMEDTEXT') {
       if (typeof data.baseUrl !== 'string' || !data.baseUrl) return;
-      void fetchTimedtextDirect(data.baseUrl, data.videoId ?? null);
+      if (typeof (data as { languageCode?: unknown }).languageCode !== 'string') return;
+      const d = data as {
+        baseUrl: string;
+        videoId?: string | null;
+        languageCode: string;
+        kind?: 'asr' | undefined;
+      };
+      // M1: setOption(chosen) → 짧은 delay 후 CC click 순서로 발화.
+      // page가 sticky 기반으로 잘못된 lang fetch하기 전에 chosen lang으로 선점.
+      // (tryBroadcast에서 CC click을 발화하지 않도록 변경했으므로 여기서 click 책임.)
+      trySetTrack(d.languageCode, d.kind);
+      // 100ms: setOption이 page state에 적용될 시간 확보 후 CC click.
+      // 200ms 후 추가 force toggle: 첫 click이 안 먹은 경우 보완.
+      setTimeout(() => tryEnableCaptions(0), 100);
+      setTimeout(() => forceToggleCaptions(), 300);
+      void fetchTimedtextDirect(
+        d.baseUrl,
+        d.videoId ?? null,
+        d.languageCode,
+        d.kind === 'asr' ? 'asr' : undefined,
+      );
     } else if (data.type === 'SUBTITLES_ENABLED') {
       if (typeof data.enabled !== 'boolean') return;
       subtitlesEnabled = data.enabled;

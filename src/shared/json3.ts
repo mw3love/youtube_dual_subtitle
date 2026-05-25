@@ -87,8 +87,14 @@ export function parseJson3(json: unknown): Cue[] {
   const cues: Cue[] = [];
   for (const ev of events) {
     if (typeof ev?.tStartMs !== 'number') continue;
-    const segs = Array.isArray(ev.segs) ? ev.segs : [];
-    const rawText = segs.map((s) => s?.utf8 ?? '').join('');
+    const rawSegs = Array.isArray(ev.segs) ? ev.segs : [];
+    // YouTube 일부 영상은 utf8에 <i>, <b> 같은 HTML 태그를 그대로 넣어 화면에 raw 노출됨.
+    // seg utf8 단계에서 미리 제거 — word reveal/번역 둘 다 깔끔하게.
+    const segs = rawSegs.map((s) => ({
+      ...s,
+      utf8: (s?.utf8 ?? '').replace(/<[^>]*>/g, ''),
+    }));
+    const rawText = segs.map((s) => s.utf8).join('');
     const text = rawText.replace(/\s+/g, ' ').trim();
     if (!text) continue;
     const dur = typeof ev.dDurationMs === 'number' ? ev.dDurationMs : 0;

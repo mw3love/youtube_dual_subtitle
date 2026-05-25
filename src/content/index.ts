@@ -130,15 +130,35 @@ function trackScore(t: CaptionTrackInfo, preferred: string): number {
 
 function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
   if (!tracks.length) return null;
+
+  // L2: 영상 원본 lang 자동 감지 — ASR 트랙의 lang이 영상 음성 lang.
+  // 영상 원본이 사용자 모국어(targetLang)면 모국어 single 의도로 보고 그 lang 트랙 강제.
+  // (외국어 영상에 모국어 manual이 있어도 학습 의도로 외국어 우선은 그대로.)
+  const asrTrack = tracks.find((t) => t.kind === 'asr');
+  const videoLang = asrTrack?.languageCode?.toLowerCase() ?? null;
+  const tgt = targetLang().toLowerCase();
+  if (videoLang && (videoLang === tgt || videoLang.startsWith(`${tgt}-`))) {
+    const tgtManual = tracks.find((t) => {
+      const l = (t.languageCode ?? '').toLowerCase();
+      return (l === tgt || l.startsWith(`${tgt}-`)) && t.kind !== 'asr';
+    });
+    if (tgtManual) return tgtManual;
+    const tgtAsr = tracks.find((t) => {
+      const l = (t.languageCode ?? '').toLowerCase();
+      return (l === tgt || l.startsWith(`${tgt}-`)) && t.kind === 'asr';
+    });
+    if (tgtAsr) return tgtAsr;
+  }
+
+  // 외국어 영상 → preferredSource 매치 우선 (기존 로직)
   const sorted = [...tracks].sort(
     (a, b) => trackScore(a, preferredSource()) - trackScore(b, preferredSource()),
   );
   return sorted[0];
 }
 
-// Shorts에서 같은 reel에 대해 중복 direct-fetch 요청 방지.
-// 일반 영상은 이 Set을 사용하지 않음 — 페이지 자체 fetch가 인터셉트로 처리됨.
-const requestedShortsVideoIds = new Set<string>();
+// 같은 videoId에 대해 중복 direct-fetch 요청 방지. emptied 시 clear.
+const requestedDirectFetchVideoIds = new Set<string>();
 
 // 같은 트랙의 timedtext가 연속해서 두 번 잡히는 경우(Shorts: page xhr + 우리 direct fetch)
 // 두 번째 처리는 setCues 재할당으로 잠깐 깜빡임 유발 → 첫 번째만 처리.
@@ -217,26 +237,43 @@ function handleCaptionTracks(payload: {
   currentTrackLang = chosen.languageCode ?? null;
   renderer.setSuppressTarget(isTrackLangMatchingTarget());
 
-  // Shorts: 페이지가 자체 fetch를 trigger 안 하므로 MAIN에 직접 fetch 요청.
-  // 일반 영상은 CC 버튼 click이 페이지 fetch를 발화 → 우리 monkey-patch가 가로채므로 추가 동작 불필요.
-  const isShorts = location.pathname.startsWith('/shorts/');
-  if (isShorts && payload.videoId && !requestedShortsVideoIds.has(payload.videoId)) {
-    requestedShortsVideoIds.add(payload.videoId);
+  // 모든 영상에서 우리가 chosen 트랙을 강제 fetch — YouTube default 무시.
+  // (이전엔 Shorts만 direct fetch했고 일반 영상은 page fetch에 의존했으나, page는
+  //  사용자 hl=ko 기반으로 tlang=ko 자동 추가 / 한국어 manual 트랙 default 잡음 → 우리 의도 어긋남.)
+  if (payload.videoId && !requestedDirectFetchVideoIds.has(payload.videoId)) {
+    requestedDirectFetchVideoIds.add(payload.videoId);
     window.postMessage(
       {
         source: 'YDT_CONTENT',
         type: 'FETCH_TIMEDTEXT',
         baseUrl: chosen.baseUrl,
         videoId: payload.videoId,
+        languageCode: chosen.languageCode,
+        kind: chosen.kind,
       },
       location.origin,
     );
-    console.log(TAG, `requested direct fetch for shorts ${payload.videoId}`);
+    console.log(
+      TAG,
+      `requested direct fetch for ${payload.videoId} (lang=${chosen.languageCode} kind=${chosen.kind ?? 'manual'})`,
+    );
   }
 }
 
 function handleTimedtextResponse(payload: { url: string; body: string }): void {
-  // 직전 처리와 같은 트랙이면 Shorts 중복(page xhr + direct fetch)으로 보고 skip.
+  // tlang 있는 응답은 YouTube의 자동번역(사용자 hl 기반 default) — 우리는 chosen 트랙을
+  // 별도 direct fetch하므로 page의 tlang 응답은 skip해서 우리 direct만 처리한다.
+  // 그렇지 않으면 page 응답이 먼저 도착 → currentTrackLang='ko' → suppress 되어 듀얼 깨짐.
+  try {
+    const tlang = new URL(payload.url, location.origin).searchParams.get('tlang');
+    if (tlang) {
+      console.log(TAG, `skipping page response with tlang=${tlang} — waiting for direct fetch`);
+      return;
+    }
+  } catch {
+    // URL parse 실패 시 그대로 진행
+  }
+  // 직전 처리와 같은 트랙이면 중복(page xhr + direct fetch)으로 보고 skip.
   // 다른 트랙 갔다가 같은 트랙으로 돌아오면 lastKey가 갱신돼 있어 다시 처리된다.
   const key = trackKeyFromUrl(payload.url);
   if (key && key === lastProcessedTrackKey) {
@@ -330,6 +367,11 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
       console.error(TAG, 'translate request failed:', e);
       return;
     }
+    if (!res) {
+      // service worker dead — 드물지만 dev 빌드/MV3 wake-up race에서 발생 가능.
+      console.warn(TAG, `translate batch ${i}: null response (service worker?)`);
+      return;
+    }
 
     if (currentVideoId() !== requestVideoId) {
       console.log(TAG, 'translate: video changed mid-flight, dropping');
@@ -379,7 +421,7 @@ document.addEventListener(
     // 같은 영상 재진입 시 dedup이 cue 표시를 막지 않도록 timedtext 처리 이력 초기화.
     // (Shorts direct-fetch 이력도 같이 비워 재진입 영상이 Shorts면 다시 요청 가능)
     lastProcessedTrackKey = null;
-    requestedShortsVideoIds.clear();
+    requestedDirectFetchVideoIds.clear();
     // 트랙 언어 정보 reset — 새 영상의 handleCaptionTracks가 다시 세팅한다.
     currentTrackLang = null;
     renderer.setSuppressTarget(false);
@@ -424,12 +466,17 @@ void loadSettings().then(applySettings);
 let ccButtonObserver: MutationObserver | null = null;
 let observedCcButton: HTMLElement | null = null;
 
+// ccObserver — page CC 버튼 상태와 우리 storage sync. 단 한 방향만:
+//   CC=true → 우리 true (사용자가 native CC를 켰거나 우리 tryEnableCaptions이 켰음)
+//   CC=false → 무시 (page sticky의 잘못된 lang으로 자막 자동 disable되는 케이스를 막기 위해.
+//   자막 끄기는 사용자가 C 키나 팝업으로만 — page CC의 disable은 sticky-induced로 가정.)
 function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
   const pressed = btn.getAttribute('aria-pressed') === 'true';
   if (!currentSettings) return;
   if (currentSettings.subtitlesEnabled === pressed) return;
-  console.log(TAG, `CC button -> subtitlesEnabled=${pressed} (was ${currentSettings.subtitlesEnabled})`);
-  void saveSettings({ subtitlesEnabled: pressed });
+  if (!pressed) return;
+  console.log(TAG, `CC button -> subtitlesEnabled=true`);
+  void saveSettings({ subtitlesEnabled: true });
 }
 
 function attachCcObserver(): void {
@@ -452,7 +499,7 @@ function attachCcObserver(): void {
   observedCcButton = btn;
   ccButtonObserver = new MutationObserver(() => syncSubtitlesEnabledFromCc(btn));
   ccButtonObserver.observe(btn, { attributes: true, attributeFilter: ['aria-pressed'] });
-  // 첫 attach 시 현재 상태도 한 번 sync — 사용자가 우리 로드 전에 이미 토글했을 수 있음.
+  // 첫 attach 시도 한 번 sync. (한 방향 sync라 추가 분기 불필요)
   syncSubtitlesEnabledFromCc(btn);
 }
 

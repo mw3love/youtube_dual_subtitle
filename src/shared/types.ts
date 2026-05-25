@@ -38,13 +38,16 @@ export interface TimedtextResponseMessage {
 
 export type MainToContentMessage = CaptionTracksMessage | TimedtextResponseMessage;
 
-// isolated → MAIN. Shorts에서 CC 버튼이 없어 페이지 fetch를 trigger 못 할 때,
-// playerResponse에서 추출한 caption track baseUrl을 MAIN이 페이지 context에서 직접 fetch하도록 요청.
+// isolated → MAIN. 모든 영상에서 우리 chosen 트랙을 강제 fetch하도록 MAIN에 요청.
+// YouTube default는 사용자 hl=ko 기반으로 tlang=ko를 추가하거나 한국어 manual 트랙을
+// 잡아 우리 의도와 어긋남 → MAIN이 page의 PoToken을 재사용하되 lang/kind는 chosen으로 교체.
 export interface FetchTimedtextMessage {
   source: 'YDT_CONTENT';
   type: 'FETCH_TIMEDTEXT';
   baseUrl: string;
   videoId: string | null;
+  languageCode: string;
+  kind?: 'asr' | undefined;
 }
 
 // isolated → MAIN. 우리 subtitlesEnabled 상태를 MAIN에 전달해 자동 CC 토글이
