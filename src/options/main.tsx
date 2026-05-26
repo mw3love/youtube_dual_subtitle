@@ -120,10 +120,114 @@ function StyleEditor({
   );
 }
 
-function Preview({ settings }: { settings: Settings }) {
-  const { sourceStyle, targetStyle, displayMode, backgroundOpacity, lineHeight } = settings;
-  const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
+// 미리보기 샘플 — 실제 cue처럼 보이도록 짧은 문장 3개씩.
+// history는 위에서부터 오래된 → 직전, 맨 아래가 현재 cue.
+const SAMPLE_SOURCE = ['First, listen carefully.', 'Let me show you a preview.', 'Now you can see how it works.'];
+const SAMPLE_TARGET = ['먼저 잘 들어보세요.', '미리보기를 보여드릴게요.', '이제 어떻게 작동하는지 보여요.'];
+// wordReveal — 현재 cue에서 이 인덱스까지(포함) 또렷, 이후는 opacity 0.25 (실제 styles.ts와 동일).
+const SAMPLE_REVEAL_UP_TO = 3;
+
+function HistoryBlock({
+  texts,
+  layout,
+  dim,
+}: {
+  texts: string[];
+  layout: HistoryLayout;
+  dim: boolean;
+}) {
+  if (texts.length === 0) return null;
+  const opacity = dim ? 0.5 : 1;
+  if (layout === 'inline') {
+    return <span style={{ opacity }}>{texts.join(' ')} </span>;
+  }
   return (
+    <div style={{ opacity }}>
+      {texts.map((t, i) => (
+        <div key={i}>{t}</div>
+      ))}
+    </div>
+  );
+}
+
+type PreviewModeOverride = 'auto' | 'translation-only' | 'source-only';
+
+function Preview({ settings }: { settings: Settings }) {
+  // 사용자 설정과 별개로 미리보기만 임시 전환 — 누적/dim/layout 효과를 비교 확인하기 위함.
+  // settings에는 저장 안 함.
+  const [previewModeOverride, setPreviewModeOverride] = useState<PreviewModeOverride>('auto');
+  const {
+    sourceStyle,
+    targetStyle,
+    displayMode: settingsDisplayMode,
+    backgroundOpacity,
+    lineHeight,
+    wordRevealEnabled,
+    singleContextLines,
+    dimHistory,
+    historyLayout,
+  } = settings;
+  const displayMode: DisplayMode =
+    previewModeOverride === 'auto' ? settingsDisplayMode : previewModeOverride;
+  const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
+
+  const singleRow: 'source' | 'target' | null =
+    displayMode === 'translation-only'
+      ? 'target'
+      : displayMode === 'source-only'
+        ? 'source'
+        : null;
+  const showHistory = singleRow !== null && singleContextLines >= 2;
+  const historyCount = Math.max(0, singleContextLines - 1);
+  const sourceHistoryTexts =
+    showHistory && singleRow === 'source' ? SAMPLE_SOURCE.slice(-1 - historyCount, -1) : [];
+  const targetHistoryTexts =
+    showHistory && singleRow === 'target' ? SAMPLE_TARGET.slice(-1 - historyCount, -1) : [];
+
+  const sourceCurrent = SAMPLE_SOURCE[SAMPLE_SOURCE.length - 1];
+  const targetCurrent = SAMPLE_TARGET[SAMPLE_TARGET.length - 1];
+
+  const renderSourceCurrent = (): React.ReactNode => {
+    if (!wordRevealEnabled) return sourceCurrent;
+    const words = sourceCurrent.split(' ');
+    return words.map((w, i) => (
+      <span key={i} style={{ opacity: i <= SAMPLE_REVEAL_UP_TO ? 1 : 0.25 }}>
+        {w}
+        {i < words.length - 1 ? ' ' : ''}
+      </span>
+    ));
+  };
+
+  const overrideChoices: Array<{ key: PreviewModeOverride; label: string }> = [
+    { key: 'auto', label: '현재 설정' },
+    { key: 'translation-only', label: '번역만으로 보기' },
+    { key: 'source-only', label: '원문만으로 보기' },
+  ];
+
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+        {overrideChoices.map(({ key, label }) => {
+          const active = previewModeOverride === key;
+          return (
+            <button
+              key={key}
+              onClick={() => setPreviewModeOverride(key)}
+              style={{
+                padding: '3px 8px',
+                fontSize: 11,
+                border: active ? '1px solid #3ea6ff' : '1px solid #333',
+                background: active ? '#142943' : '#1a1a1a',
+                color: active ? '#3ea6ff' : '#999',
+                borderRadius: 3,
+                cursor: 'pointer',
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
     <div
       style={{
         background: '#000',
@@ -147,9 +251,11 @@ function Preview({ settings }: { settings: Settings }) {
             fontSize: sourceStyle.fontSize,
             fontWeight: sourceStyle.fontWeight,
             lineHeight,
+            textAlign: 'center',
           }}
         >
-          Sample English subtitle
+          <HistoryBlock texts={sourceHistoryTexts} layout={historyLayout} dim={dimHistory} />
+          {renderSourceCurrent()}
         </div>
       )}
       {displayMode !== 'source-only' && (
@@ -162,12 +268,15 @@ function Preview({ settings }: { settings: Settings }) {
             fontSize: targetStyle.fontSize,
             fontWeight: targetStyle.fontWeight,
             lineHeight,
+            textAlign: 'center',
           }}
         >
-          샘플 한국어 자막
+          <HistoryBlock texts={targetHistoryTexts} layout={historyLayout} dim={dimHistory} />
+          {targetCurrent}
         </div>
       )}
     </div>
+    </>
   );
 }
 
@@ -250,7 +359,7 @@ function Options() {
   return (
     <div
       style={{
-        maxWidth: 900,
+        maxWidth: 1140,
         margin: '40px auto',
         padding: 24,
         fontFamily: 'system-ui, sans-serif',
@@ -269,6 +378,16 @@ function Options() {
       <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>
         v{chrome.runtime.getManifest().version} · 여기서 바꾸면 YouTube 화면에 바로 적용됨
       </p>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 320px',
+          gap: 32,
+          alignItems: 'start',
+        }}
+      >
+        <div>
 
       <Section title="시작하기">
         <Row label="자막 켜기" hint="단축키 'C'">
@@ -404,15 +523,7 @@ function Options() {
       </Section>
 
       <Section title="자막 스타일">
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 280px',
-            gap: 24,
-            alignItems: 'start',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <StyleEditor
               label="1. 원문 자막"
               style={settings.sourceStyle}
@@ -497,11 +608,6 @@ function Options() {
                 <div>· 마우스 휠 = 크기 조절</div>
               </div>
             </div>
-          </div>
-          <div style={{ position: 'sticky', top: 16 }}>
-            <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>미리보기</div>
-            <Preview settings={settings} />
-          </div>
         </div>
       </Section>
 
@@ -528,6 +634,12 @@ function Options() {
           </Row>
         </div>
       </Section>
+        </div>
+        <div style={{ position: 'sticky', top: 24 }}>
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>미리보기</div>
+          <Preview settings={settings} />
+        </div>
+      </div>
     </div>
   );
 }
