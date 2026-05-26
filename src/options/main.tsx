@@ -120,12 +120,19 @@ function StyleEditor({
   );
 }
 
-// 미리보기 샘플 — 실제 cue처럼 보이도록 짧은 문장 3개씩.
+// 미리보기 샘플 — 실제 cue처럼 보이도록 짧은 문장 3개씩(같은 의미를 각 언어로).
 // history는 위에서부터 오래된 → 직전, 맨 아래가 현재 cue.
-const SAMPLE_SOURCE = ['First, listen carefully.', 'Let me show you a preview.', 'Now you can see how it works.'];
-const SAMPLE_TARGET = ['먼저 잘 들어보세요.', '미리보기를 보여드릴게요.', '이제 어떻게 작동하는지 보여요.'];
-// wordReveal — 현재 cue에서 이 인덱스까지(포함) 또렷, 이후는 opacity 0.25 (실제 styles.ts와 동일).
-const SAMPLE_REVEAL_UP_TO = 3;
+// sourceLang === 'auto'이거나 lookup 실패 시 영어로 fallback.
+const SAMPLES: Record<string, string[]> = {
+  en: ['First, listen carefully.', 'Let me show you a preview.', 'Now you can see how it works.'],
+  ko: ['먼저 잘 들어보세요.', '미리보기를 보여드릴게요.', '이제 어떻게 작동하는지 보여요.'],
+  ja: ['まず、よく聞いてください。', 'プレビューをお見せします。', 'これで動作が分かりますね。'],
+  zh: ['首先,请仔细听。', '让我给你看一个预览。', '现在你能看到它是怎么工作的了。'],
+  es: ['Primero, escucha con atención.', 'Déjame mostrarte una vista previa.', 'Ahora puedes ver cómo funciona.'],
+  fr: ["D'abord, écoute attentivement.", 'Laisse-moi te montrer un aperçu.', 'Maintenant, tu vois comment ça marche.'],
+  de: ['Hör zuerst aufmerksam zu.', 'Lass mich dir eine Vorschau zeigen.', 'Jetzt siehst du, wie es funktioniert.'],
+};
+const getSample = (lang: string): string[] => SAMPLES[lang] ?? SAMPLES.en;
 
 function HistoryBlock({
   texts,
@@ -137,12 +144,12 @@ function HistoryBlock({
   dim: boolean;
 }) {
   if (texts.length === 0) return null;
-  const opacity = dim ? 0.5 : 1;
   if (layout === 'inline') {
-    return <span style={{ opacity }}>{texts.join(' ')} </span>;
+    // 인라인은 현재 줄과 한 문단처럼 흐르므로 흐림 적용 안 함 (가독성 저하).
+    return <span>{texts.join(' ')} </span>;
   }
   return (
-    <div style={{ opacity }}>
+    <div style={{ opacity: dim ? 0.5 : 1 }}>
       {texts.map((t, i) => (
         <div key={i}>{t}</div>
       ))}
@@ -150,26 +157,92 @@ function HistoryBlock({
   );
 }
 
-type PreviewModeOverride = 'auto' | 'translation-only' | 'source-only';
+type PreviewSizeMode = 'normal' | 'shorts' | 'fullscreen';
+type PreviewBg = 'dark' | 'bright' | 'black';
 
-function Preview({ settings }: { settings: Settings }) {
-  // 사용자 설정과 별개로 미리보기만 임시 전환 — 누적/dim/layout 효과를 비교 확인하기 위함.
-  // settings에는 저장 안 함.
-  const [previewModeOverride, setPreviewModeOverride] = useState<PreviewModeOverride>('auto');
+// 영상 배경 토글 — backgroundOpacity 효과를 실제 영상 맥락에서 판단하기 위함.
+// 단색이 아닌 그라데이션은 어두운/밝은 영상의 휘도 분포를 대충 흉내냄.
+const PREVIEW_BG_STYLES: Record<PreviewBg, React.CSSProperties> = {
+  dark: { background: 'linear-gradient(135deg, #1c2a3a 0%, #050a14 100%)' },
+  bright: { background: 'linear-gradient(135deg, #f5e9c8 0%, #d99a4e 100%)' },
+  black: { background: '#000' },
+};
+
+function ToggleRow<T extends string>({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: Array<{ key: T; label: string; hint?: string }>;
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+      {choices.map(({ key, label, hint }) => {
+        const active = value === key;
+        return (
+          <button
+            key={key}
+            onClick={() => onChange(key)}
+            style={{
+              padding: '3px 8px',
+              fontSize: 11,
+              border: active ? '1px solid #3ea6ff' : '1px solid #333',
+              background: active ? '#142943' : '#1a1a1a',
+              color: active ? '#3ea6ff' : '#999',
+              borderRadius: 3,
+              cursor: 'pointer',
+            }}
+          >
+            {label}
+            {hint && (
+              <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{hint}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// 미리보기 한 박스 — displayMode별로 동일 스타일/사이즈/배경을 받아 그림.
+// 듀얼 박스에서만 노래방 reveal 애니메이션 발화 (source 줄이 보일 때만 의미).
+function PreviewBox({
+  settings,
+  displayMode,
+  sizeScale,
+  bg,
+}: {
+  settings: Settings;
+  displayMode: DisplayMode;
+  sizeScale: number;
+  bg: PreviewBg;
+}) {
   const {
     sourceStyle,
     targetStyle,
-    displayMode: settingsDisplayMode,
     backgroundOpacity,
     lineHeight,
     wordRevealEnabled,
     singleContextLines,
     dimHistory,
     historyLayout,
+    sourceLang,
+    targetLang,
   } = settings;
-  const displayMode: DisplayMode =
-    previewModeOverride === 'auto' ? settingsDisplayMode : previewModeOverride;
   const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
+  const sourceFontSize = Math.round(sourceStyle.fontSize * sizeScale);
+  const targetFontSize = Math.round(targetStyle.fontSize * sizeScale);
+
+  // 모국어 영상(source-only) 케이스에서 source 줄은 사실 targetLang(=모국어) 텍스트가 들어감.
+  // dual / source-only 외 케이스는 source = sourceLang.
+  // 'auto'면 영어 fallback(getSample 내부).
+  const sourceSample =
+    displayMode === 'source-only'
+      ? getSample(targetLang)
+      : getSample(sourceLang === 'auto' ? 'en' : sourceLang);
+  const targetSample = getSample(targetLang);
 
   const singleRow: 'source' | 'target' | null =
     displayMode === 'translation-only'
@@ -180,65 +253,63 @@ function Preview({ settings }: { settings: Settings }) {
   const showHistory = singleRow !== null && singleContextLines >= 2;
   const historyCount = Math.max(0, singleContextLines - 1);
   const sourceHistoryTexts =
-    showHistory && singleRow === 'source' ? SAMPLE_SOURCE.slice(-1 - historyCount, -1) : [];
+    showHistory && singleRow === 'source' ? sourceSample.slice(-1 - historyCount, -1) : [];
   const targetHistoryTexts =
-    showHistory && singleRow === 'target' ? SAMPLE_TARGET.slice(-1 - historyCount, -1) : [];
+    showHistory && singleRow === 'target' ? targetSample.slice(-1 - historyCount, -1) : [];
 
-  const sourceCurrent = SAMPLE_SOURCE[SAMPLE_SOURCE.length - 1];
-  const targetCurrent = SAMPLE_TARGET[SAMPLE_TARGET.length - 1];
+  const sourceCurrent = sourceSample[sourceSample.length - 1];
+  const targetCurrent = targetSample[targetSample.length - 1];
+  const sourceWords = sourceCurrent.split(' ');
+
+  // 노래방 reveal 애니메이션 — source 줄이 보이고 wordReveal이 켜진 박스에서만.
+  // -1: 전부 흐림 → words.length-1: 전부 또렷 → 잠시 머묾 → -1로 리셋.
+  const animateReveal = wordRevealEnabled && displayMode !== 'translation-only';
+  const [revealUpTo, setRevealUpTo] = useState<number>(sourceWords.length - 1);
+  useEffect(() => {
+    if (!animateReveal) {
+      setRevealUpTo(sourceWords.length - 1);
+      return;
+    }
+    let i = -1;
+    setRevealUpTo(i);
+    const id = window.setInterval(() => {
+      i = i >= sourceWords.length + 1 ? -1 : i + 1;
+      setRevealUpTo(i);
+    }, 300);
+    return () => window.clearInterval(id);
+  }, [animateReveal, sourceWords.length]);
 
   const renderSourceCurrent = (): React.ReactNode => {
-    if (!wordRevealEnabled) return sourceCurrent;
-    const words = sourceCurrent.split(' ');
-    return words.map((w, i) => (
-      <span key={i} style={{ opacity: i <= SAMPLE_REVEAL_UP_TO ? 1 : 0.25 }}>
+    if (!wordRevealEnabled || displayMode === 'translation-only') return sourceCurrent;
+    return sourceWords.map((w, i) => (
+      <span
+        key={i}
+        style={{
+          opacity: i <= revealUpTo ? 1 : 0.25,
+          transition: 'opacity 80ms linear',
+        }}
+      >
         {w}
-        {i < words.length - 1 ? ' ' : ''}
+        {i < sourceWords.length - 1 ? ' ' : ''}
       </span>
     ));
   };
 
-  const overrideChoices: Array<{ key: PreviewModeOverride; label: string }> = [
-    { key: 'auto', label: '현재 설정' },
-    { key: 'translation-only', label: '번역만으로 보기' },
-    { key: 'source-only', label: '원문만으로 보기' },
-  ];
-
   return (
-    <>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
-        {overrideChoices.map(({ key, label }) => {
-          const active = previewModeOverride === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setPreviewModeOverride(key)}
-              style={{
-                padding: '3px 8px',
-                fontSize: 11,
-                border: active ? '1px solid #3ea6ff' : '1px solid #333',
-                background: active ? '#142943' : '#1a1a1a',
-                color: active ? '#3ea6ff' : '#999',
-                borderRadius: 3,
-                cursor: 'pointer',
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
     <div
       style={{
-        background: '#000',
-        padding: 24,
+        ...PREVIEW_BG_STYLES[bg],
+        padding: '0 12px 12px',
         borderRadius: 6,
         border: '1px solid #2e2e2e',
+        aspectRatio: '16 / 9',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
+        justifyContent: 'flex-end',
         gap: 4,
         fontFamily: '"YouTube Sans","Roboto","Noto Sans KR",sans-serif',
+        overflow: 'hidden',
       }}
     >
       {displayMode !== 'translation-only' && (
@@ -248,10 +319,11 @@ function Preview({ settings }: { settings: Settings }) {
             padding: '4px 10px',
             borderRadius: 4,
             color: sourceStyle.color,
-            fontSize: sourceStyle.fontSize,
+            fontSize: sourceFontSize,
             fontWeight: sourceStyle.fontWeight,
             lineHeight,
             textAlign: 'center',
+            maxWidth: '90%',
           }}
         >
           <HistoryBlock texts={sourceHistoryTexts} layout={historyLayout} dim={dimHistory} />
@@ -265,10 +337,11 @@ function Preview({ settings }: { settings: Settings }) {
             padding: '4px 10px',
             borderRadius: 4,
             color: targetStyle.color,
-            fontSize: targetStyle.fontSize,
+            fontSize: targetFontSize,
             fontWeight: targetStyle.fontWeight,
             lineHeight,
             textAlign: 'center',
+            maxWidth: '90%',
           }}
         >
           <HistoryBlock texts={targetHistoryTexts} layout={historyLayout} dim={dimHistory} />
@@ -276,6 +349,91 @@ function Preview({ settings }: { settings: Settings }) {
         </div>
       )}
     </div>
+  );
+}
+
+type SingleRowMode = 'translation-only' | 'source-only';
+
+function Preview({ settings }: { settings: Settings }) {
+  // 사이즈/배경은 두 미리보기에 공통 적용 — 듀얼/싱글 효과를 같은 조건에서 비교 가능.
+  // 싱글은 번역 줄(targetStyle)인지 원문 줄(sourceStyle)인지에 따라 적용 스타일이 달라
+  // 별도 토글로 둘 다 미리 확인 가능. settings에는 저장 안 함.
+  const [sizeMode, setSizeMode] = useState<PreviewSizeMode>('normal');
+  const [previewBg, setPreviewBg] = useState<PreviewBg>('dark');
+  const [singleRowMode, setSingleRowMode] = useState<SingleRowMode>('source-only');
+  const { shortsFontScale } = settings;
+
+  // styles.ts의 :fullscreen × 1.4 / [data-mode="shorts"] × shortsFontScale 흉내.
+  const sizeScale =
+    sizeMode === 'shorts' ? shortsFontScale : sizeMode === 'fullscreen' ? 1.4 : 1;
+
+  const sizeChoices: Array<{ key: PreviewSizeMode; label: string; hint?: string }> = [
+    { key: 'normal', label: '일반' },
+    { key: 'shorts', label: '쇼츠', hint: `${Math.round(shortsFontScale * 100)}%` },
+    { key: 'fullscreen', label: '전체화면', hint: '140%' },
+  ];
+  const bgChoices: Array<{ key: PreviewBg; label: string }> = [
+    { key: 'dark', label: '어두운 영상' },
+    { key: 'bright', label: '밝은 영상' },
+    { key: 'black', label: '단색' },
+  ];
+  const singleChoices: Array<{ key: SingleRowMode; label: string }> = [
+    { key: 'source-only', label: '원문만 (모국어 영상)' },
+    { key: 'translation-only', label: '번역만' },
+  ];
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 11,
+    color: '#999',
+    fontWeight: 600,
+    marginBottom: 4,
+    letterSpacing: '0.3px',
+  };
+
+  return (
+    <>
+      <div style={{ fontSize: 10, color: '#666', marginBottom: 4, letterSpacing: '0.3px' }}>
+        미리보기 전용 (저장되지 않음)
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
+        <ToggleRow choices={sizeChoices} value={sizeMode} onChange={setSizeMode} />
+        <ToggleRow choices={bgChoices} value={previewBg} onChange={setPreviewBg} />
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div>
+          <div style={labelStyle}>Dual Subtitle</div>
+          <PreviewBox
+            settings={settings}
+            displayMode="dual"
+            sizeScale={sizeScale}
+            bg={previewBg}
+          />
+        </div>
+        <div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: 4,
+              gap: 8,
+            }}
+          >
+            <div style={{ ...labelStyle, marginBottom: 0 }}>Single Subtitle</div>
+            <ToggleRow
+              choices={singleChoices}
+              value={singleRowMode}
+              onChange={setSingleRowMode}
+            />
+          </div>
+          <PreviewBox
+            settings={settings}
+            displayMode={singleRowMode}
+            sizeScale={sizeScale}
+            bg={previewBg}
+          />
+        </div>
+      </div>
     </>
   );
 }
@@ -382,14 +540,14 @@ function Options() {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 320px',
+          gridTemplateColumns: '1fr 360px',
           gap: 32,
           alignItems: 'start',
         }}
       >
         <div>
 
-      <Section title="시작하기">
+      <Section title="자막 표시">
         <Row label="자막 켜기" hint="단축키 'C'">
           <input
             type="checkbox"
@@ -468,10 +626,7 @@ function Options() {
             </label>
           </div>
         </div>
-      </Section>
-
-      <Section title="보기 옵션">
-        <Row label="노래방 모드">
+        <Row label="노래방 모드 (원문 줄에 적용)">
           <input
             type="checkbox"
             checked={settings.wordRevealEnabled}
@@ -483,9 +638,9 @@ function Options() {
         </Row>
       </Section>
 
-      <Section title="모국어 영상 자막">
+      <Section title="Single Subtitle (한 줄만 보일 때 적용)">
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-          듀얼자막과 달리 직전 자막도 계속 보여줘서 흐름이 끊기지 않음
+          모국어 영상이나 '번역만' / '원문만' 모드에서 — 직전 자막도 계속 보여줘서 흐름이 끊기지 않음
         </p>
         <Row label="이전 자막 포함한 전체줄 수">
           <select
@@ -508,16 +663,18 @@ function Options() {
                 <option value="inline">한 문단처럼 이어 보기</option>
               </select>
             </Row>
-            <Row label="지난 줄 흐리게 표시">
-              <input
-                type="checkbox"
-                checked={settings.dimHistory}
-                onChange={(e) => update({ dimHistory: e.target.checked })}
-              />
-              <span style={{ fontSize: 12, color: '#999' }}>
-                지금 말하는 줄이 더 잘 보이게 설정
-              </span>
-            </Row>
+            {settings.historyLayout === 'stacked' && (
+              <Row label="지난 줄 흐리게 표시">
+                <input
+                  type="checkbox"
+                  checked={settings.dimHistory}
+                  onChange={(e) => update({ dimHistory: e.target.checked })}
+                />
+                <span style={{ fontSize: 12, color: '#999' }}>
+                  지금 말하는 줄이 더 잘 보이게 설정
+                </span>
+              </Row>
+            )}
           </>
         )}
       </Section>

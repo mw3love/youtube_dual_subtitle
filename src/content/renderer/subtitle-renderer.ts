@@ -469,8 +469,9 @@ export class SubtitleRenderer {
       );
     }
 
-    // 흐림은 history 컨테이너 전체에 opacity로 — 스택/인라인 레이아웃 모두 동일 적용.
-    histEl.style.opacity = this.dimHistory ? '0.5' : '';
+    // 흐림은 stacked 레이아웃에서만 적용 — inline은 현재 줄과 한 문단처럼 흐르므로 흐려지면 가독성↓.
+    histEl.style.opacity =
+      this.dimHistory && this.historyLayout === 'stacked' ? '0.5' : '';
 
     if (texts.length === 0) {
       histEl.textContent = '';
