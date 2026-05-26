@@ -157,68 +157,10 @@ function HistoryBlock({
   );
 }
 
-type PreviewSizeMode = 'normal' | 'shorts' | 'fullscreen';
-type PreviewBg = 'dark' | 'bright' | 'black';
-
-// 영상 배경 토글 — backgroundOpacity 효과를 실제 영상 맥락에서 판단하기 위함.
-// 단색이 아닌 그라데이션은 어두운/밝은 영상의 휘도 분포를 대충 흉내냄.
-const PREVIEW_BG_STYLES: Record<PreviewBg, React.CSSProperties> = {
-  dark: { background: 'linear-gradient(135deg, #1c2a3a 0%, #050a14 100%)' },
-  bright: { background: 'linear-gradient(135deg, #f5e9c8 0%, #d99a4e 100%)' },
-  black: { background: '#000' },
-};
-
-function ToggleRow<T extends string>({
-  choices,
-  value,
-  onChange,
-}: {
-  choices: Array<{ key: T; label: string; hint?: string }>;
-  value: T;
-  onChange: (v: T) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-      {choices.map(({ key, label, hint }) => {
-        const active = value === key;
-        return (
-          <button
-            key={key}
-            onClick={() => onChange(key)}
-            style={{
-              padding: '3px 8px',
-              fontSize: 11,
-              border: active ? '1px solid #3ea6ff' : '1px solid #333',
-              background: active ? '#142943' : '#1a1a1a',
-              color: active ? '#3ea6ff' : '#999',
-              borderRadius: 3,
-              cursor: 'pointer',
-            }}
-          >
-            {label}
-            {hint && (
-              <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>{hint}</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// 미리보기 한 박스 — displayMode별로 동일 스타일/사이즈/배경을 받아 그림.
-// 듀얼 박스에서만 노래방 reveal 애니메이션 발화 (source 줄이 보일 때만 의미).
-function PreviewBox({
-  settings,
-  displayMode,
-  sizeScale,
-  bg,
-}: {
-  settings: Settings;
-  displayMode: DisplayMode;
-  sizeScale: number;
-  bg: PreviewBg;
-}) {
+// 미리보기 한 박스 — displayMode를 caller가 결정 (외국어 박스 = settings.displayMode,
+// 모국어 박스 = 항상 'source-only', source 줄에 targetLang 텍스트 들어감).
+// 노래방 reveal 애니메이션은 source 줄이 보일 때만 발화.
+function PreviewBox({ settings, displayMode }: { settings: Settings; displayMode: DisplayMode }) {
   const {
     sourceStyle,
     targetStyle,
@@ -232,8 +174,8 @@ function PreviewBox({
     targetLang,
   } = settings;
   const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
-  const sourceFontSize = Math.round(sourceStyle.fontSize * sizeScale);
-  const targetFontSize = Math.round(targetStyle.fontSize * sizeScale);
+  const sourceFontSize = sourceStyle.fontSize;
+  const targetFontSize = targetStyle.fontSize;
 
   // 모국어 영상(source-only) 케이스에서 source 줄은 사실 targetLang(=모국어) 텍스트가 들어감.
   // dual / source-only 외 케이스는 source = sourceLang.
@@ -298,7 +240,7 @@ function PreviewBox({
   return (
     <div
       style={{
-        ...PREVIEW_BG_STYLES[bg],
+        background: 'linear-gradient(135deg, #1c2a3a 0%, #050a14 100%)',
         padding: '0 12px 12px',
         borderRadius: 6,
         border: '1px solid #2e2e2e',
@@ -352,36 +294,7 @@ function PreviewBox({
   );
 }
 
-type SingleRowMode = 'translation-only' | 'source-only';
-
 function Preview({ settings }: { settings: Settings }) {
-  // 사이즈/배경은 두 미리보기에 공통 적용 — 듀얼/싱글 효과를 같은 조건에서 비교 가능.
-  // 싱글은 번역 줄(targetStyle)인지 원문 줄(sourceStyle)인지에 따라 적용 스타일이 달라
-  // 별도 토글로 둘 다 미리 확인 가능. settings에는 저장 안 함.
-  const [sizeMode, setSizeMode] = useState<PreviewSizeMode>('normal');
-  const [previewBg, setPreviewBg] = useState<PreviewBg>('dark');
-  const [singleRowMode, setSingleRowMode] = useState<SingleRowMode>('source-only');
-  const { shortsFontScale } = settings;
-
-  // styles.ts의 :fullscreen × 1.4 / [data-mode="shorts"] × shortsFontScale 흉내.
-  const sizeScale =
-    sizeMode === 'shorts' ? shortsFontScale : sizeMode === 'fullscreen' ? 1.4 : 1;
-
-  const sizeChoices: Array<{ key: PreviewSizeMode; label: string; hint?: string }> = [
-    { key: 'normal', label: '일반' },
-    { key: 'shorts', label: '쇼츠', hint: `${Math.round(shortsFontScale * 100)}%` },
-    { key: 'fullscreen', label: '전체화면', hint: '140%' },
-  ];
-  const bgChoices: Array<{ key: PreviewBg; label: string }> = [
-    { key: 'dark', label: '어두운 영상' },
-    { key: 'bright', label: '밝은 영상' },
-    { key: 'black', label: '단색' },
-  ];
-  const singleChoices: Array<{ key: SingleRowMode; label: string }> = [
-    { key: 'source-only', label: '원문만 (모국어 영상)' },
-    { key: 'translation-only', label: '번역만' },
-  ];
-
   const labelStyle: React.CSSProperties = {
     fontSize: 11,
     color: '#999',
@@ -389,49 +302,32 @@ function Preview({ settings }: { settings: Settings }) {
     marginBottom: 4,
     letterSpacing: '0.3px',
   };
-
+  const hintStyle: React.CSSProperties = {
+    fontSize: 10,
+    color: '#666',
+    marginLeft: 6,
+    fontWeight: 400,
+    letterSpacing: 0,
+  };
   return (
     <>
-      <div style={{ fontSize: 10, color: '#666', marginBottom: 4, letterSpacing: '0.3px' }}>
-        미리보기 전용 (저장되지 않음)
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 10 }}>
-        <ToggleRow choices={sizeChoices} value={sizeMode} onChange={setSizeMode} />
-        <ToggleRow choices={bgChoices} value={previewBg} onChange={setPreviewBg} />
+      <div style={{ fontSize: 10, color: '#666', marginBottom: 8, letterSpacing: '0.3px' }}>
+        실제 옵션이 적용된 모습
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <div style={labelStyle}>Dual Subtitle</div>
-          <PreviewBox
-            settings={settings}
-            displayMode="dual"
-            sizeScale={sizeScale}
-            bg={previewBg}
-          />
+          <div style={labelStyle}>
+            외국어 콘텐츠
+            <span style={hintStyle}>원문 + 번역 (표시 모드 반영)</span>
+          </div>
+          <PreviewBox settings={settings} displayMode={settings.displayMode} />
         </div>
         <div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: 4,
-              gap: 8,
-            }}
-          >
-            <div style={{ ...labelStyle, marginBottom: 0 }}>Single Subtitle</div>
-            <ToggleRow
-              choices={singleChoices}
-              value={singleRowMode}
-              onChange={setSingleRowMode}
-            />
+          <div style={labelStyle}>
+            모국어 콘텐츠
+            <span style={hintStyle}>한 줄만 — 누적/줄 수/스타일 반영</span>
           </div>
-          <PreviewBox
-            settings={settings}
-            displayMode={singleRowMode}
-            sizeScale={sizeScale}
-            bg={previewBg}
-          />
+          <PreviewBox settings={settings} displayMode="source-only" />
         </div>
       </div>
     </>
