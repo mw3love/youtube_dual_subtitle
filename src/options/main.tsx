@@ -9,13 +9,31 @@ import {
   type DisplayMode,
   type GeminiModel,
   type HistoryLayout,
+  type MindlogicModel,
   type Settings,
   type SourceLang,
   type TargetLang,
 } from '../shared/settings';
 import { DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
-import { getGeminiApiKey, setGeminiApiKey } from '../shared/secrets';
+import {
+  getGeminiApiKey,
+  getMindlogicApiKey,
+  setGeminiApiKey,
+  setMindlogicApiKey,
+} from '../shared/secrets';
+
+// Mindlogic gateway가 통과시키는 모델 중 자막 번역에 가성비 좋은 라인만.
+// 통합 크레딧 방식이라 flagship/reasoning은 자막 cue 수백 개에 비효율 — 경량/저가만 노출.
+// gateway는 ID를 그대로 upstream에 전달하므로 학교/조직 계정에 권한 없는 모델은 401/403으로
+// 떨어진 뒤 router가 google-free로 fallback.
+const MINDLOGIC_MODELS: Array<{ value: MindlogicModel; label: string; hint: string }> = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: '균형 (추천)' },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', hint: '최저가' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', hint: '자연스러움' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: 'OpenAI 경량' },
+  { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano', hint: 'OpenAI 초경량' },
+];
 
 const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 400, label: '보통' },
@@ -347,16 +365,21 @@ function Options() {
   const saveTimerRef = useRef<number | null>(null);
   const savedFadeTimerRef = useRef<number | null>(null);
 
-  // Gemini API 키 — settings(storage.sync)와 분리된 storage.local에서 관리.
+  // BYOK API 키 — settings(storage.sync)와 분리된 storage.local에서 관리.
+  // Gemini와 Mindlogic 각각 독립적으로 입력/테스트.
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
   const keySaveTimerRef = useRef<number | null>(null);
+  const [mindlogicApiKey, setMindlogicApiKeyState] = useState('');
+  const [showMindlogicKey, setShowMindlogicKey] = useState(false);
+  const mindlogicKeySaveTimerRef = useRef<number | null>(null);
   type TestState =
     | { kind: 'idle' }
     | { kind: 'pending' }
     | { kind: 'ok'; translation: string }
     | { kind: 'err'; error: string };
   const [testState, setTestState] = useState<TestState>({ kind: 'idle' });
+  const [mindlogicTestState, setMindlogicTestState] = useState<TestState>({ kind: 'idle' });
 
   useEffect(() => {
     void loadSettings().then((s) => {
@@ -365,6 +388,7 @@ function Options() {
     });
     void getCacheStats().then((s) => setCacheCount(s.count));
     void getGeminiApiKey().then((k) => setApiKey(k ?? ''));
+    void getMindlogicApiKey().then((k) => setMindlogicApiKeyState(k ?? ''));
   }, []);
 
   // API 키 입력은 settings와 다른 storage area라 별도 디바운스 저장.
@@ -398,6 +422,41 @@ function Options() {
       else setTestState({ kind: 'err', error: res.error });
     } catch (e) {
       setTestState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const onMindlogicKeyChange = (v: string): void => {
+    setMindlogicApiKeyState(v);
+    setMindlogicTestState({ kind: 'idle' });
+    if (mindlogicKeySaveTimerRef.current !== null) clearTimeout(mindlogicKeySaveTimerRef.current);
+    mindlogicKeySaveTimerRef.current = window.setTimeout(() => {
+      mindlogicKeySaveTimerRef.current = null;
+      void setMindlogicApiKey(v.trim() || null);
+    }, 300);
+  };
+
+  const onTestMindlogic = async (): Promise<void> => {
+    if (mindlogicKeySaveTimerRef.current !== null) {
+      clearTimeout(mindlogicKeySaveTimerRef.current);
+      mindlogicKeySaveTimerRef.current = null;
+      await setMindlogicApiKey(mindlogicApiKey.trim() || null);
+    }
+    setMindlogicTestState({ kind: 'pending' });
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'TEST_MINDLOGIC',
+        apiKey: mindlogicApiKey.trim(),
+        model: settings.mindlogicModel,
+      })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
+      if (!res)
+        setMindlogicTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      else if (res.ok) setMindlogicTestState({ kind: 'ok', translation: res.translation });
+      else setMindlogicTestState({ kind: 'err', error: res.error });
+    } catch (e) {
+      setMindlogicTestState({
+        kind: 'err',
+        error: e instanceof Error ? e.message : String(e),
+      });
     }
   };
 
@@ -585,6 +644,23 @@ function Options() {
                 </div>
               </span>
             </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                checked={settings.backend === 'mindlogic'}
+                onChange={() => update({ backend: 'mindlogic' as BackendId })}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <div>
+                  Mindlogic Gateway (학교/조직 키){' '}
+                  <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  한 키로 Claude/GPT/Gemini 등 모델 선택 가능. 학교/조직 발급 키 필요
+                </div>
+              </span>
+            </label>
           </div>
         </div>
         <Row label="노래방 모드 (원문 줄에 적용)">
@@ -670,6 +746,75 @@ function Options() {
             )}
             {testState.kind === 'err' && (
               <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
+            )}
+          </Row>
+        </Section>
+      )}
+
+      {settings.backend === 'mindlogic' && (
+        <Section title="Mindlogic Gateway 설정">
+          <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+            학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델을 쓸 수 있는
+            게이트웨이. 키는 이 PC에만 저장됨.
+          </p>
+          <Row label="API 키">
+            <input
+              type={showMindlogicKey ? 'text' : 'password'}
+              value={mindlogicApiKey}
+              onChange={(e) => onMindlogicKeyChange(e.target.value)}
+              placeholder="sk-... 또는 발급받은 키"
+              style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              onClick={() => setShowMindlogicKey((v) => !v)}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+            >
+              {showMindlogicKey ? '숨김' : '보기'}
+            </button>
+            {!mindlogicApiKey.trim() && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>
+                키 없으면 Google 무료로 자동 fallback
+              </span>
+            )}
+          </Row>
+          <Row label="모델">
+            <select
+              value={settings.mindlogicModel}
+              onChange={(e) =>
+                update({ mindlogicModel: e.target.value as MindlogicModel })
+              }
+            >
+              {MINDLOGIC_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label} — {m.hint}
+                </option>
+              ))}
+            </select>
+            <span style={{ fontSize: 11, color: '#999' }}>
+              계정에 권한 없으면 해당 모델은 인증 실패 → Google 무료로 fallback
+            </span>
+          </Row>
+          <Row label="키 확인">
+            <button
+              onClick={() => void onTestMindlogic()}
+              disabled={!mindlogicApiKey.trim() || mindlogicTestState.kind === 'pending'}
+              style={{ padding: '4px 10px' }}
+              type="button"
+            >
+              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '테스트'}
+            </button>
+            {mindlogicTestState.kind === 'ok' && (
+              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+                ✓ 동작함 (예: "Hello, world." → "{mindlogicTestState.translation}")
+              </span>
+            )}
+            {mindlogicTestState.kind === 'err' && (
+              <span style={{ fontSize: 12, color: '#ff7777' }}>
+                ✗ {mindlogicTestState.error}
+              </span>
             )}
           </Row>
         </Section>

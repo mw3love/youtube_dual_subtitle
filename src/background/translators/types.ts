@@ -1,4 +1,4 @@
-export type BackendId = 'chrome-builtin' | 'google-free' | 'gemini';
+export type BackendId = 'chrome-builtin' | 'google-free' | 'gemini' | 'mindlogic';
 
 export interface TranslatorBackend {
   id: BackendId;

@@ -45,6 +45,8 @@ export default defineManifest({
     'https://translate.googleapis.com/*',
     // Gemini (BYOK) 번역 백엔드. 사용자가 옵션 페이지에서 본인 키 입력 시에만 호출.
     'https://generativelanguage.googleapis.com/*',
+    // Mindlogic API Gateway (BYOK) — 학교/조직 계정 키로 OpenAI/Anthropic/Gemini 등 통과.
+    'https://factchat-cloud.mindlogic.ai/*',
   ],
   web_accessible_resources: [
     {

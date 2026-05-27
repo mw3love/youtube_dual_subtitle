@@ -3,7 +3,7 @@ import { z } from 'zod';
 // zod로 검증해 손상된 storage 값이 runtime을 부수지 않게 한다.
 // 새 필드는 default가 있어서 옛 사용자의 storage에도 안전하게 마이그레이션됨.
 
-export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free', 'gemini']);
+export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free', 'gemini', 'mindlogic']);
 export type BackendId = z.infer<typeof BackendIdSchema>;
 
 // Gemini API 모델 — Flash는 품질, Flash-Lite는 속도/한도 우선.
@@ -11,6 +11,19 @@ export type BackendId = z.infer<typeof BackendIdSchema>;
 // Google 계정 동기화로 전파되지 않도록.
 export const GeminiModelSchema = z.enum(['flash', 'flash-lite']);
 export type GeminiModel = z.infer<typeof GeminiModelSchema>;
+
+// Mindlogic API Gateway는 OpenAI/Anthropic/Gemini 등을 단일 endpoint로 통과시킨다.
+// 학교/조직 계정 통합 크레딧 방식이라 가성비/저가 라인만 노출 — flagship/codex/reasoning은
+// 자막 번역(짧은 cue × N)에 비용 대비 가치가 낮음. 모델 ID는 gateway가 upstream에 그대로
+// 전달하므로 ID 변경/추가는 이 enum 갱신으로 처리.
+export const MindlogicModelSchema = z.enum([
+  'gpt-5.4-nano',
+  'gpt-5.4-mini',
+  'claude-haiku-4-5-20251001',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite',
+]);
+export type MindlogicModel = z.infer<typeof MindlogicModelSchema>;
 
 export const DisplayModeSchema = z.enum(['dual', 'translation-only', 'source-only']);
 export type DisplayMode = z.infer<typeof DisplayModeSchema>;
@@ -47,6 +60,7 @@ export const SettingsSchema = z.object({
   subtitlesEnabled: z.boolean(),
   backend: BackendIdSchema,
   geminiModel: GeminiModelSchema,
+  mindlogicModel: MindlogicModelSchema,
   sourceLang: SourceLangSchema,
   targetLang: TargetLangSchema,
   displayMode: DisplayModeSchema,
@@ -80,6 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
   subtitlesEnabled: true,
   backend: 'google-free',
   geminiModel: 'flash',
+  mindlogicModel: 'gemini-2.5-flash',
   sourceLang: 'en',
   targetLang: 'ko',
   displayMode: 'dual',

@@ -7,6 +7,7 @@
 import type { BackendId } from '../background/translators/types';
 
 const KEY_GEMINI_API = 'geminiApiKey';
+const KEY_MINDLOGIC_API = 'mindlogicApiKey';
 const KEY_LAST_BACKEND = 'lastBackend';
 
 export async function getGeminiApiKey(): Promise<string | null> {
@@ -21,6 +22,20 @@ export async function setGeminiApiKey(key: string | null): Promise<void> {
     return;
   }
   await chrome.storage.local.set({ [KEY_GEMINI_API]: key });
+}
+
+export async function getMindlogicApiKey(): Promise<string | null> {
+  const r = await chrome.storage.local.get(KEY_MINDLOGIC_API);
+  const v = r[KEY_MINDLOGIC_API];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+export async function setMindlogicApiKey(key: string | null): Promise<void> {
+  if (!key) {
+    await chrome.storage.local.remove(KEY_MINDLOGIC_API);
+    return;
+  }
+  await chrome.storage.local.set({ [KEY_MINDLOGIC_API]: key });
 }
 
 // "마지막 번역 호출 결과" — 팝업에 표시. SW devtools 없이도 어느 백엔드가 실제 동작 중인지 확인.

@@ -2,6 +2,7 @@ import type { BackendId } from './types';
 import { translateBatch as googleFree } from './google-free';
 import { translateBatch as chromeBuiltin } from './chrome-builtin';
 import { translateBatch as gemini } from './gemini';
+import { translateBatch as mindlogic } from './mindlogic';
 
 const TAG = '[YDT/router]';
 
@@ -25,17 +26,25 @@ export async function translateBatch(
   preferred: BackendId,
 ): Promise<RouterResult> {
   const order: BackendId[] =
-    preferred === 'gemini'
-      ? ['gemini', 'google-free']
-      : preferred === 'chrome-builtin'
-        ? ['chrome-builtin', 'google-free']
-        : ['google-free', 'chrome-builtin'];
+    preferred === 'mindlogic'
+      ? ['mindlogic', 'google-free']
+      : preferred === 'gemini'
+        ? ['gemini', 'google-free']
+        : preferred === 'chrome-builtin'
+          ? ['chrome-builtin', 'google-free']
+          : ['google-free', 'chrome-builtin'];
 
   let lastErr: unknown = null;
   for (const id of order) {
     try {
       const fn =
-        id === 'gemini' ? gemini : id === 'chrome-builtin' ? chromeBuiltin : googleFree;
+        id === 'mindlogic'
+          ? mindlogic
+          : id === 'gemini'
+            ? gemini
+            : id === 'chrome-builtin'
+              ? chromeBuiltin
+              : googleFree;
       const translations = await fn(texts, src, tgt);
       if (id !== preferred) console.warn(TAG, `fell back to ${id} (preferred ${preferred} failed)`);
       return { translations, used: id };

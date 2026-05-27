@@ -86,13 +86,17 @@ function activeBackend(): BackendId {
   return currentSettings?.backend ?? 'google-free';
 }
 
-// 캐시 키용 backend 식별자. Gemini는 모델별로 결과가 달라 캐시 분리 필요.
+// 캐시 키용 backend 식별자. 모델 선택이 있는 BYOK 백엔드는 모델 ID까지 합성해 캐시 분리.
 // google-free·chrome-builtin은 기존 키 포맷 유지(하위 호환).
 function cacheBackendTag(): string {
   const b = activeBackend();
   if (b === 'gemini') {
     const model = currentSettings?.geminiModel ?? 'flash';
     return `gemini:${model}`;
+  }
+  if (b === 'mindlogic') {
+    const model = currentSettings?.mindlogicModel ?? 'claude-sonnet-4-6';
+    return `mindlogic:${model}`;
   }
   return b;
 }
@@ -625,7 +629,13 @@ setInterval(() => {
 }, 1000);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
-const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend', 'geminiModel']);
+const RETRANSLATE_KEYS = new Set([
+  'sourceLang',
+  'targetLang',
+  'backend',
+  'geminiModel',
+  'mindlogicModel',
+]);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;

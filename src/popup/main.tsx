@@ -11,7 +11,12 @@ import {
   type TargetLang,
 } from '../shared/settings';
 import { BACKENDS, DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
-import { getGeminiApiKey, getLastBackend, type LastBackendInfo } from '../shared/secrets';
+import {
+  getGeminiApiKey,
+  getLastBackend,
+  getMindlogicApiKey,
+  type LastBackendInfo,
+} from '../shared/secrets';
 
 // 현재 탭 상태 — 팝업이 열렸을 때 한 번 조회.
 type TabStatus =
@@ -85,6 +90,7 @@ const BACKEND_LABEL: Record<BackendId, string> = {
   'google-free': 'Google 무료',
   'chrome-builtin': 'Chrome 내장',
   gemini: 'Gemini',
+  mindlogic: 'Mindlogic',
 };
 
 function formatAgo(at: number): string {
@@ -140,8 +146,9 @@ function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<TabStatus>({ kind: 'loading' });
-  // Gemini 키 설정 여부 — backend === 'gemini'인데 키 없을 때만 안내 표시.
+  // BYOK 백엔드의 키 설정 여부 — 키 없는데 해당 백엔드 선택했을 때만 안내 표시.
   const [geminiKeySet, setGeminiKeySet] = useState<boolean | null>(null);
+  const [mindlogicKeySet, setMindlogicKeySet] = useState<boolean | null>(null);
   // 마지막 번역 호출 결과 — preferred ≠ used면 fallback 발생을 사용자에게 노출.
   const [lastBackend, setLastBackendState] = useState<LastBackendInfo | null>(null);
 
@@ -151,6 +158,7 @@ function Popup() {
       setLoaded(true);
     });
     void getGeminiApiKey().then((k) => setGeminiKeySet(!!k));
+    void getMindlogicApiKey().then((k) => setMindlogicKeySet(!!k));
     void getLastBackend().then((b) => setLastBackendState(b));
 
     // 현재 탭 상태 조회.
@@ -319,6 +327,22 @@ function Popup() {
           }}
         >
           Gemini API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
+        </p>
+      )}
+
+      {settings.backend === 'mindlogic' && mindlogicKeySet === false && (
+        <p
+          style={{
+            margin: '4px 0 0',
+            padding: '6px 8px',
+            fontSize: 11,
+            color: '#ffcfa6',
+            background: '#3a2a1a',
+            border: '1px solid #5a3a1a',
+            borderRadius: 3,
+          }}
+        >
+          Mindlogic API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
         </p>
       )}
 

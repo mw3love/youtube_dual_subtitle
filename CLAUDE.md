@@ -86,17 +86,23 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
   - **429 cooldown (A21)**: 429 받으면 `rateLimitedUntil`을 60s 후로 set → 다음 `translateBatch` 진입 시 즉시 throw → router가 google-free로 fallback. 매 batch마다 1.5s 백오프 × 청크 누적 지연 방지. `testGeminiKey`는 cooldown 우회 + 성공 시 reset (사용자가 새 키 검증 가능하게).
   - **키는 settings(storage.sync) 아니라 `secrets.ts` + `chrome.storage.local`** — 웹스토어 배포 시 사용자 키가 Google 계정 동기화로 전파되지 않도록 분리. gemini.ts가 호출 시점에 storage.local과 storage.sync에서 fresh read (race 회피).
   - 옵션 페이지 "테스트" 버튼은 router 우회용 `TEST_GEMINI` 메시지 + `testGeminiKey(apiKey, model)` 직접 호출. router fallback이 키 오류를 가려 "성공"으로 보이는 사고 방지. 클릭 시 디바운스 보류 중인 키 저장 먼저 flush.
+- `mindlogic.ts` (BYOK, A24, v0.3.0): `factchat-cloud.mindlogic.ai/v1/gateway/chat/completions`. Mindlogic API Gateway는 OpenAI/Anthropic/Google/xAI/Perplexity 등 여러 upstream을 단일 endpoint로 통과시키는 학교/조직 게이트웨이. OpenAI 호환 path로 통일해 모델 ID만 바꾸면 여러 provider 사용 가능.
+  - 통합 크레딧이라 자막 번역(짧은 cue × N)에 가성비 좋은 5개만 노출: `gemini-2.5-flash`(default), `gemini-3.1-flash-lite`, `claude-haiku-4-5-20251001`, `gpt-5.4-mini`, `gpt-5.4-nano`. flagship/codex/reasoning은 자막 수백 줄 비용에 비효율로 제외. gpt mini 계열은 학교 계정에 미해방인 경우 있어(401/403) router가 google-free로 fallback.
+  - 요청 포맷: `{model, messages:[system,user], temperature:0.2, max_tokens:4096}`. `system`은 N items in/out 규칙 + "ONLY the JSON array, no fences, no preamble", `user`는 `JSON.stringify(texts)`. `response_format`은 모델별 지원 차이 커서 사용 안 함 — 대신 `parseResponse`의 `extractJsonArray`가 첫 `[` ~ 마지막 `]` 슬라이스로 ```json fence나 preamble("Here is the translation: [...]")을 받아냄.
+  - 길이 mismatch 시 1회 재시도, 그래도 안 맞으면 throw → router fallback. 429/5xx 1회 백오프 재시도, 401/403/400 즉시 throw. 429 시 60s cooldown (gemini와 동일 패턴).
+  - 키 저장 위치/테스트 버튼 패턴 모두 gemini와 동일. `TEST_MINDLOGIC` 메시지로 router 우회 검증.
+  - 캐시 키는 `mindlogic:<modelId>` 합성 (섹션 7) — 모델 바꾸면 별개 캐시.
 
 ### 6. Settings — 즉시 반영 + 자동 재번역
 
 - `src/shared/settings.ts`: `zod` 스키마로 검증, partial 마이그레이션(새 필드는 default로). 모든 페이지가 같은 schema 공유.
 - 옵션 페이지(`src/options/main.tsx`)는 변경을 즉시 UI에 반영하되 `storage.sync.set`은 **250ms 디바운스** (color/slider 입력으로 분당 120회 quota에 안 걸리게).
-- `src/content/index.ts:241-255`: `chrome.storage.onChanged` 수신 → settings 전체 reload → `applySettings`. `RETRANSLATE_KEYS = {sourceLang, targetLang, backend, geminiModel}` 중 하나가 바뀌면 현재 영상 자동 재번역(`lastCues` 보관 덕분).
+- `src/content/index.ts:241-255`: `chrome.storage.onChanged` 수신 → settings 전체 reload → `applySettings`. `RETRANSLATE_KEYS = {sourceLang, targetLang, backend, geminiModel, mindlogicModel}` 중 하나가 바뀌면 현재 영상 자동 재번역(`lastCues` 보관 덕분).
 
 ### 7. 캐시
 
 - `src/shared/cache/idb-cache.ts`: IndexedDB via `idb-keyval`.
-- key: `ydt::{videoId}::{src}::{tgt}::{backend}` — backend가 바뀌면 별개 캐시(품질 다르므로). Gemini는 모델별 결과가 달라 backend 자리에 `gemini:flash` / `gemini:flash-lite` 합성(`content/index.ts:cacheBackendTag`). 다른 백엔드는 기존 포맷 유지(하위 호환).
+- key: `ydt::{videoId}::{src}::{tgt}::{backend}` — backend가 바뀌면 별개 캐시(품질 다르므로). 모델 선택이 있는 BYOK 백엔드는 모델 ID까지 합성: `gemini:flash` / `gemini:flash-lite`, `mindlogic:gemini-2.5-flash` / `mindlogic:claude-haiku-4-5-20251001` 등(`content/index.ts:cacheBackendTag`). 모델 ID에 단일 `:`이 들어가도 segment separator `::`와 충돌 없음. 다른 백엔드는 기존 포맷 유지(하위 호환).
 - TTL 30일, MAX 200엔트리, `set` 시 5% 확률로 lazy prune.
 - 번역 결과 길이가 입력 길이와 일치할 때만 저장 (alignment 어긋난 결과 캐싱 방지).
 
@@ -132,9 +138,9 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.
-- **번역 백엔드별 호출 모델이 다르다**. `google-free`는 batch 1회 GET, `chrome-builtin`은 N회 순차, `gemini`는 batch 1회 POST + JSON in/out. 새 백엔드 추가 시 `router.ts`의 fallback 로직과 `idb-cache`의 key 포맷, `settings.BackendIdSchema`+`translators/types.ts:BackendId` 두 곳, `lang-options.ts:BACKENDS` 모두 동기 갱신.
+- **번역 백엔드별 호출 모델이 다르다**. `google-free`는 batch 1회 GET, `chrome-builtin`은 N회 순차, `gemini`는 batch 1회 POST(Gemini native API + JSON schema 강제), `mindlogic`은 batch 1회 POST(OpenAI 호환 chat/completions + system prompt로 JSON 유도). 새 백엔드 추가 시 `router.ts`의 fallback 로직과 `idb-cache`의 key 포맷, `settings.BackendIdSchema`+`translators/types.ts:BackendId` 두 곳, `lang-options.ts:BACKENDS` 모두 동기 갱신. BYOK면 `secrets.ts`에 키 getter/setter + 옵션 페이지 키 입력 UI + `background/index.ts`의 `TEST_<backend>` 메시지 핸들러 + manifest `host_permissions`까지 추가.
 - **BYOK 비밀값은 `secrets.ts` + `chrome.storage.local`** — settings(storage.sync)와 의도적으로 분리. 새 BYOK 백엔드 추가 시 같은 패턴 따를 것. 옵션 페이지에서 키 입력은 별도 디바운스 저장 + "테스트" 클릭 시 보류 저장 flush.
-- **웹스토어 배포 권한 사유**: `generativelanguage.googleapis.com` host_permission은 "사용자가 본인 Gemini API 키로 자막 번역" 용도. 자체 키 미포함(BYOK), 익스텐션 코드에 비밀값 없음. 제출 시 manifest justification에 그대로 사용 가능.
+- **웹스토어 배포 권한 사유**: `generativelanguage.googleapis.com`은 "사용자 본인 Gemini API 키로 자막 번역", `factchat-cloud.mindlogic.ai`는 "학교/조직 발급 Mindlogic Gateway 키로 자막 번역" 용도. 둘 다 자체 키 미포함(BYOK), 익스텐션 코드에 비밀값 없음. 제출 시 manifest justification에 그대로 사용 가능.
 - **`world: 'MAIN'` 스크립트는 HMR 제약**이 있다. 빌드 로그에 `Some content-scripts don't support HMR because the world is MAIN: /src/content/inject-main.ts` 경고가 나오는 게 정상 — `inject-main.ts`를 바꾸면 확장 ↻로 새로 로드해야 함.
 - **`offscreen` 문서는 manifest entry가 아니다**. `vite.config.ts:14-17`에서 별도로 rollup input에 등록되어 있음. 새 offscreen 페이지 추가 시 같은 패턴 따를 것.
 - **`web_accessible_resources.matches`는 `youtube.com`으로 좁혀져 있음** (`manifest.ts:49-57`). offscreen HTML은 익스텐션 내부 호출(`chrome.offscreen.createDocument`)로만 띄워지므로 외부 origin 화이트리스트는 좁아도 동작에 영향 없음. 스토어 최소권한 원칙에 맞게 유지.

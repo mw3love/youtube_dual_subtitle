@@ -4,8 +4,9 @@
 
 import { translateBatch } from './translators/router';
 import { testGeminiKey } from './translators/gemini';
+import { testMindlogicKey } from './translators/mindlogic';
 import type { BackendId } from './translators/types';
-import type { GeminiModel } from '../shared/settings';
+import type { GeminiModel, MindlogicModel } from '../shared/settings';
 import { setLastBackend } from '../shared/secrets';
 
 const TAG = '[YDT/bg]';
@@ -25,7 +26,15 @@ interface TestGeminiMsg {
   model: GeminiModel;
 }
 
-type AnyMsg = Partial<TranslateBatchMsg> & Partial<TestGeminiMsg> & { type?: string };
+interface TestMindlogicMsg {
+  type: 'TEST_MINDLOGIC';
+  apiKey: string;
+  model: MindlogicModel;
+}
+
+type AnyMsg = Partial<TranslateBatchMsg> &
+  Partial<TestGeminiMsg> &
+  Partial<TestMindlogicMsg> & { type?: string };
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
   const m = msg as AnyMsg;
@@ -63,7 +72,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
   if (m?.type === 'TEST_GEMINI' && typeof m.apiKey === 'string' && m.model) {
     const apiKey = m.apiKey;
-    const model = m.model;
+    const model = m.model as GeminiModel;
     (async (): Promise<void> => {
       try {
         const translation = await testGeminiKey(apiKey, model);
@@ -71,6 +80,22 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'gemini test failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'TEST_MINDLOGIC' && typeof m.apiKey === 'string' && m.model) {
+    const apiKey = m.apiKey;
+    const model = m.model as MindlogicModel;
+    (async (): Promise<void> => {
+      try {
+        const translation = await testMindlogicKey(apiKey, model);
+        sendResponse({ ok: true, translation });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'mindlogic test failed:', error);
         sendResponse({ ok: false, error });
       }
     })();
