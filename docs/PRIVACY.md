@@ -16,6 +16,7 @@ The Extension processes the following data **locally on your device** to perform
 | Subtitle (caption) text from YouTube videos you watch | Translate to your chosen target language for display | RAM during playback; translated text cached in your browser's IndexedDB | See "External services" below |
 | Translation cache | Avoid re-translating the same video | IndexedDB (your local browser, auto-pruned at 30 days or 200 entries) | Not sent to any third-party server |
 | Gemini API key (only if you choose the Gemini backend) | Authenticate your own Google AI Studio key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to Google's Gemini API as your `x-goog-api-key` header |
+| Last translation backend used (which backend, when) | Show "최근 번역: X · N분 전" in the popup so you can see whether your preferred backend or a fallback handled the latest translation | `chrome.storage.local` (this device only) | Not sent to any third-party server |
 
 ## 2. External services
 
