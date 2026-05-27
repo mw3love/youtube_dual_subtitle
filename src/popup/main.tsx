@@ -11,7 +11,7 @@ import {
   type TargetLang,
 } from '../shared/settings';
 import { BACKENDS, DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
-import { getGeminiApiKey } from '../shared/secrets';
+import { getGeminiApiKey, getLastBackend, type LastBackendInfo } from '../shared/secrets';
 
 // 현재 탭 상태 — 팝업이 열렸을 때 한 번 조회.
 type TabStatus =
@@ -80,12 +80,70 @@ function StatusLine({ status }: { status: TabStatus }) {
   );
 }
 
+// 백엔드 식별자 → 사용자에게 보여줄 짧은 이름.
+const BACKEND_LABEL: Record<BackendId, string> = {
+  'google-free': 'Google 무료',
+  'chrome-builtin': 'Chrome 내장',
+  gemini: 'Gemini',
+};
+
+function formatAgo(at: number): string {
+  const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  if (sec < 60) return `${sec}초 전`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  const day = Math.floor(hr / 24);
+  return `${day}일 전`;
+}
+
+// "최근 번역" 한 줄 — preferred ≠ used면 fallback 발생을 빨갛게 노출.
+function LastBackendLine({ info, preferred }: { info: LastBackendInfo; preferred: BackendId }) {
+  const fellBack = info.used !== info.preferred;
+  // 사용자가 popup 열어둔 동안 시간 흐름 반영 (1분 단위).
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => force((n) => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const stale = Date.now() - info.at > 30 * 60 * 1000; // 30분 이상이면 흐리게
+  return (
+    <p
+      style={{
+        margin: '6px 0 0',
+        padding: '5px 8px',
+        fontSize: 11,
+        color: fellBack ? '#ffb37a' : stale ? '#888' : '#aac8ff',
+        background: '#1f1f1f',
+        border: '1px solid #2e2e2e',
+        borderRadius: 3,
+        opacity: stale ? 0.7 : 1,
+      }}
+      title={
+        fellBack
+          ? `${BACKEND_LABEL[info.preferred]} 호출 실패 → ${BACKEND_LABEL[info.used]}로 자동 fallback`
+          : `${BACKEND_LABEL[info.used]}로 처리 완료`
+      }
+    >
+      최근 번역: {BACKEND_LABEL[info.used]} · {formatAgo(info.at)}
+      {fellBack && (
+        <span style={{ marginLeft: 6, fontSize: 10 }}>
+          ⚠ {BACKEND_LABEL[preferred]} 실패 → fallback
+        </span>
+      )}
+    </p>
+  );
+}
+
 function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<TabStatus>({ kind: 'loading' });
   // Gemini 키 설정 여부 — backend === 'gemini'인데 키 없을 때만 안내 표시.
   const [geminiKeySet, setGeminiKeySet] = useState<boolean | null>(null);
+  // 마지막 번역 호출 결과 — preferred ≠ used면 fallback 발생을 사용자에게 노출.
+  const [lastBackend, setLastBackendState] = useState<LastBackendInfo | null>(null);
 
   useEffect(() => {
     void loadSettings().then((s) => {
@@ -93,6 +151,7 @@ function Popup() {
       setLoaded(true);
     });
     void getGeminiApiKey().then((k) => setGeminiKeySet(!!k));
+    void getLastBackend().then((b) => setLastBackendState(b));
 
     // 현재 탭 상태 조회.
     void (async () => {
@@ -262,6 +321,8 @@ function Popup() {
           Gemini API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
         </p>
       )}
+
+      {lastBackend && <LastBackendLine info={lastBackend} preferred={settings.backend} />}
 
       <button
         onClick={openOptions}

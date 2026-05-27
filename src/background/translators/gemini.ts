@@ -33,6 +33,11 @@ const MODEL_ID: Record<GeminiModel, string> = {
 // 그러면 router fallback이 끼어 들어 사실상 google-free로 동작하게 됨.
 const GEMINI_CHUNK_SIZE = 20;
 
+// 429 (한도 초과) 맞으면 일정 시간 Gemini 호출 자체를 skip — 매 batch마다 1.5s 백오프 × 청크 ×
+// 영상으로 누적되는 지연 방지. 그동안은 즉시 throw → router가 google-free로 fallback.
+const RATE_LIMIT_COOLDOWN_MS = 60_000;
+let rateLimitedUntil = 0;
+
 interface GeminiOptions {
   apiKey?: string;
   model?: GeminiModel;
@@ -45,6 +50,12 @@ export async function translateBatch(
   opts?: GeminiOptions,
 ): Promise<string[]> {
   if (texts.length === 0) return [];
+  // 호출 직전에 cooldown 확인 — 한도 도달 후엔 즉시 throw해 router가 다음 백엔드로.
+  const now = Date.now();
+  if (rateLimitedUntil > now) {
+    const wait = Math.ceil((rateLimitedUntil - now) / 1000);
+    throw new Error(`Gemini 한도 cooldown 중 (${wait}s 남음)`);
+  }
   const apiKey = opts?.apiKey ?? (await getGeminiApiKey());
   if (!apiKey) {
     throw new Error('Gemini API 키가 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
@@ -66,8 +77,10 @@ export async function translateBatch(
 
 // 옵션 페이지 "테스트" 버튼용 — storage 안 거치고 explicit 인자 사용해
 // 디바운스 저장 race를 피하고, router fallback도 건너뜀.
+// cooldown도 우회 — 사용자가 새 키로 검증 중일 수 있음. 성공 시 기존 cooldown 해제.
 export async function testGeminiKey(apiKey: string, model: GeminiModel): Promise<string> {
-  const out = await translateBatch(['Hello, world.'], 'en', 'ko', { apiKey, model });
+  const out = await callGeminiWithRetry(['Hello, world.'], 'en', 'ko', apiKey, model);
+  rateLimitedUntil = 0;
   return out[0] ?? '';
 }
 
@@ -175,7 +188,9 @@ async function callGemini(
       throw new Error(`Gemini 요청 형식 오류 (HTTP 400): ${truncate(errText, 200)}`);
     }
     if (status === 429) {
-      throw new Error(`Gemini 한도 초과 (HTTP 429) — 잠시 후 다시 시도`);
+      // 한도 도달 → cooldown 설정. 다음 호출들은 즉시 skip됨.
+      rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
+      throw new Error(`Gemini 한도 초과 (HTTP 429) — ${RATE_LIMIT_COOLDOWN_MS / 1000}s cooldown`);
     }
     throw new Error(`Gemini 서버 오류 (HTTP ${status}): ${truncate(errText, 200)}`);
   }

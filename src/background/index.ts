@@ -6,6 +6,7 @@ import { translateBatch } from './translators/router';
 import { testGeminiKey } from './translators/gemini';
 import type { BackendId } from './translators/types';
 import type { GeminiModel } from '../shared/settings';
+import { setLastBackend } from '../shared/secrets';
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
@@ -44,6 +45,12 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
           `translated ${result.translations.length}/${texts.length} via ${result.used}` +
             (result.used !== m.backend ? ` (preferred ${m.backend} fell back)` : ''),
         );
+        // 팝업이 "최근 번역" 표시할 수 있게 storage에 기록. await 안 함 — 응답 빠르게.
+        void setLastBackend({
+          used: result.used,
+          preferred: m.backend ?? 'google-free',
+          at: Date.now(),
+        }).catch(() => {});
         sendResponse({ ok: true, translations: result.translations, used: result.used });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
