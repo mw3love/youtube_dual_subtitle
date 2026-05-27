@@ -48,8 +48,12 @@ export default defineManifest({
   ],
   web_accessible_resources: [
     {
+      // offscreen document는 background SW에서 chrome.offscreen.createDocument로만 띄우며
+      // 익스텐션 내부 호출이라 matches와 무관하게 동작. matches는 *외부 origin*이 이 HTML을
+      // fetch할 수 있는 화이트리스트일 뿐 — content script가 도는 youtube.com만 허용해도
+      // 우리 동작에 영향 없음. 스토어 최소권한 원칙에 맞게 좁힘.
       resources: ['src/offscreen/document.html'],
-      matches: ['<all_urls>'],
+      matches: ['https://www.youtube.com/*'],
     },
   ],
 });

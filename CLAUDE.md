@@ -137,7 +137,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **웹스토어 배포 권한 사유**: `generativelanguage.googleapis.com` host_permission은 "사용자가 본인 Gemini API 키로 자막 번역" 용도. 자체 키 미포함(BYOK), 익스텐션 코드에 비밀값 없음. 제출 시 manifest justification에 그대로 사용 가능.
 - **`world: 'MAIN'` 스크립트는 HMR 제약**이 있다. 빌드 로그에 `Some content-scripts don't support HMR because the world is MAIN: /src/content/inject-main.ts` 경고가 나오는 게 정상 — `inject-main.ts`를 바꾸면 확장 ↻로 새로 로드해야 함.
 - **`offscreen` 문서는 manifest entry가 아니다**. `vite.config.ts:14-17`에서 별도로 rollup input에 등록되어 있음. 새 offscreen 페이지 추가 시 같은 패턴 따를 것.
-- **`host_permissions`에 `factchat-cloud.mindlogic.ai`가 있음** (`manifest.ts:34`)이지만 현재 코드에서 사용 흔적 없음 — 추후 백엔드 추가 예정인지 dead permission인지 확인 필요.
+- **`web_accessible_resources.matches`는 `youtube.com`으로 좁혀져 있음** (`manifest.ts:49-57`). offscreen HTML은 익스텐션 내부 호출(`chrome.offscreen.createDocument`)로만 띄워지므로 외부 origin 화이트리스트는 좁아도 동작에 영향 없음. 스토어 최소권한 원칙에 맞게 유지.
 
 ## 커밋 메시지 컨벤션 (관찰된 패턴)
 

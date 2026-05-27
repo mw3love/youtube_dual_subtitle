@@ -54,7 +54,7 @@ export async function translateBatch(
   const now = Date.now();
   if (rateLimitedUntil > now) {
     const wait = Math.ceil((rateLimitedUntil - now) / 1000);
-    throw new Error(`Gemini 한도 cooldown 중 (${wait}s 남음)`);
+    throw new Error(`Gemini 한도 초과로 대기 중 (${wait}초 남음)`);
   }
   const apiKey = opts?.apiKey ?? (await getGeminiApiKey());
   if (!apiKey) {
@@ -190,7 +190,7 @@ async function callGemini(
     if (status === 429) {
       // 한도 도달 → cooldown 설정. 다음 호출들은 즉시 skip됨.
       rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
-      throw new Error(`Gemini 한도 초과 (HTTP 429) — ${RATE_LIMIT_COOLDOWN_MS / 1000}s cooldown`);
+      throw new Error(`Gemini 한도 초과 (HTTP 429) — ${RATE_LIMIT_COOLDOWN_MS / 1000}초 대기`);
     }
     throw new Error(`Gemini 서버 오류 (HTTP ${status}): ${truncate(errText, 200)}`);
   }

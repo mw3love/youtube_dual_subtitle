@@ -6,13 +6,18 @@
 //      (사용자가 CC를 누르지 않아도 자막 데이터가 page->자동 fetch되게 만든다.)
 // 트랙 목록도 함께 isolated content script로 broadcast한다 (UI/선택 로직용).
 
+import { getVideoIdFromLocation } from '../shared/url';
+
 (() => {
   const TAG = '[YDT/main]';
 
   // isolated가 사용자 설정을 알려주는 boolean. false면 자동 CC 토글을 보류해
   // CC 버튼 시각 상태와 우리 자막 표시 상태가 어긋나지 않게 한다.
-  // 초기값 true — 메시지 수신 전 첫 영상에서 일단 잡도록. 직후 isolated가 실제 값으로 갱신.
-  let subtitlesEnabled = true;
+  // 초기값 false — isolated가 SUBTITLES_ENABLED 메시지로 실제 값을 보낼 때까지 자동 토글 보류.
+  // (이전엔 true로 시작해 자막 off 사용자가 새 영상 진입 시 1회 CC 토글이 발화하던 race 존재.
+  //  isolated가 document_start에 같이 등록되고 loadSettings 끝나면 즉시 보내므로 첫 토글
+  //  지연은 수십~수백ms 수준 — 자막 ON 사용자도 체감 영향 적음.)
+  let subtitlesEnabled = false;
 
   // ───────────────────────── 1. fetch + XHR monkey-patch (즉시) ─────────────────────────
   // YouTube가 timedtext를 fetch / XMLHttpRequest 중 어느 쪽으로 호출하는지 불분명하므로 둘 다.
@@ -174,12 +179,7 @@
     return { tracks: [], via: 'none' };
   }
 
-  function getVideoId(): string | null {
-    const q = new URLSearchParams(location.search).get('v');
-    if (q) return q;
-    const m = location.pathname.match(/\/shorts\/([^/?#]+)/);
-    return m?.[1] ?? null;
-  }
+  const getVideoId = getVideoIdFromLocation;
 
   // Shorts swipe 직후 player의 새 playerResponse가 load되는 데 시간이 걸리는 경우가 있어
   // 짧은 retry로는 빈 트랙으로 끝나 cue를 못 잡는다. 최대 7초까지 늘려 안정성 확보.

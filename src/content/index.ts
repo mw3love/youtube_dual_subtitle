@@ -8,6 +8,7 @@ import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
 import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
+import { getVideoIdFromLocation } from '../shared/url';
 
 const TAG = '[YDT]';
 
@@ -64,12 +65,7 @@ renderer.setOnFontSizeChange((sourceSize, targetSize) => {
   }, 300);
 });
 
-function currentVideoId(): string | null {
-  const q = new URLSearchParams(location.search).get('v');
-  if (q) return q;
-  const m = location.pathname.match(/\/shorts\/([^/?#]+)/);
-  return m?.[1] ?? null;
-}
+const currentVideoId = getVideoIdFromLocation;
 
 // 현재 renderer가 들고 있는 cue가 어느 video의 것인지. setCues 호출 시 갱신된다.
 // yt-navigate-finish에서 이걸 비교해 stale cue만 clear한다.
@@ -536,9 +532,7 @@ function ensureCcObserver(attempt = 0): void {
 ensureCcObserver();
 // SPA navigate로 player가 새로 mount될 수 있어 재시도.
 window.addEventListener('yt-navigate-finish', () => ensureCcObserver());
-// Shorts swipe 등 navigate 이벤트가 발화 안 되는 케이스 안전망 — 1초 폴링으로 보강.
-// attachCcObserver는 같은 element면 idempotent skip이라 비용 무시 가능.
-setInterval(() => attachCcObserver(), 1000);
+// 1초 폴링은 아래 tickWatchdog과 합쳐 한 interval로 처리 (성능: setInterval 3→2).
 
 // C 키로 듀얼 자막 on/off.
 // YouTube native 'c' 핸들러는 .ytp-subtitles-button만 click하므로 Shorts에선 CC 시각 동기가
@@ -623,7 +617,12 @@ function tickWatchdog(): void {
   armWatchdog(vid);
 }
 tickWatchdog();
-setInterval(tickWatchdog, 1000);
+// 1초 폴링 — watchdog rearm + CC observer 안전망(Shorts swipe 등 navigate 이벤트 누락 케이스).
+// 두 호출 모두 같은 인스턴스에 idempotent라 한 interval로 합쳐도 비용 차이 없음.
+setInterval(() => {
+  tickWatchdog();
+  attachCcObserver();
+}, 1000);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
 const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend', 'geminiModel']);

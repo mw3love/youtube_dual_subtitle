@@ -36,12 +36,11 @@ export async function translateBatch(
   const result = translatedFull.split(SEP);
 
   if (result.length !== texts.length) {
-    // 줄바꿈 alignment 실패. 일단 어긋난 결과를 반환하고 호출 측이 fallback 처리.
-    console.warn(
-      '[YDT/google-free] line count mismatch — sent:',
-      texts.length,
-      'got:',
-      result.length,
+    // 줄바꿈 alignment 실패 → throw해서 router가 다음 백엔드로 fallback하게 한다.
+    // (이전엔 어긋난 결과를 반환했는데 호출 측 length check가 부분 방어만 해서 실제 fallback이
+    // 일어나지 않았음. throw해야 router catch에서 다음 백엔드 시도.)
+    throw new Error(
+      `google-free line count mismatch (sent ${texts.length}, got ${result.length})`,
     );
   }
   return result;

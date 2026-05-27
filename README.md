@@ -56,6 +56,7 @@ dev 빌드는 디버그 콘솔 로그(`[YDT/...]`) 유지. production 빌드는 
 | `offscreen` | Chrome 내장 Translator API 실행 |
 | `host: youtube.com` | 자막 트랙 가로채기 + 자막 오버레이 |
 | `host: translate.googleapis.com` | Google 무료 백엔드 호출 |
+| `host: generativelanguage.googleapis.com` | Gemini (BYOK) 백엔드 호출. 사용자가 본인 키 입력 시에만 사용 |
 
 데이터 처리 상세는 [docs/PRIVACY.md](docs/PRIVACY.md) 참고.
 
