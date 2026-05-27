@@ -11,6 +11,7 @@ import {
   type TargetLang,
 } from '../shared/settings';
 import { BACKENDS, DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
+import { getGeminiApiKey } from '../shared/secrets';
 
 // 현재 탭 상태 — 팝업이 열렸을 때 한 번 조회.
 type TabStatus =
@@ -83,12 +84,15 @@ function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<TabStatus>({ kind: 'loading' });
+  // Gemini 키 설정 여부 — backend === 'gemini'인데 키 없을 때만 안내 표시.
+  const [geminiKeySet, setGeminiKeySet] = useState<boolean | null>(null);
 
   useEffect(() => {
     void loadSettings().then((s) => {
       setSettings(s);
       setLoaded(true);
     });
+    void getGeminiApiKey().then((k) => setGeminiKeySet(!!k));
 
     // 현재 탭 상태 조회.
     void (async () => {
@@ -242,6 +246,22 @@ function Popup() {
           ))}
         </select>
       </label>
+
+      {settings.backend === 'gemini' && geminiKeySet === false && (
+        <p
+          style={{
+            margin: '4px 0 0',
+            padding: '6px 8px',
+            fontSize: 11,
+            color: '#ffcfa6',
+            background: '#3a2a1a',
+            border: '1px solid #5a3a1a',
+            borderRadius: 3,
+          }}
+        >
+          Gemini API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
+        </p>
+      )}
 
       <button
         onClick={openOptions}

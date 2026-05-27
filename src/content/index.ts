@@ -6,7 +6,7 @@ import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/type
 import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
-import { loadSettings, saveSettings, type Settings } from '../shared/settings';
+import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
 import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT]';
@@ -86,8 +86,19 @@ function preferredSource(): string {
 function targetLang(): string {
   return currentSettings?.targetLang ?? 'ko';
 }
-function activeBackend(): 'chrome-builtin' | 'google-free' {
+function activeBackend(): BackendId {
   return currentSettings?.backend ?? 'google-free';
+}
+
+// 캐시 키용 backend 식별자. Gemini는 모델별로 결과가 달라 캐시 분리 필요.
+// google-free·chrome-builtin은 기존 키 포맷 유지(하위 호환).
+function cacheBackendTag(): string {
+  const b = activeBackend();
+  if (b === 'gemini') {
+    const model = currentSettings?.geminiModel ?? 'flash';
+    return `gemini:${model}`;
+  }
+  return b;
 }
 
 window.addEventListener('message', (ev) => {
@@ -338,23 +349,26 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
   const src = preferredSource();
   const tgt = targetLang();
   const backend = activeBackend();
-  const cacheKey = makeKey(requestVideoId, src, tgt, backend);
+  const cacheKey = makeKey(requestVideoId, src, tgt, cacheBackendTag());
 
   // 1) 캐시 hit
   const cached = await getCached(cacheKey);
   if (cached && cached.length === texts.length) {
-    console.log(TAG, `cache hit (${backend}): ${cached.length} translations`);
+    console.log(TAG, `cache hit (${cacheBackendTag()}): ${cached.length} translations`);
     if (currentVideoId() === requestVideoId) renderer.setTargetTexts(cached);
     return;
   }
 
   // 2) miss — 배치로 fetch. 첫 batch만 작게, 이후는 표준 크기.
   const all: string[] = [];
+  const usedSet = new Set<string>(); // 어떤 백엔드(들)로 처리됐는지 — 마지막에 한 줄로 요약.
   let i = 0;
   while (i < texts.length) {
     const size = i === 0 ? FIRST_BATCH_SIZE : TRANSLATE_BATCH_SIZE;
     const batch = texts.slice(i, i + size);
-    let res: { ok: true; translations: string[] } | { ok: false; error: string };
+    let res:
+      | { ok: true; translations: string[]; used?: BackendId }
+      | { ok: false; error: string };
     try {
       res = (await chrome.runtime.sendMessage({
         type: 'TRANSLATE_BATCH',
@@ -382,11 +396,19 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
       return;
     }
 
+    if (res.used) usedSet.add(res.used);
+    // 배치마다 한 줄 로그 — F12에서 실제 사용된 백엔드를 바로 확인 (SW devtools 불필요).
+    console.log(
+      TAG,
+      `batch ${i}-${i + batch.length - 1}: ${res.translations.length}/${batch.length} via ${res.used ?? '?'}` +
+        (res.used && res.used !== backend ? ` ⚠ preferred ${backend} fell back` : ''),
+    );
     all.push(...res.translations);
     renderer.setTargetTexts(all);
     i += batch.length;
   }
-  console.log(TAG, `translate complete: ${all.length}/${texts.length}`);
+  const usedSummary = usedSet.size === 0 ? '?' : Array.from(usedSet).join('+');
+  console.log(TAG, `translate complete: ${all.length}/${texts.length} via ${usedSummary}`);
 
   // 3) 전체 길이 일치할 때만 캐시 (alignment 어긋난 결과 캐싱 방지)
   if (all.length === texts.length) {
@@ -604,7 +626,7 @@ tickWatchdog();
 setInterval(tickWatchdog, 1000);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
-const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend']);
+const RETRANSLATE_KEYS = new Set(['sourceLang', 'targetLang', 'backend', 'geminiModel']);
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'sync') return;

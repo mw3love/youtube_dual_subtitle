@@ -1,6 +1,6 @@
 # Privacy Policy — YouTube Dual Subtitle
 
-_Last updated: 2026-05-18_
+_Last updated: 2026-05-27_
 
 YouTube Dual Subtitle ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
 
@@ -15,6 +15,7 @@ The Extension processes the following data **locally on your device** to perform
 | Your settings (languages, display mode, styles, subtitle position) | Persist your preferences across sessions and devices | `chrome.storage.sync` (your Google account, encrypted by Chrome) | Not sent to any third-party server |
 | Subtitle (caption) text from YouTube videos you watch | Translate to your chosen target language for display | RAM during playback; translated text cached in your browser's IndexedDB | See "External services" below |
 | Translation cache | Avoid re-translating the same video | IndexedDB (your local browser, auto-pruned at 30 days or 200 entries) | Not sent to any third-party server |
+| Gemini API key (only if you choose the Gemini backend) | Authenticate your own Google AI Studio key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to Google's Gemini API as your `x-goog-api-key` header |
 
 ## 2. External services
 
@@ -30,6 +31,13 @@ Depending on which translation backend you select in the Extension's options:
 - **No subtitle text leaves your device.**
 - On first use of a new language pair, Chrome may download a small translation model from Google's servers (handled by the browser itself, not by the Extension).
 
+### Gemini (Bring Your Own Key)
+- You enter your own Gemini API key (issued from Google AI Studio) on the Extension's options page. The key is stored in `chrome.storage.local` on the current device only and is **not** synced to your Google account.
+- When this backend is selected, the subtitle text of the current video is sent in batches to `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash[-lite]:generateContent` together with your key.
+- Each request includes the source-language text and target language. No identifying information is attached by the Extension.
+- The request reaches Google's servers and is subject to Google's privacy practices (the Gemini API terms apply to your usage of your own key).
+- If the call fails (rate limit, invalid key, etc.), the Extension automatically falls back to **Google Free** so that subtitles still appear. You can see the actual backend in use via the popup or console logs.
+
 You can switch backends or disable the Extension at any time from the popup or options page.
 
 ## 3. Permissions explained
@@ -41,6 +49,7 @@ You can switch backends or disable the Extension at any time from the popup or o
 | `offscreen` | Host the Chrome Built-in Translator API, which requires a DOM context. |
 | `host_permissions: https://www.youtube.com/*` | Read YouTube caption tracks and overlay subtitles on the video player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the Google Free translation endpoint when that backend is selected. |
+| `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with your own API key when the Gemini backend is selected. The Extension itself does not ship any API key. |
 
 The Extension does **not** request the `tabs`, `history`, `cookies`, or `webRequest` permissions and cannot read your browsing history, other tabs, or any cookies.
 
@@ -49,7 +58,8 @@ The Extension does **not** request the `tabs`, `history`, `cookies`, or `webRequ
 - **Disable subtitles**: Toggle from the popup, or press `C` on a YouTube page.
 - **Clear translation cache**: Options page → Management → Clear cache.
 - **Reset all settings**: Options page → Management → Reset to defaults.
-- **Uninstall**: `chrome://extensions` → remove. This also clears `chrome.storage.sync` data tied to the Extension (subject to Chrome's sync cleanup behavior on your account).
+- **Remove your Gemini API key**: Options page → Gemini settings → clear the API key field. The key is then removed from `chrome.storage.local`.
+- **Uninstall**: `chrome://extensions` → remove. This also clears `chrome.storage.sync` and `chrome.storage.local` data tied to the Extension (subject to Chrome's sync cleanup behavior on your account).
 
 ## 5. Children's privacy
 

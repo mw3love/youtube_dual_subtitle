@@ -43,6 +43,8 @@ export default defineManifest({
   host_permissions: [
     'https://www.youtube.com/*',
     'https://translate.googleapis.com/*',
+    // Gemini (BYOK) 번역 백엔드. 사용자가 옵션 페이지에서 본인 키 입력 시에만 호출.
+    'https://generativelanguage.googleapis.com/*',
   ],
   web_accessible_resources: [
     {

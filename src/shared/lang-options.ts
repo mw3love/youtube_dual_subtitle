@@ -29,4 +29,5 @@ export const DISPLAY_MODES: Array<{ value: DisplayMode; label: string }> = [
 export const BACKENDS: Array<{ value: BackendId; label: string }> = [
   { value: 'google-free', label: 'Google 무료 (추천)' },
   { value: 'chrome-builtin', label: 'Chrome 내장 (오프라인)' },
+  { value: 'gemini', label: 'Gemini (내 키)' },
 ];

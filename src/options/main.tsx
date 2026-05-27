@@ -7,6 +7,7 @@ import {
   type BackendId,
   type CueStyle,
   type DisplayMode,
+  type GeminiModel,
   type HistoryLayout,
   type Settings,
   type SourceLang,
@@ -14,6 +15,7 @@ import {
 } from '../shared/settings';
 import { DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
+import { getGeminiApiKey, setGeminiApiKey } from '../shared/secrets';
 
 const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 400, label: '보통' },
@@ -345,13 +347,59 @@ function Options() {
   const saveTimerRef = useRef<number | null>(null);
   const savedFadeTimerRef = useRef<number | null>(null);
 
+  // Gemini API 키 — settings(storage.sync)와 분리된 storage.local에서 관리.
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const keySaveTimerRef = useRef<number | null>(null);
+  type TestState =
+    | { kind: 'idle' }
+    | { kind: 'pending' }
+    | { kind: 'ok'; translation: string }
+    | { kind: 'err'; error: string };
+  const [testState, setTestState] = useState<TestState>({ kind: 'idle' });
+
   useEffect(() => {
     void loadSettings().then((s) => {
       setSettings(s);
       setLoaded(true);
     });
     void getCacheStats().then((s) => setCacheCount(s.count));
+    void getGeminiApiKey().then((k) => setApiKey(k ?? ''));
   }, []);
+
+  // API 키 입력은 settings와 다른 storage area라 별도 디바운스 저장.
+  // 300ms — 빠른 paste/타이핑 도중 부분 키 저장 방지.
+  const onApiKeyChange = (v: string): void => {
+    setApiKey(v);
+    setTestState({ kind: 'idle' });
+    if (keySaveTimerRef.current !== null) clearTimeout(keySaveTimerRef.current);
+    keySaveTimerRef.current = window.setTimeout(() => {
+      keySaveTimerRef.current = null;
+      void setGeminiApiKey(v.trim() || null);
+    }, 300);
+  };
+
+  const onTestGemini = async (): Promise<void> => {
+    // 디바운스로 보류 중인 키 저장이 있으면 먼저 flush — 테스트 결과의 일관성 확보.
+    if (keySaveTimerRef.current !== null) {
+      clearTimeout(keySaveTimerRef.current);
+      keySaveTimerRef.current = null;
+      await setGeminiApiKey(apiKey.trim() || null);
+    }
+    setTestState({ kind: 'pending' });
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'TEST_GEMINI',
+        apiKey: apiKey.trim(),
+        model: settings.geminiModel,
+      })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
+      if (!res) setTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      else if (res.ok) setTestState({ kind: 'ok', translation: res.translation });
+      else setTestState({ kind: 'err', error: res.error });
+    } catch (e) {
+      setTestState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
 
   const update = (patch: Partial<Settings>): void => {
     setSettings((prev) => ({ ...prev, ...patch }));
@@ -520,6 +568,23 @@ function Options() {
                 </div>
               </span>
             </label>
+            <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                checked={settings.backend === 'gemini'}
+                onChange={() => update({ backend: 'gemini' as BackendId })}
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                <div>
+                  Gemini (내 API 키){' '}
+                  <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
+                </div>
+                <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  자연스러운 AI 번역. 본인 키 필요 (무료 한도 있음)
+                </div>
+              </span>
+            </label>
           </div>
         </div>
         <Row label="노래방 모드 (원문 줄에 적용)">
@@ -533,6 +598,82 @@ function Options() {
           </span>
         </Row>
       </Section>
+
+      {settings.backend === 'gemini' && (
+        <Section title="Gemini 설정">
+          <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+            본인 API 키로 동작.{' '}
+            <a
+              href="https://aistudio.google.com/apikey"
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#3ea6ff' }}
+            >
+              Google AI Studio
+            </a>
+            에서 무료 발급 (가입만 하면 됨, 신용카드 불필요). 키는 이 PC에만 저장됨.
+          </p>
+          <Row label="API 키">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={apiKey}
+              onChange={(e) => onApiKeyChange(e.target.value)}
+              placeholder="AIza..."
+              style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <button
+              onClick={() => setShowKey((v) => !v)}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+            >
+              {showKey ? '숨김' : '보기'}
+            </button>
+            {!apiKey.trim() && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>
+                키 없으면 Google 무료로 자동 fallback
+              </span>
+            )}
+          </Row>
+          <Row label="모델">
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+              <input
+                type="radio"
+                checked={settings.geminiModel === 'flash'}
+                onChange={() => update({ geminiModel: 'flash' as GeminiModel })}
+              />
+              <span>Flash (품질 우선)</span>
+            </label>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: 8 }}>
+              <input
+                type="radio"
+                checked={settings.geminiModel === 'flash-lite'}
+                onChange={() => update({ geminiModel: 'flash-lite' as GeminiModel })}
+              />
+              <span>Flash-Lite (한도·속도 우선)</span>
+            </label>
+          </Row>
+          <Row label="키 확인">
+            <button
+              onClick={() => void onTestGemini()}
+              disabled={!apiKey.trim() || testState.kind === 'pending'}
+              style={{ padding: '4px 10px' }}
+              type="button"
+            >
+              {testState.kind === 'pending' ? '테스트 중…' : '테스트'}
+            </button>
+            {testState.kind === 'ok' && (
+              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+                ✓ 동작함 (예: "Hello, world." → "{testState.translation}")
+              </span>
+            )}
+            {testState.kind === 'err' && (
+              <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
+            )}
+          </Row>
+        </Section>
+      )}
 
       <Section title="Single Subtitle (한 줄만 보일 때 적용)">
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>

@@ -33,9 +33,10 @@ YouTube Dual Subtitle은 영상에 원문 자막과 번역 자막을 동시에 �
 - 싱글 자막 누적 표시: 번역만/원문만/모국어 영상 모드에서 직전 줄을 현재 줄 위에 함께 쌓아 맥락 보강 (1~3줄, 줄 스택 or 한 문단 흐름)
 - 노래방 모드(단어 단위 점진 표시): 음성에 맞춰 단어가 하나씩 또렷해짐 (자동자막 영상에서 가장 정확)
 - 자막 위치 드래그: 영상에서 자막을 직접 드래그해 광고나 UI 가림 회피. 일반 영상과 Shorts 위치 별도 저장
-- 번역 엔진 2종
+- 번역 엔진 3종
   • Google 무료: 클라우드 번역, 품질 상위 (사용량 많으면 일시 차단 가능)
   • Chrome 내장: 로컬 모델, 오프라인·차단 없음·자막 외부 전송 없음
+  • Gemini (내 키): Google AI Studio에서 본인 키 발급 후 입력, AI 번역으로 가장 자연스러운 한국어. Flash·Flash-Lite 모델 선택
 - 자막 스타일: 폰트 크기·색·굵기·줄 높이·배경 투명도 모두 조정
 - Shorts 자막 크기 배율 별도 조정 (좁은 세로 화면 대응)
 - 번역 캐시: 같은 영상 다시 볼 때 즉시 표시. 30일 / 200개 자동 정리
@@ -70,6 +71,7 @@ YouTube Dual Subtitle은 영상에 원문 자막과 번역 자막을 동시에 �
 | `offscreen` | The Chrome Built-in Translator API requires a DOM context; we host it in an offscreen document. |
 | `host_permissions: https://www.youtube.com/*` | Intercept YouTube caption track responses and overlay our dual subtitle container on the player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the user-selected Google free translation endpoint. Not used when Chrome Built-in backend is selected. |
+| `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with the user's own API key (BYOK) when the Gemini backend is selected. The extension does not ship any key — the user enters theirs from Google AI Studio. |
 
 ## 5. 아이콘
 

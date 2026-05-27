@@ -3,8 +3,14 @@ import { z } from 'zod';
 // zod로 검증해 손상된 storage 값이 runtime을 부수지 않게 한다.
 // 새 필드는 default가 있어서 옛 사용자의 storage에도 안전하게 마이그레이션됨.
 
-export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free']);
+export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free', 'gemini']);
 export type BackendId = z.infer<typeof BackendIdSchema>;
+
+// Gemini API 모델 — Flash는 품질, Flash-Lite는 속도/한도 우선.
+// API key는 storage.sync(설정) 아니라 storage.local에 별도(secrets.ts) — 웹스토어 배포 시 키가
+// Google 계정 동기화로 전파되지 않도록.
+export const GeminiModelSchema = z.enum(['flash', 'flash-lite']);
+export type GeminiModel = z.infer<typeof GeminiModelSchema>;
 
 export const DisplayModeSchema = z.enum(['dual', 'translation-only', 'source-only']);
 export type DisplayMode = z.infer<typeof DisplayModeSchema>;
@@ -40,6 +46,7 @@ export type Position = z.infer<typeof PositionSchema>;
 export const SettingsSchema = z.object({
   subtitlesEnabled: z.boolean(),
   backend: BackendIdSchema,
+  geminiModel: GeminiModelSchema,
   sourceLang: SourceLangSchema,
   targetLang: TargetLangSchema,
   displayMode: DisplayModeSchema,
@@ -72,6 +79,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = {
   subtitlesEnabled: true,
   backend: 'google-free',
+  geminiModel: 'flash',
   sourceLang: 'en',
   targetLang: 'ko',
   displayMode: 'dual',

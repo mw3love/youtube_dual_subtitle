@@ -1,8 +1,11 @@
 // Background service worker entry.
 // 번역 요청을 router로 위임. router는 사용자가 선택한 백엔드 우선, 실패 시 fallback.
+// 옵션 페이지의 Gemini 키 테스트는 router 우회 — fallback에 가려져 성공처럼 보이지 않게.
 
 import { translateBatch } from './translators/router';
+import { testGeminiKey } from './translators/gemini';
 import type { BackendId } from './translators/types';
+import type { GeminiModel } from '../shared/settings';
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
@@ -15,33 +18,59 @@ interface TranslateBatchMsg {
   backend: BackendId;
 }
 
-type TranslateResponse =
-  | { ok: true; translations: string[] }
-  | { ok: false; error: string };
+interface TestGeminiMsg {
+  type: 'TEST_GEMINI';
+  apiKey: string;
+  model: GeminiModel;
+}
+
+type AnyMsg = Partial<TranslateBatchMsg> & Partial<TestGeminiMsg> & { type?: string };
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
-  const m = msg as Partial<TranslateBatchMsg>;
-  if (m?.type !== 'TRANSLATE_BATCH' || !Array.isArray(m.texts)) return;
-  const texts = m.texts;
+  const m = msg as AnyMsg;
 
-  (async (): Promise<void> => {
-    try {
-      const translations = await translateBatch(
-        texts,
-        m.src ?? 'en',
-        m.tgt ?? 'ko',
-        m.backend ?? 'google-free',
-      );
-      console.log(TAG, `translated ${translations.length}/${texts.length} via ${m.backend}`);
-      sendResponse({ ok: true, translations } satisfies TranslateResponse);
-    } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
-      console.error(TAG, 'translate failed:', error);
-      sendResponse({ ok: false, error } satisfies TranslateResponse);
-    }
-  })();
+  if (m?.type === 'TRANSLATE_BATCH' && Array.isArray(m.texts)) {
+    const texts = m.texts;
+    (async (): Promise<void> => {
+      try {
+        const result = await translateBatch(
+          texts,
+          m.src ?? 'en',
+          m.tgt ?? 'ko',
+          m.backend ?? 'google-free',
+        );
+        console.log(
+          TAG,
+          `translated ${result.translations.length}/${texts.length} via ${result.used}` +
+            (result.used !== m.backend ? ` (preferred ${m.backend} fell back)` : ''),
+        );
+        sendResponse({ ok: true, translations: result.translations, used: result.used });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.error(TAG, 'translate failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
 
-  return true;
+  if (m?.type === 'TEST_GEMINI' && typeof m.apiKey === 'string' && m.model) {
+    const apiKey = m.apiKey;
+    const model = m.model;
+    (async (): Promise<void> => {
+      try {
+        const translation = await testGeminiKey(apiKey, model);
+        sendResponse({ ok: true, translation });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'gemini test failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  return;
 });
 
 chrome.runtime.onInstalled.addListener((details) => {
