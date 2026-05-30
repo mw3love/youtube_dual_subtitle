@@ -544,10 +544,12 @@ window.addEventListener('yt-navigate-finish', () => ensureCcObserver());
 // capture phase + stopImmediatePropagation으로 native 중복 발화 차단 — 안 그러면 일반 영상에서
 // 우리 click과 native click이 합쳐져 토글이 상쇄될 수 있음.
 // input/textarea/contenteditable focus 시는 통과 (검색창 'c' 입력 보호).
+// 키 판별은 ev.code('KeyC', 물리 키)로 — ev.key는 CapsLock 시 'C', 한글 IME 시 'ㅊ'이 되어
+// 새는 반면 native(keyCode 기반)는 발화해 "CC 아이콘만 바뀌고 우리 자막은 안 토글"되는 불일치 방지.
 document.addEventListener(
   'keydown',
   (ev) => {
-    if (ev.key !== 'c') return;
+    if (ev.code !== 'KeyC' && ev.key !== 'c') return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     const t = ev.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
