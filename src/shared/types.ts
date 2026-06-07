@@ -12,6 +12,15 @@ export interface Cue {
   words?: Word[];
 }
 
+// 문장 재조립 단위 — 인접 cue 여러 개를 한 문장으로 묶은 것.
+// Cue의 상위집합(start/end/text/words 그대로 + 구성 cue 범위)이라 렌더러·번역은 Cue처럼 다룬다.
+// start/end는 구성 cue들의 합집합, text는 cue 텍스트 join, words는 구성 cue word 타이밍 이어붙임.
+// ASR이 단어/구 중간에서 cue를 토막내는 문제(문맥 손실)를 해소하려고 번역·표시를 문장 단위로 끌어올림.
+export interface Sentence extends Cue {
+  cueStart: number; // 구성 cue 시작 인덱스 (원본 cues 배열 기준)
+  cueEnd: number; // 구성 cue 끝 인덱스 (inclusive)
+}
+
 export interface CaptionTrackInfo {
   baseUrl: string;
   languageCode: string;

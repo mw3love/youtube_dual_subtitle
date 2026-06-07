@@ -2,8 +2,9 @@
 // MAIN world script가 가로챈 timedtext 응답을 받아서 parseJson3 → cue 배열로 만든다.
 // 트랙 목록도 받아 어떤 트랙이 선택될지 로깅 (소스 언어 결정용).
 
-import type { CaptionTrackInfo, Cue, MainToContentMessage } from '../shared/types';
+import type { CaptionTrackInfo, Cue, MainToContentMessage, Sentence } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
+import { segmentCues } from '../shared/segment';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
@@ -70,8 +71,10 @@ const currentVideoId = getVideoIdFromLocation;
 // 현재 renderer가 들고 있는 cue가 어느 video의 것인지. setCues 호출 시 갱신된다.
 // yt-navigate-finish에서 이걸 비교해 stale cue만 clear한다.
 let mountedVideoId: string | null = null;
-// 마지막 cues 보관 — 언어/백엔드 설정이 바뀌면 영상 reload 없이 재번역하려고.
+// 마지막 cues 보관 — raw cue는 팝업 상태(자막 유무) 표시용.
 let lastCues: Cue[] = [];
+// 재조립된 문장 — 번역·렌더의 실제 단위. 언어/백엔드 변경 시 reload 없이 재번역하려고 보관.
+let lastSentences: Sentence[] = [];
 
 // 현재 활성 settings 캐시. boot 후 storage.onChanged로 갱신.
 // 'en' default는 storage 로드 전 한 짧은 순간 동안만 쓰임.
@@ -240,6 +243,7 @@ function handleCaptionTracks(payload: {
     console.log(TAG, `new video ${payload.videoId} (was ${mountedVideoId}) — clearing cues`);
     renderer.clearCues();
     lastCues = [];
+    lastSentences = [];
   }
   const chosen = pickTrack(payload.tracks);
   if (!chosen) {
@@ -309,8 +313,10 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
   try {
     const json = JSON.parse(payload.body) as unknown;
     const cues = parseJson3(json);
-    console.log(TAG, `cues parsed: ${cues.length}`);
-    if (cues.length === 0) return;
+    // ASR이 토막낸 cue를 문장으로 재조립 — 번역·표시 단위를 문장으로 끌어올려 문맥 손실 해소.
+    const sentences = segmentCues(cues);
+    console.log(TAG, `cues parsed: ${cues.length} → sentences: ${sentences.length}`);
+    if (sentences.length === 0) return;
 
     // 트랙 lang을 URL에서 추출해 suppress 상태 재평가 — 사용자가 CC 메뉴에서 트랙을 바꾸면
     // handleCaptionTracks가 다시 호출되지 않으므로 여기서 currentTrackLang을 갱신해야 한다.
@@ -320,28 +326,30 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
       renderer.setSuppressTarget(isTrackLangMatchingTarget());
     }
 
-    renderer.setCues(cues);
+    // Sentence는 Cue 상위집합이라 렌더러는 그대로 문장을 cue처럼 다룬다(블록 표시 + word-reveal).
+    renderer.setCues(sentences);
     // setCues 직후 mountedVideoId 갱신 — yt-navigate-finish가 이후 발생해도
     // 이미 새 video의 cue가 들어왔다는 걸 알아 clear하지 않게 한다.
     mountedVideoId = currentVideoId();
     lastCues = cues;
+    lastSentences = sentences;
     if (key) lastProcessedTrackKey = key;
     // 자막 들어왔으니 워치독 해제 — 재발사가 새 trigger(영상 변경) 때 다시 걸린다.
     clearWatchdog();
-    void translateCues(cues, mountedVideoId);
+    void translateCues(sentences, mountedVideoId);
   } catch (e) {
     console.error(TAG, 'JSON parse failed:', e);
   }
 }
 
-// Google 무료 엔드포인트 URL은 ~8KB. cue 텍스트가 길어지면 URL 414가 와서
-// 작은 배치로 나눠 부른다. 각 배치 결과가 도착하는 대로 renderer에 점진 반영해
-// 사용자가 영상 시작부터 곧장 번역을 본다.
-const TRANSLATE_BATCH_SIZE = 50;
-// 첫 batch는 작게 — 영상 첫 cue 시점에 번역이 도착하도록.
+// Google 무료 엔드포인트 URL은 ~8KB. 단위가 cue→문장으로 커져(문장은 보통 2~4배 길다)
+// 옛 50이면 URL 414 위험 → 25로 낮춰 join 길이를 비슷하게 유지. 각 배치 결과가 도착하는
+// 대로 renderer에 점진 반영해 사용자가 영상 시작부터 곧장 번역을 본다.
+const TRANSLATE_BATCH_SIZE = 25;
+// 첫 batch는 작게 — 영상 첫 문장 시점에 번역이 도착하도록.
 // google-free는 batch=1회 HTTP라 작아도 손해 적고, chrome-builtin은 N회 순차라
-// 첫 batch가 50이면 첫 cue 번역까지 수십 초 → 첫 N개만 우선 처리.
-const FIRST_BATCH_SIZE = 8;
+// 첫 batch가 크면 첫 문장 번역까지 수십 초 → 첫 N개만 우선 처리.
+const FIRST_BATCH_SIZE = 4;
 
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
@@ -469,6 +477,7 @@ document.addEventListener(
     console.log(TAG, 'video emptied — clearing cues (next video transition)');
     renderer.clearCues();
     lastCues = [];
+    lastSentences = [];
     // 같은 영상 재진입 시 dedup이 cue 표시를 막지 않도록 timedtext 처리 이력 초기화.
     // (Shorts direct-fetch 이력도 같이 비워 재진입 영상이 Shorts면 다시 요청 가능)
     lastProcessedTrackKey = null;
@@ -685,9 +694,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
       }
 
       const needsRetranslate = Object.keys(changes).some((k) => RETRANSLATE_KEYS.has(k));
-      if (needsRetranslate && lastCues.length > 0 && mountedVideoId) {
+      if (needsRetranslate && lastSentences.length > 0 && mountedVideoId) {
         console.log(TAG, 'retranslating with new settings');
-        void translateCues(lastCues, mountedVideoId);
+        void translateCues(lastSentences, mountedVideoId);
       }
     })
     .catch((e) => console.warn(TAG, 'reload settings failed:', e));

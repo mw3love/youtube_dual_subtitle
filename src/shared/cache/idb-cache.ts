@@ -32,7 +32,7 @@ interface CacheEntry {
 // 번역 로직(프롬프트·청크·temp·전송 포맷)이 바뀌면 이 숫자를 올린다 → 키가 달라져
 // 기존 캐시가 자동 miss → 재번역. 사용자가 수동으로 "비우기" 할 필요 없음.
 // clearCache/getCacheStats는 'ydt::' prefix로 매칭해 옛 버전 캐시도 함께 비우고 센다.
-const CACHE_SCHEMA_VERSION = 2;
+const CACHE_SCHEMA_VERSION = 3;
 
 export function makeKey(
   videoId: string,
