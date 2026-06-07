@@ -7,7 +7,7 @@ import { parseJson3 } from '../shared/json3';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
-import { getCached, makeKey, setCached } from '../shared/cache/idb-cache';
+import { makeKey } from '../shared/cache/idb-cache';
 import { getVideoIdFromLocation } from '../shared/url';
 
 const TAG = '[YDT]';
@@ -84,6 +84,14 @@ function targetLang(): string {
 }
 function activeBackend(): BackendId {
   return currentSettings?.backend ?? 'google-free';
+}
+// 영상 제목 — LLM 백엔드에 주제 문맥으로 전달. document.title은 "(2) 제목 - YouTube" 형태라
+// 알림 카운트 prefix와 " - YouTube" suffix를 벗겨 제목만 남김.
+function videoTitle(): string {
+  return document.title
+    .replace(/^\(\d+\)\s*/, '')
+    .replace(/\s*-\s*YouTube\s*$/, '')
+    .trim();
 }
 
 // 캐시 키용 backend 식별자. 모델 선택이 있는 BYOK 백엔드는 모델 ID까지 합성해 캐시 분리.
@@ -352,7 +360,7 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
   const cacheKey = makeKey(requestVideoId, src, tgt, cacheBackendTag());
 
   // 1) 캐시 hit
-  const cached = await getCached(cacheKey);
+  const cached = await getCachedViaBg(cacheKey);
   if (cached && cached.length === texts.length) {
     console.log(TAG, `cache hit (${cacheBackendTag()}): ${cached.length} translations`);
     if (currentVideoId() === requestVideoId) renderer.setTargetTexts(cached);
@@ -376,6 +384,7 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
         src,
         tgt,
         backend,
+        videoTitle: videoTitle(),
       })) as typeof res;
     } catch (e) {
       console.error(TAG, 'translate request failed:', e);
@@ -412,8 +421,28 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
 
   // 3) 전체 길이 일치할 때만 캐시 (alignment 어긋난 결과 캐싱 방지)
   if (all.length === texts.length) {
-    void setCached(cacheKey, all).catch((e) => console.warn(TAG, 'cache write failed:', e));
+    setCachedViaBg(cacheKey, all);
   }
+}
+
+// 캐시 접근은 background에 위임 — content script의 IndexedDB는 youtube.com origin이라
+// 옵션 페이지(확장 origin)의 "비우기"가 닿지 못한다. SW가 확장 origin DB를 소유하도록 일원화.
+async function getCachedViaBg(key: string): Promise<string[] | null> {
+  try {
+    const res = (await chrome.runtime.sendMessage({ type: 'CACHE_GET', key })) as
+      | { translations: string[] | null }
+      | undefined;
+    return res?.translations ?? null;
+  } catch (e) {
+    console.warn(TAG, 'cache get failed:', e);
+    return null;
+  }
+}
+
+function setCachedViaBg(key: string, translations: string[]): void {
+  void chrome.runtime
+    .sendMessage({ type: 'CACHE_SET', key, translations })
+    .catch((e) => console.warn(TAG, 'cache write failed:', e));
 }
 
 // 영상이 실제로 바뀌었고 아직 새 cue가 도착하지 않은 경우만 cue 비움.

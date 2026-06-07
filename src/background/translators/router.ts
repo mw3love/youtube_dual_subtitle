@@ -19,11 +19,17 @@ export interface RouterResult {
 // - google-free → chrome-builtin fallback도 모델 미다운로드 사용자에겐 실효 없음
 //   (chrome-builtin이 'unavailable' throw → 전체 실패). 이미 모델 다운로드한 사용자만 유효.
 //   chain에서 빼면 그 사용자가 손해 → 그대로 유지하되 한계 인정.
+export interface RouterOptions {
+  // 영상 제목 — LLM 백엔드(mindlogic/gemini)에 주제 문맥으로 전달. google-free/chrome-builtin은 무시.
+  videoTitle?: string;
+}
+
 export async function translateBatch(
   texts: string[],
   src: string,
   tgt: string,
   preferred: BackendId,
+  opts?: RouterOptions,
 ): Promise<RouterResult> {
   const order: BackendId[] =
     preferred === 'mindlogic'
@@ -37,15 +43,15 @@ export async function translateBatch(
   let lastErr: unknown = null;
   for (const id of order) {
     try {
-      const fn =
+      // LLM 백엔드만 videoTitle을 받음. google-free/chrome-builtin은 4번째 인자를 무시.
+      const translations =
         id === 'mindlogic'
-          ? mindlogic
+          ? await mindlogic(texts, src, tgt, { videoTitle: opts?.videoTitle })
           : id === 'gemini'
-            ? gemini
+            ? await gemini(texts, src, tgt)
             : id === 'chrome-builtin'
-              ? chromeBuiltin
-              : googleFree;
-      const translations = await fn(texts, src, tgt);
+              ? await chromeBuiltin(texts, src, tgt)
+              : await googleFree(texts, src, tgt);
       if (id !== preferred) console.warn(TAG, `fell back to ${id} (preferred ${preferred} failed)`);
       return { translations, used: id };
     } catch (e) {

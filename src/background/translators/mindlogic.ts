@@ -7,13 +7,14 @@
 // 키는 settings(storage.sync) 아니라 storage.local에 별도 (Gemini와 같은 패턴). 매 batch마다
 // fresh read해서 옵션 페이지의 디바운스 저장과 race 회피.
 //
-// 요청 전략:
-// - system: JSON array N items in / N items out 규칙 명시.
-// - user: JSON.stringify(texts).
-// - response_format은 모델별로 지원 여부가 달라 사용하지 않고, system prompt + parser의
-//   fence/preamble 제거 로직으로 JSON array 추출. ```json fence나 "Here is...:" preamble을
-//   붙이는 모델도 다 받아낼 수 있게.
-// - 응답 배열 길이 ≠ 입력 길이면 1회 재시도, 그래도 안 맞으면 throw → router fallback.
+// 요청 전략 (Immersive Translate의 자막 번역 레시피 차용):
+// - 짧은 자막 cue는 모델이 "유창하게" 인접 조각을 합쳐 줄 수를 줄이는 경향(N in인데 N-2 out)
+//   → 정렬 깨짐. 이를 줄이려고 세 가지를 함께 적용:
+//   (1) 청크를 작게(5) — 합칠 거리가 적음, (2) temperature 0 — 합치는 재량 제거,
+//   (3) "%%" 구분자 + few-shot 예시로 "같은 개수 유지"를 강하게 지시.
+// - user: cue들을 "\n\n%%\n\n"으로 join. parser는 "%%"로 split해 개수 검증.
+//   (JSON 배열은 합쳐도 valid JSON이라 모델이 부담 없이 합침 — 구분자 방식이 순응도가 높음)
+// - 분리 개수 ≠ 입력 개수면 1회 재시도, 그래도 안 맞으면 throw → router가 그 배치만 google-free로 fallback.
 // - 429/5xx만 1회 1500ms backoff 후 재시도. 401/403/400은 즉시 throw (재시도 무의미).
 // - 429 받으면 cooldown — Gemini 백엔드와 같은 패턴(매 청크마다 백오프 누적 방지).
 
@@ -23,9 +24,14 @@ import type { MindlogicModel } from '../../shared/settings';
 const TAG = '[YDT/mindlogic]';
 const ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions';
 
-// 한 호출당 항목 수가 적을수록 모델이 짧은 cue를 합쳐 응답이 줄어드는 mismatch가 덜 발생.
-// Gemini와 같은 값으로 유지.
-const MINDLOGIC_CHUNK_SIZE = 20;
+// 한 호출당 cue 수가 적을수록 합침 mismatch가 덜 발생. Immersive Translate의 "자막 요청당
+// 최대 섹션 수 = 5"를 따름(일반 텍스트보다 자막을 더 잘게 쪼갬).
+const MINDLOGIC_CHUNK_SIZE = 5;
+
+// cue 경계 구분자 — Immersive와 동일하게 "%%". 자막 텍스트에 "%%"가 들어올 일은 사실상
+// 없어 충돌 위험 낮음. 실제 전송은 앞뒤 빈 줄로 감싸 모델이 경계를 더 또렷이 보게 함.
+const SEGMENT_TOKEN = '%%';
+const SEGMENT_JOIN = `\n\n${SEGMENT_TOKEN}\n\n`;
 
 const RATE_LIMIT_COOLDOWN_MS = 60_000;
 let rateLimitedUntil = 0;
@@ -33,6 +39,9 @@ let rateLimitedUntil = 0;
 interface MindlogicOptions {
   apiKey?: string;
   model?: MindlogicModel;
+  // 영상 제목 — 모델에 주제 문맥으로 주입해 단어 뜻/말투를 교정(Immersive의 title_prompt 차용).
+  // 예: 커리어 영상에서 "work gets seen"을 "작품 공개"가 아니라 "성과 인정"으로.
+  videoTitle?: string;
 }
 
 export async function translateBatch(
@@ -52,14 +61,15 @@ export async function translateBatch(
     throw new Error('Mindlogic API 키가 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
   }
   const model = opts?.model ?? (await readModel());
+  const title = opts?.videoTitle;
 
   if (texts.length <= MINDLOGIC_CHUNK_SIZE) {
-    return callWithRetry(texts, src, tgt, apiKey, model);
+    return callWithRetry(texts, src, tgt, apiKey, model, title);
   }
   const out: string[] = [];
   for (let i = 0; i < texts.length; i += MINDLOGIC_CHUNK_SIZE) {
     const chunk = texts.slice(i, i + MINDLOGIC_CHUNK_SIZE);
-    const part = await callWithRetry(chunk, src, tgt, apiKey, model);
+    const part = await callWithRetry(chunk, src, tgt, apiKey, model, title);
     out.push(...part);
   }
   return out;
@@ -93,19 +103,63 @@ function validateModel(v: unknown): MindlogicModel {
   return 'gemini-2.5-flash';
 }
 
-function systemPrompt(src: string, tgt: string, count: number): string {
+function systemPrompt(src: string, tgt: string, count: number, title?: string): string {
   const srcDesc = src === 'auto' ? 'the auto-detected source language' : `'${src}'`;
-  return [
-    `You translate YouTube subtitle cues from ${srcDesc} to '${tgt}'.`,
-    `INPUT: a JSON array of EXACTLY ${count} strings.`,
-    `OUTPUT: a JSON array of EXACTLY ${count} strings — never more, never fewer.`,
-    `- output[i] is the translation of input[i].`,
-    `- DO NOT merge, split, drop, or reorder items.`,
-    `- DO NOT skip empty, short, duplicate, or musical (♪) items — translate them as-is or echo unchanged.`,
-    `- Preserve the speaker's casual or formal tone.`,
-    `- Keep proper nouns, brand names, and technical terms in their original form.`,
-    `- Output ONLY the JSON array. No prose, no markdown fences, no code blocks.`,
-  ].join('\n');
+  const single = count === 1;
+  const sep = single ? '' : ` separated by lines containing only "${SEGMENT_TOKEN}"`;
+  const lines = [
+    `You are a professional subtitle translator. Translate the input from ${srcDesc} to '${tgt}' fluently and naturally.`,
+  ];
+  // A2: 영상 제목을 주제 문맥으로 — 단어 뜻/말투 교정. 제목 자체를 번역 대상으로 오인하지
+  // 않도록 "background context only, do not translate it" 명시.
+  const cleanTitle = title?.trim().slice(0, 200);
+  if (cleanTitle) {
+    lines.push(
+      ``,
+      `## Context`,
+      `These subtitles are from a video titled: "${cleanTitle}".`,
+      `Use this topic as background to choose correct word senses and tone. Do NOT translate or output this title.`,
+    );
+  }
+  lines.push(
+    ``,
+    `## Rules`,
+    `1. The input has EXACTLY ${count} segment(s)${sep}.`,
+    `2. Output EXACTLY ${count} translated segment(s)${single ? '' : ` separated by the same "${SEGMENT_TOKEN}" lines`} — same number in, same number out. Never merge, split, drop, reorder, or add segments.`,
+    `3. The i-th output segment is the translation of the i-th input segment, even when an input segment is a sentence fragment.`,
+    // A: 합치지 말되(개수 보존) 문맥은 활용 — 정렬과 문맥을 동시에 얻으려는 핵심 규칙.
+    `4. Read all segments together to pick the correct meaning and tone for ambiguous words, but still output exactly one translation per segment. A fragment may read awkwardly alone — translate it to fit the surrounding segments without merging them.`,
+    `5. Keep empty, very short, duplicate, or musical (♪) segments — translate as-is or echo unchanged. Never omit one.`,
+    `6. Keep proper nouns, brand names, and technical terms in their original form.`,
+    `7. Output ONLY the translation${single ? '' : `s and the "${SEGMENT_TOKEN}" separators`}. No explanations, no preamble, no markdown fences.`,
+  );
+  if (!single) {
+    lines.push(
+      ``,
+      `## Example (input 3 segments → output exactly 3, separators preserved)`,
+      `Input:`,
+      `A`,
+      ``,
+      SEGMENT_TOKEN,
+      ``,
+      `B`,
+      ``,
+      SEGMENT_TOKEN,
+      ``,
+      `C`,
+      `Output:`,
+      `Translation A`,
+      ``,
+      SEGMENT_TOKEN,
+      ``,
+      `Translation B`,
+      ``,
+      SEGMENT_TOKEN,
+      ``,
+      `Translation C`,
+    );
+  }
+  return lines.join('\n');
 }
 
 async function callWithRetry(
@@ -114,13 +168,14 @@ async function callWithRetry(
   tgt: string,
   apiKey: string,
   model: MindlogicModel,
+  title?: string,
 ): Promise<string[]> {
   try {
-    return await callMindlogic(texts, src, tgt, apiKey, model);
+    return await callMindlogic(texts, src, tgt, apiKey, model, title);
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('Mindlogic 응답 길이 불일치')) {
       console.warn(TAG, `${e.message} — retry once`);
-      return await callMindlogic(texts, src, tgt, apiKey, model);
+      return await callMindlogic(texts, src, tgt, apiKey, model, title);
     }
     throw e;
   }
@@ -132,16 +187,18 @@ async function callMindlogic(
   tgt: string,
   apiKey: string,
   model: MindlogicModel,
+  title?: string,
 ): Promise<string[]> {
   const n = texts.length;
   const body = {
     model,
     messages: [
-      { role: 'system', content: systemPrompt(src, tgt, n) },
-      { role: 'user', content: JSON.stringify(texts) },
+      { role: 'system', content: systemPrompt(src, tgt, n, title) },
+      { role: 'user', content: texts.join(SEGMENT_JOIN) },
     ],
-    temperature: 0.2,
-    // 20개 자막이 한국어로 ~600 토큰. 4096이면 안전 마진.
+    // 0 = 가장 결정적. 모델이 "유창하게" cue를 합치는 재량을 제거(정렬 보존). Immersive도 0.
+    temperature: 0,
+    // 청크 5개라 응답이 짧음(한국어 ~수백 토큰). 4096이면 충분한 마진.
     max_tokens: 4096,
   };
 
@@ -196,28 +253,20 @@ function parseResponse(data: unknown, expectedLen: number): string[] {
     const reason = choice?.finish_reason ?? 'unknown';
     throw new Error(`Mindlogic 응답에 번역 결과 없음 (finish_reason=${reason})`);
   }
-  // 모델이 ```json fence나 preamble("Here is the translation: [...]")을 붙이는 경우 대비.
-  const cleaned = extractJsonArray(text);
-  let arr: unknown;
-  try {
-    arr = JSON.parse(cleaned);
-  } catch {
-    throw new Error('Mindlogic 응답을 JSON 배열로 파싱 못함');
+  const parts = splitSegments(text);
+  if (parts.length !== expectedLen) {
+    throw new Error(`Mindlogic 응답 길이 불일치 (예상 ${expectedLen}, 받음 ${parts.length})`);
   }
-  if (!Array.isArray(arr)) throw new Error('Mindlogic 응답이 배열이 아님');
-  if (arr.length !== expectedLen) {
-    throw new Error(`Mindlogic 응답 길이 불일치 (예상 ${expectedLen}, 받음 ${arr.length})`);
-  }
-  return arr.map((v) => String(v));
+  return parts;
 }
 
-// 가장 바깥 [ ... ]만 잡음. 모델이 array 안에 또 array를 emit하는 경우는 거의 없고,
-// 있더라도 JSON.parse가 그대로 받아 처리됨.
-function extractJsonArray(text: string): string {
-  const start = text.indexOf('[');
-  const end = text.lastIndexOf(']');
-  if (start === -1 || end === -1 || end < start) return text;
-  return text.slice(start, end + 1);
+// "%%" 구분자로 분리. 모델이 ```fence나 preamble을 붙이는 경우 대비해 코드펜스부터 벗김.
+// 빈 cue를 echo한 빈 segment도 개수에 포함돼야 하므로 빈 문자열을 filter하지 않음.
+function splitSegments(text: string): string[] {
+  let s = text.trim();
+  const fence = s.match(/^```[a-zA-Z]*\n([\s\S]*?)\n```$/);
+  if (fence) s = fence[1].trim();
+  return s.split(/\s*%%\s*/).map((p) => p.trim());
 }
 
 function sleep(ms: number): Promise<void> {

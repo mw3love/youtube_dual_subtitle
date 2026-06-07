@@ -8,6 +8,7 @@ import { testMindlogicKey } from './translators/mindlogic';
 import type { BackendId } from './translators/types';
 import type { GeminiModel, MindlogicModel } from '../shared/settings';
 import { setLastBackend } from '../shared/secrets';
+import { getCached, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
@@ -18,6 +19,7 @@ interface TranslateBatchMsg {
   src: string;
   tgt: string;
   backend: BackendId;
+  videoTitle?: string;
 }
 
 interface TestGeminiMsg {
@@ -32,9 +34,25 @@ interface TestMindlogicMsg {
   model: MindlogicModel;
 }
 
+// 번역 캐시는 background가 소유한다 — content script의 IndexedDB는 호스트 페이지
+// (youtube.com) origin이라 옵션 페이지(chrome-extension origin)의 "비우기"가 닿지 못했음.
+// SW와 옵션 페이지는 같은 확장 origin → 같은 IndexedDB를 공유하므로 여기로 일원화.
+interface CacheGetMsg {
+  type: 'CACHE_GET';
+  key: string;
+}
+
+interface CacheSetMsg {
+  type: 'CACHE_SET';
+  key: string;
+  translations: string[];
+}
+
 type AnyMsg = Partial<TranslateBatchMsg> &
   Partial<TestGeminiMsg> &
-  Partial<TestMindlogicMsg> & { type?: string };
+  Partial<TestMindlogicMsg> &
+  Partial<CacheGetMsg> &
+  Partial<CacheSetMsg> & { type?: string };
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
   const m = msg as AnyMsg;
@@ -48,6 +66,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
           m.src ?? 'en',
           m.tgt ?? 'ko',
           m.backend ?? 'google-free',
+          { videoTitle: m.videoTitle },
         );
         console.log(
           TAG,
@@ -100,6 +119,28 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
     })();
     return true;
+  }
+
+  if (m?.type === 'CACHE_GET' && typeof m.key === 'string') {
+    const key = m.key;
+    (async (): Promise<void> => {
+      try {
+        const translations = await getCached(key);
+        sendResponse({ translations });
+      } catch (e) {
+        console.warn(TAG, 'cache get failed:', e instanceof Error ? e.message : String(e));
+        sendResponse({ translations: null });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'CACHE_SET' && typeof m.key === 'string' && Array.isArray(m.translations)) {
+    // fire-and-forget — 응답 불필요(content가 await 안 함). sendResponse/return true 생략.
+    void setCached(m.key, m.translations).catch((e) =>
+      console.warn(TAG, 'cache set failed:', e instanceof Error ? e.message : String(e)),
+    );
+    return;
   }
 
   return;
