@@ -23,6 +23,8 @@ export class SubtitleRenderer {
   private sourceHistoryEl: HTMLElement | null = null;
   private targetHistoryEl: HTMLElement | null = null;
   private video: HTMLVideoElement | null = null;
+  // 컨테이너가 append되는 host(= CSS offset parent, 보통 #movie_player). 위치/드래그 계산의 기준.
+  private host: HTMLElement | null = null;
   private mode: Mode = 'normal';
   private rafId: number | null = null;
   private lastIdx = -2; // -1은 "no cue", -2는 "강제 첫 업데이트"
@@ -129,6 +131,7 @@ export class SubtitleRenderer {
     this.sourceHistoryEl = sourceHistoryEl;
     this.targetHistoryEl = targetHistoryEl;
     this.video = target.video;
+    this.host = target.host;
     this.mode = target.mode;
 
     if (this.userHidden) container.style.display = 'none';
@@ -162,6 +165,7 @@ export class SubtitleRenderer {
     this.sourceHistoryEl = null;
     this.targetHistoryEl = null;
     this.video = null;
+    this.host = null;
     this.lastIdx = -2;
     this.wordSpans = [];
     this.lastWordRevealed = -1;
@@ -245,24 +249,34 @@ export class SubtitleRenderer {
     this.onFontSizeChange = cb;
   }
 
-  // 컨테이너가 영상 영역 안에 남도록 위치를 보정한다.
-  // 컨테이너 폭이 결정되기 전(첫 cue 도착 전)엔 vRect/cRect width가 0이라 보정 불가 → 원본 그대로.
+  // 위치(%)의 기준 박스 = 컨테이너의 CSS offset parent(보통 #movie_player). CSS는
+  // left/bottom %를 이 박스 기준으로 푼다. video 요소는 레터박스(상하 검은 띠) 영상에서
+  // 콘텐츠 크기로 축소·중앙배치돼 player보다 작고 위치가 달라, 위치/드래그 계산에 video
+  // rect를 쓰면 세로 좌표계가 CSS와 어긋난다(가로는 폭이 같아 우연히 맞음) → 세로 드래그 불가.
+  private positioningRect(): DOMRect | null {
+    const parent = (this.container?.offsetParent as HTMLElement | null) ?? this.host;
+    return parent ? parent.getBoundingClientRect() : null;
+  }
+
+  // 컨테이너가 플레이어 영역 안에 남도록 위치를 보정한다.
+  // 컨테이너 폭이 결정되기 전(첫 cue 도착 전)엔 pRect/cRect width가 0이라 보정 불가 → 원본 그대로.
   // widthOverride: 드래그 중 wrap feedback loop(cRect.width가 줄면 maxX가 커져 더 우측으로
   // 가고, 다시 wrap이 깊어지는 무한 진행) 방지용으로 드래그 시작 시점의 폭을 고정해 전달.
   private clampPosition(pos: Position, widthOverride?: number): Position {
-    if (!this.container || !this.video) return pos;
-    const vRect = this.video.getBoundingClientRect();
+    if (!this.container) return pos;
+    const pRect = this.positioningRect();
+    if (!pRect) return pos;
     const cRect = this.container.getBoundingClientRect();
     const cWidth = widthOverride ?? cRect.width;
     const cHeight = cRect.height;
-    if (vRect.width === 0 || cWidth === 0) return pos;
-    const halfWidthPct = ((cWidth / 2) / vRect.width) * 100;
+    if (pRect.width === 0 || cWidth === 0) return pos;
+    const halfWidthPct = ((cWidth / 2) / pRect.width) * 100;
     const minX = halfWidthPct;
     const maxX = 100 - halfWidthPct;
-    // y는 bottom 기준 %. 위쪽으로 갈수록 yPercent가 커진다. 컨테이너 윗변이 영상 위로
-    // 삐져나가지 않으려면 yPercent + (height/videoHeight)% <= 100. 영상이 컨테이너보다
+    // y는 bottom 기준 %. 위쪽으로 갈수록 yPercent가 커진다. 컨테이너 윗변이 player 위로
+    // 삐져나가지 않으려면 yPercent + (height/playerHeight)% <= 100. player가 컨테이너보다
     // 작은 극단(작은 Shorts viewport 등)에서 maxY가 음수가 될 수 있어 0 floor.
-    const heightPct = vRect.height > 0 ? (cHeight / vRect.height) * 100 : 0;
+    const heightPct = pRect.height > 0 ? (cHeight / pRect.height) * 100 : 0;
     const maxY = Math.max(0, 100 - heightPct);
     return {
       xPercent: Math.max(minX, Math.min(maxX, pos.xPercent)),
@@ -534,15 +548,15 @@ export class SubtitleRenderer {
     const target = ev.target as HTMLElement | null;
     if (target?.closest('.ydt-cue-text, .ydt-history')) return;
 
-    const videoRect = this.video.getBoundingClientRect();
-    if (videoRect.width === 0 || videoRect.height === 0) return;
+    const parentRect = this.positioningRect();
+    if (!parentRect || parentRect.width === 0 || parentRect.height === 0) return;
 
     ev.preventDefault();
     ev.stopPropagation();
 
     const cRect = this.container.getBoundingClientRect();
-    const startCenterX = cRect.left + cRect.width / 2 - videoRect.left;
-    const startBottomGap = videoRect.bottom - cRect.bottom;
+    const startCenterX = cRect.left + cRect.width / 2 - parentRect.left;
+    const startBottomGap = parentRect.bottom - cRect.bottom;
     const startMouseX = ev.clientX;
     const startMouseY = ev.clientY;
 
@@ -557,10 +571,11 @@ export class SubtitleRenderer {
       if (!this.container || !this.video) return;
       const dx = e.clientX - startMouseX;
       const dy = e.clientY - startMouseY;
-      const vRect = this.video.getBoundingClientRect();
+      const pRect = this.positioningRect();
+      if (!pRect || pRect.width === 0 || pRect.height === 0) return;
       const raw = {
-        xPercent: ((startCenterX + dx) / vRect.width) * 100,
-        yPercent: ((startBottomGap - dy) / vRect.height) * 100,
+        xPercent: ((startCenterX + dx) / pRect.width) * 100,
+        yPercent: ((startBottomGap - dy) / pRect.height) * 100,
       };
       const clamped = this.clampPosition(raw);
       this.positions[this.mode] = clamped;
