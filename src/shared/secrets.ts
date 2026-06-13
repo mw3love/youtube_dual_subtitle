@@ -8,6 +8,7 @@ import type { BackendId } from '../background/translators/types';
 
 const KEY_GEMINI_API = 'geminiApiKey';
 const KEY_MINDLOGIC_API = 'mindlogicApiKey';
+const KEY_NOTION_TOKEN = 'notionToken';
 const KEY_LAST_BACKEND = 'lastBackend';
 
 export async function getGeminiApiKey(): Promise<string | null> {
@@ -36,6 +37,21 @@ export async function setMindlogicApiKey(key: string | null): Promise<void> {
     return;
   }
   await chrome.storage.local.set({ [KEY_MINDLOGIC_API]: key });
+}
+
+// Notion integration 토큰 (BYOK) — 해설을 Notion DB에 저장할 때 사용. API 키와 같은 분리 패턴.
+export async function getNotionToken(): Promise<string | null> {
+  const r = await chrome.storage.local.get(KEY_NOTION_TOKEN);
+  const v = r[KEY_NOTION_TOKEN];
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+}
+
+export async function setNotionToken(key: string | null): Promise<void> {
+  if (!key) {
+    await chrome.storage.local.remove(KEY_NOTION_TOKEN);
+    return;
+  }
+  await chrome.storage.local.set({ [KEY_NOTION_TOKEN]: key });
 }
 
 // "마지막 번역 호출 결과" — 팝업에 표시. SW devtools 없이도 어느 백엔드가 실제 동작 중인지 확인.

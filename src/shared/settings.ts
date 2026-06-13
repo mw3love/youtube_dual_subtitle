@@ -110,6 +110,9 @@ export const SettingsSchema = z.object({
   explainEnabled: z.boolean(),
   explainBackend: ExplainBackendSchema,
   explainPrompt: z.string(),
+  // 해설 패널을 Notion DB에 저장 (BYOK — 토큰은 secrets.ts, DB ID는 여기).
+  notionEnabled: z.boolean(),
+  notionDatabaseId: z.string(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -137,6 +140,8 @@ export const DEFAULT_SETTINGS: Settings = {
   explainEnabled: true,
   explainBackend: 'gemini',
   explainPrompt: DEFAULT_EXPLAIN_PROMPT,
+  notionEnabled: false,
+  notionDatabaseId: '',
 };
 
 export async function loadSettings(): Promise<Settings> {

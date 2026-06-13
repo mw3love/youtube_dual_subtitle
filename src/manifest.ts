@@ -47,6 +47,8 @@ export default defineManifest({
     'https://generativelanguage.googleapis.com/*',
     // Mindlogic API Gateway (BYOK) — 학교/조직 계정 키로 OpenAI/Anthropic/Gemini 등 통과.
     'https://factchat-cloud.mindlogic.ai/*',
+    // Notion API (BYOK) — 해설 패널을 사용자 본인 Notion DB에 저장. integration 토큰 입력 시에만 호출.
+    'https://api.notion.com/*',
   ],
   web_accessible_resources: [
     {

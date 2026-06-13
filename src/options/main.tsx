@@ -21,8 +21,10 @@ import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
 import {
   getGeminiApiKey,
   getMindlogicApiKey,
+  getNotionToken,
   setGeminiApiKey,
   setMindlogicApiKey,
+  setNotionToken,
 } from '../shared/secrets';
 
 // Mindlogic gateway가 통과시키는 모델 중 자막 번역에 가성비 좋은 라인만.
@@ -383,6 +385,17 @@ function Options() {
   const [testState, setTestState] = useState<TestState>({ kind: 'idle' });
   const [mindlogicTestState, setMindlogicTestState] = useState<TestState>({ kind: 'idle' });
 
+  // Notion integration 토큰 — storage.local(secrets). DB ID는 settings(storage.sync).
+  const [notionToken, setNotionTokenState] = useState('');
+  const [showNotionToken, setShowNotionToken] = useState(false);
+  const notionTokenSaveTimerRef = useRef<number | null>(null);
+  type NotionTestState =
+    | { kind: 'idle' }
+    | { kind: 'pending' }
+    | { kind: 'ok'; dbTitle: string }
+    | { kind: 'err'; error: string };
+  const [notionTestState, setNotionTestState] = useState<NotionTestState>({ kind: 'idle' });
+
   useEffect(() => {
     void loadSettings().then((s) => {
       setSettings(s);
@@ -391,6 +404,7 @@ function Options() {
     void getCacheStats().then((s) => setCacheCount(s.count));
     void getGeminiApiKey().then((k) => setApiKey(k ?? ''));
     void getMindlogicApiKey().then((k) => setMindlogicApiKeyState(k ?? ''));
+    void getNotionToken().then((k) => setNotionTokenState(k ?? ''));
   }, []);
 
   // API 키 입력은 settings와 다른 storage area라 별도 디바운스 저장.
@@ -459,6 +473,39 @@ function Options() {
         kind: 'err',
         error: e instanceof Error ? e.message : String(e),
       });
+    }
+  };
+
+  const onNotionTokenChange = (v: string): void => {
+    setNotionTokenState(v);
+    setNotionTestState({ kind: 'idle' });
+    if (notionTokenSaveTimerRef.current !== null) clearTimeout(notionTokenSaveTimerRef.current);
+    notionTokenSaveTimerRef.current = window.setTimeout(() => {
+      notionTokenSaveTimerRef.current = null;
+      void setNotionToken(v.trim() || null);
+    }, 300);
+  };
+
+  const onTestNotion = async (): Promise<void> => {
+    // 보류 중인 토큰 저장 flush — 테스트는 background가 secrets에서 토큰을 읽지 않고
+    // 메시지로 받은 token을 직접 검증하므로 입력값을 그대로 보냄(저장은 동기화만).
+    if (notionTokenSaveTimerRef.current !== null) {
+      clearTimeout(notionTokenSaveTimerRef.current);
+      notionTokenSaveTimerRef.current = null;
+      await setNotionToken(notionToken.trim() || null);
+    }
+    setNotionTestState({ kind: 'pending' });
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'TEST_NOTION',
+        token: notionToken.trim(),
+        databaseId: settings.notionDatabaseId.trim(),
+      })) as { ok: true; dbTitle: string } | { ok: false; error: string } | undefined;
+      if (!res) setNotionTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      else if (res.ok) setNotionTestState({ kind: 'ok', dbTitle: res.dbTitle });
+      else setNotionTestState({ kind: 'err', error: res.error });
+    } catch (e) {
+      setNotionTestState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
     }
   };
 
@@ -897,6 +944,92 @@ function Options() {
                 </div>
               </div>
             </div>
+          </>
+        )}
+      </Section>
+
+      <Section title="Notion 저장 (해설 패널)">
+        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+          해설 패널의 <b style={{ color: '#3ea6ff' }}>📋 복사</b>는 설정 없이 바로 됩니다(Notion에
+          붙여넣으면 표·예문이 자동 변환). <b style={{ color: '#3ea6ff' }}>📝 Notion</b> 버튼으로
+          DB에 바로 저장하려면 아래를 설정하세요.
+        </p>
+        <Row label="Notion 저장 켜기">
+          <input
+            type="checkbox"
+            checked={settings.notionEnabled}
+            onChange={(e) => update({ notionEnabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#999' }}>패널에 📝 Notion 버튼 표시</span>
+        </Row>
+        {settings.notionEnabled && (
+          <>
+            <ol style={{ fontSize: 11, color: '#999', margin: '2px 0 6px', paddingLeft: 18, lineHeight: 1.7 }}>
+              <li>
+                <a
+                  href="https://www.notion.so/my-integrations"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: '#3ea6ff' }}
+                >
+                  notion.so/my-integrations
+                </a>
+                에서 integration 만들고 <b>Internal Integration Secret</b> 복사
+              </li>
+              <li>저장할 데이터베이스 페이지 → 우측 ⋯ → <b>연결(Connections)</b>에 그 integration 추가</li>
+              <li>그 데이터베이스의 URL을 아래 "DB ID/URL"에 붙여넣기</li>
+            </ol>
+            <Row label="Integration 토큰">
+              <input
+                type={showNotionToken ? 'text' : 'password'}
+                value={notionToken}
+                onChange={(e) => onNotionTokenChange(e.target.value)}
+                placeholder="ntn_... 또는 secret_..."
+                style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button
+                onClick={() => setShowNotionToken((v) => !v)}
+                style={{ padding: '4px 10px', fontSize: 12 }}
+                type="button"
+              >
+                {showNotionToken ? '숨김' : '보기'}
+              </button>
+            </Row>
+            <Row label="DB ID/URL">
+              <input
+                type="text"
+                value={settings.notionDatabaseId}
+                onChange={(e) => update({ notionDatabaseId: e.target.value })}
+                placeholder="https://notion.so/...?v=... 또는 32자리 ID"
+                style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Row>
+            <Row label="연결 확인">
+              <button
+                onClick={() => void onTestNotion()}
+                disabled={
+                  !notionToken.trim() ||
+                  !settings.notionDatabaseId.trim() ||
+                  notionTestState.kind === 'pending'
+                }
+                style={{ padding: '4px 10px' }}
+                type="button"
+              >
+                {notionTestState.kind === 'pending' ? '확인 중…' : '테스트'}
+              </button>
+              {notionTestState.kind === 'ok' && (
+                <span style={{ fontSize: 12, color: '#9eff9e' }}>
+                  ✓ 연결됨 (DB: "{notionTestState.dbTitle}")
+                </span>
+              )}
+              {notionTestState.kind === 'err' && (
+                <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {notionTestState.error}</span>
+              )}
+            </Row>
           </>
         )}
       </Section>

@@ -7,21 +7,41 @@
 //
 // 버튼/패널은 document.fullscreenElement(전체화면 시 #movie_player) 또는 body에 붙인다 —
 // fixed 요소가 전체화면에서도 보이도록 fullscreen 컨테이너 안에 둬야 하기 때문.
+//
+// 패널 헤더에는 해설을 외부로 보내는 액션 둘: 📋 클립보드 복사(무설정 — markdown을 복사해
+// Notion에 붙여넣으면 자동 리치 변환), 📝 Notion 저장(BYOK — background가 Notion API로 DB에 페이지 생성).
 
 import { renderMarkdown } from './markdown';
 
 const TAG = '[YDT/explain]';
 
 export type ExplainResult = { ok: true; markdown: string } | { ok: false; error: string };
+export type NotionSaveResult = { ok: true; url?: string } | { ok: false; error: string };
 
 export class ExplainUI {
   private enabled = true;
+  private notionEnabled = false;
   private button: HTMLButtonElement | null = null;
   private panel: HTMLElement | null = null;
   // 버튼 클릭 시점에 넘길 선택 텍스트/문맥 — 선택이 사라져도 유지.
   private pending: { text: string; context: string } | null = null;
+  // 현재 패널에 표시 중인 해설 결과 — 복사/Notion 저장이 참조.
+  private lastResult: { term: string; markdown: string; context: string } | null = null;
+  // 패널 헤더 액션 버튼 — 결과 도착 시 활성화.
+  private copyBtn: HTMLButtonElement | null = null;
+  private notionBtn: HTMLButtonElement | null = null;
+  // Notion 저장 상태 — 저장 후 버튼을 다시 누르면 재저장(중복) 대신 페이지를 연다.
+  private notionSaved = false;
+  private notionPageUrl: string | null = null;
 
-  constructor(private readonly requestExplain: (text: string, context: string) => Promise<ExplainResult>) {
+  constructor(
+    private readonly requestExplain: (text: string, context: string) => Promise<ExplainResult>,
+    private readonly requestNotionSave: (
+      term: string,
+      markdown: string,
+      context: string,
+    ) => Promise<NotionSaveResult>,
+  ) {
     document.addEventListener('mouseup', this.onMouseUp, true);
     document.addEventListener('mousedown', this.onMouseDown, true);
     document.addEventListener('selectionchange', this.onSelectionChange);
@@ -35,6 +55,12 @@ export class ExplainUI {
       this.hideButton();
       this.closePanel();
     }
+  }
+
+  // Notion 저장 버튼 노출 여부. 설정 변경 시 호출되며, 떠 있는 패널의 버튼도 즉시 토글.
+  setNotionEnabled(enabled: boolean): void {
+    this.notionEnabled = enabled;
+    if (this.notionBtn) this.notionBtn.style.display = enabled ? '' : 'none';
   }
 
   private host(): HTMLElement {
@@ -101,7 +127,7 @@ export class ExplainUI {
     if (this.button && this.button.parentElement !== h) h.appendChild(this.button);
   };
 
-  // ─── 버튼 ───
+  // ─── 트리거 버튼 ───
   private showButton(rect: DOMRect): void {
     if (!this.button) {
       this.button = document.createElement('button');
@@ -155,6 +181,8 @@ export class ExplainUI {
     body.textContent = '';
     if (res.ok) {
       body.appendChild(renderMarkdown(res.markdown));
+      this.lastResult = { term: text, markdown: res.markdown, context };
+      this.enableActions(true);
     } else {
       const err = document.createElement('div');
       err.className = 'ydt-explain-error';
@@ -167,6 +195,9 @@ export class ExplainUI {
   // ─── 패널 ───
   private openPanel(term: string): void {
     this.closePanel();
+    this.lastResult = null;
+    this.notionSaved = false;
+    this.notionPageUrl = null;
     const panel = document.createElement('div');
     panel.className = 'ydt-explain-panel';
     panel.dataset.term = term;
@@ -176,13 +207,40 @@ export class ExplainUI {
     const title = document.createElement('div');
     title.className = 'ydt-explain-term';
     title.textContent = term;
+
+    const actions = document.createElement('div');
+    actions.className = 'ydt-explain-actions';
+
+    // 📋 클립보드 복사 — 무설정. 결과 도착 전엔 비활성.
+    this.copyBtn = document.createElement('button');
+    this.copyBtn.className = 'ydt-explain-action';
+    this.copyBtn.type = 'button';
+    this.copyBtn.textContent = '📋 복사';
+    this.copyBtn.disabled = true;
+    this.copyBtn.addEventListener('click', () => void this.onCopy());
+
+    // 📝 Notion 저장 — BYOK. notionEnabled일 때만 표시.
+    this.notionBtn = document.createElement('button');
+    this.notionBtn.className = 'ydt-explain-action';
+    this.notionBtn.type = 'button';
+    this.notionBtn.textContent = '📝 Notion';
+    this.notionBtn.disabled = true;
+    this.notionBtn.style.display = this.notionEnabled ? '' : 'none';
+    // 단일 핸들러: 이미 저장됐으면 그 페이지를 열고, 아니면 저장. (addEventListener +
+    // onclick 이중 등록은 저장된 버튼 재클릭 시 중복 페이지를 만든다 — 한 핸들러로 분기.)
+    this.notionBtn.addEventListener('click', () => void this.onNotionClick());
+
     const close = document.createElement('button');
     close.className = 'ydt-explain-close';
     close.type = 'button';
     close.textContent = '✕';
     close.addEventListener('click', () => this.closePanel());
+
+    actions.appendChild(this.copyBtn);
+    actions.appendChild(this.notionBtn);
+    actions.appendChild(close);
     header.appendChild(title);
-    header.appendChild(close);
+    header.appendChild(actions);
 
     const body = document.createElement('div');
     body.className = 'ydt-explain-body';
@@ -197,10 +255,84 @@ export class ExplainUI {
     this.panel = panel;
   }
 
+  private enableActions(enabled: boolean): void {
+    if (this.copyBtn) this.copyBtn.disabled = !enabled;
+    if (this.notionBtn) this.notionBtn.disabled = !enabled;
+  }
+
+  private async onCopy(): Promise<void> {
+    if (!this.lastResult || !this.copyBtn) return;
+    const { term, markdown, context } = this.lastResult;
+    const parts = [`## ${term}`, '', markdown];
+    if (context && context !== term) parts.push('', `> 자막: ${context}`);
+    const text = parts.join('\n');
+    const btn = this.copyBtn;
+    try {
+      await navigator.clipboard.writeText(text);
+      flash(btn, '✓ 복사됨', '📋 복사');
+    } catch (e) {
+      console.warn(TAG, 'clipboard failed:', e);
+      flash(btn, '✗ 실패', '📋 복사');
+    }
+  }
+
+  private async onNotionClick(): Promise<void> {
+    // 이미 저장됨 → 재저장(중복) 대신 페이지 열기.
+    if (this.notionSaved) {
+      if (this.notionPageUrl) window.open(this.notionPageUrl, '_blank', 'noopener');
+      return;
+    }
+    if (!this.lastResult || !this.notionBtn) return;
+    const { term, markdown, context } = this.lastResult;
+    const btn = this.notionBtn;
+    btn.disabled = true;
+    btn.textContent = '저장 중…';
+    let res: NotionSaveResult;
+    try {
+      res = await this.requestNotionSave(term, markdown, context);
+    } catch (e) {
+      res = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    // 그 사이 패널이 닫혔으면 무시.
+    if (this.notionBtn !== btn) return;
+    if (res.ok) {
+      this.notionSaved = true;
+      this.notionPageUrl = res.url ?? null;
+      btn.textContent = this.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
+      btn.disabled = false;
+      btn.title = this.notionPageUrl ? 'Notion에서 열기' : '';
+    } else {
+      btn.textContent = '✗ 저장 실패';
+      btn.disabled = false;
+      btn.title = res.error;
+      console.warn(TAG, 'notion save error:', res.error);
+      // 잠시 후 다시 시도할 수 있게 원복.
+      window.setTimeout(() => {
+        if (this.notionBtn === btn && !this.notionSaved) {
+          btn.textContent = '📝 Notion';
+          btn.title = '';
+        }
+      }, 2500);
+    }
+  }
+
   private closePanel(): void {
     this.panel?.remove();
     this.panel = null;
+    this.copyBtn = null;
+    this.notionBtn = null;
+    this.lastResult = null;
+    this.notionSaved = false;
+    this.notionPageUrl = null;
   }
+}
+
+// 버튼 라벨을 잠깐 바꿨다 원복(피드백용).
+function flash(btn: HTMLButtonElement, temp: string, restore: string): void {
+  btn.textContent = temp;
+  window.setTimeout(() => {
+    btn.textContent = restore;
+  }, 1500);
 }
 
 function closestContainer(node: Node): HTMLElement | null {

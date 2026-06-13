@@ -7,7 +7,7 @@ import { parseJson3 } from '../shared/json3';
 import { segmentCues } from '../shared/segment';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
-import { ExplainUI, type ExplainResult } from './explain/explain-ui';
+import { ExplainUI, type ExplainResult, type NotionSaveResult } from './explain/explain-ui';
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
 import { makeKey } from '../shared/cache/idb-cache';
 import { getVideoIdFromLocation } from '../shared/url';
@@ -92,7 +92,35 @@ async function requestExplain(text: string, context: string): Promise<ExplainRes
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
-const explainUI = new ExplainUI(requestExplain);
+// 해설을 Notion DB에 페이지로 저장 — background가 Notion API 호출(토큰은 secrets.ts).
+// 영상 제목·URL은 content가 알고 있으니 같이 보내 페이지 본문/속성에 넣게 한다.
+async function requestNotionSave(
+  term: string,
+  markdown: string,
+  context: string,
+): Promise<NotionSaveResult> {
+  const s = currentSettings;
+  if (!s) return { ok: false, error: '설정 로드 전입니다.' };
+  if (!s.notionDatabaseId.trim()) {
+    return { ok: false, error: 'Notion 데이터베이스 ID가 비어 있어요 (옵션에서 입력).' };
+  }
+  try {
+    const res = (await chrome.runtime.sendMessage({
+      type: 'NOTION_SAVE',
+      term,
+      markdown,
+      context,
+      databaseId: s.notionDatabaseId,
+      videoTitle: videoTitle(),
+      videoUrl: location.href,
+    })) as NotionSaveResult | undefined;
+    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    return res;
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+const explainUI = new ExplainUI(requestExplain, requestNotionSave);
 
 const currentVideoId = getVideoIdFromLocation;
 
@@ -540,6 +568,7 @@ function applySettings(s: Settings): void {
   });
   renderer.setPositions(s.subtitlePosition);
   explainUI.setEnabled(s.explainEnabled);
+  explainUI.setNotionEnabled(s.notionEnabled);
   // MAIN world에도 전달 — inject-main의 자동 CC 토글이 사용자 설정에 맞춰 동작하도록.
   window.postMessage(
     { source: 'YDT_CONTENT', type: 'SUBTITLES_ENABLED', enabled: s.subtitlesEnabled },

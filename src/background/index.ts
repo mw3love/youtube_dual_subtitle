@@ -6,6 +6,7 @@ import { translateBatch } from './translators/router';
 import { testGeminiKey } from './translators/gemini';
 import { testMindlogicKey } from './translators/mindlogic';
 import { explain } from './explain';
+import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import { setLastBackend } from '../shared/secrets';
@@ -60,12 +61,32 @@ interface ExplainMsg {
   prompt: string;
 }
 
+// 해설을 Notion DB에 페이지로 저장. content가 영상 메타까지 동봉, 토큰은 secrets.ts.
+interface NotionSaveMsg {
+  type: 'NOTION_SAVE';
+  term: string;
+  markdown: string;
+  context?: string;
+  databaseId: string;
+  videoTitle?: string;
+  videoUrl?: string;
+}
+
+// 옵션 "테스트" 버튼 — 토큰+DB 공유+ID 검증.
+interface TestNotionMsg {
+  type: 'TEST_NOTION';
+  token: string;
+  databaseId: string;
+}
+
 type AnyMsg = Partial<TranslateBatchMsg> &
   Partial<TestGeminiMsg> &
   Partial<TestMindlogicMsg> &
   Partial<CacheGetMsg> &
   Partial<CacheSetMsg> &
-  Partial<ExplainMsg> & { type?: string };
+  Partial<ExplainMsg> &
+  Partial<NotionSaveMsg> &
+  Partial<TestNotionMsg> & { type?: string };
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
   const m = msg as AnyMsg;
@@ -143,6 +164,48 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'explain failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (
+    m?.type === 'NOTION_SAVE' &&
+    typeof m.term === 'string' &&
+    typeof m.markdown === 'string' &&
+    typeof m.databaseId === 'string'
+  ) {
+    const { term, markdown, context, databaseId, videoTitle, videoUrl } = m;
+    (async (): Promise<void> => {
+      try {
+        const { url } = await saveToNotion({
+          term,
+          markdown,
+          context,
+          databaseId,
+          videoTitle,
+          videoUrl,
+        });
+        sendResponse({ ok: true, url });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'notion save failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'TEST_NOTION' && typeof m.token === 'string' && typeof m.databaseId === 'string') {
+    const { token, databaseId } = m;
+    (async (): Promise<void> => {
+      try {
+        const dbTitle = await testNotion(token, databaseId);
+        sendResponse({ ok: true, dbTitle });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'notion test failed:', error);
         sendResponse({ ok: false, error });
       }
     })();

@@ -156,6 +156,26 @@ const STYLES = `
   font-size: 14px;
   word-break: break-word;
 }
+.ydt-explain-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ydt-explain-action {
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+  color: #ddd;
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ydt-explain-action:hover:not(:disabled) { background: #3f3f3f; color: #fff; }
+.ydt-explain-action:disabled { opacity: 0.45; cursor: default; }
 .ydt-explain-close {
   flex: 0 0 auto;
   width: 26px;
