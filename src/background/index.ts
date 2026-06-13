@@ -5,8 +5,9 @@
 import { translateBatch } from './translators/router';
 import { testGeminiKey } from './translators/gemini';
 import { testMindlogicKey } from './translators/mindlogic';
+import { explain } from './explain';
 import type { BackendId } from './translators/types';
-import type { GeminiModel, MindlogicModel } from '../shared/settings';
+import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import { setLastBackend } from '../shared/secrets';
 import { getCached, setCached } from '../shared/cache/idb-cache';
 
@@ -48,11 +49,23 @@ interface CacheSetMsg {
   translations: string[];
 }
 
+// 단어/표현 해설 — content가 선택 텍스트 + 자막 문맥 + 백엔드/모델/프롬프트를 보내면
+// explain()이 AI 해설 markdown을 돌려준다. 키는 background가 secrets.ts에서 읽음.
+interface ExplainMsg {
+  type: 'EXPLAIN';
+  text: string;
+  context?: string;
+  backend: ExplainBackend;
+  model: GeminiModel | MindlogicModel;
+  prompt: string;
+}
+
 type AnyMsg = Partial<TranslateBatchMsg> &
   Partial<TestGeminiMsg> &
   Partial<TestMindlogicMsg> &
   Partial<CacheGetMsg> &
-  Partial<CacheSetMsg> & { type?: string };
+  Partial<CacheSetMsg> &
+  Partial<ExplainMsg> & { type?: string };
 
 chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
   const m = msg as AnyMsg;
@@ -115,6 +128,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'mindlogic test failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'EXPLAIN' && typeof m.text === 'string' && m.backend && m.model && m.prompt) {
+    const { text, context, backend, model, prompt } = m;
+    (async (): Promise<void> => {
+      try {
+        const markdown = await explain({ text, context, backend, model, prompt });
+        sendResponse({ ok: true, markdown });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'explain failed:', error);
         sendResponse({ ok: false, error });
       }
     })();

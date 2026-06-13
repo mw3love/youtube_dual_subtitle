@@ -28,6 +28,25 @@ export type MindlogicModel = z.infer<typeof MindlogicModelSchema>;
 export const DisplayModeSchema = z.enum(['dual', 'translation-only', 'source-only']);
 export type DisplayMode = z.infer<typeof DisplayModeSchema>;
 
+// 단어/표현 "해설" 기능(드래그 선택 → AI 영어 선생님 설명)의 백엔드.
+// 번역 백엔드(BackendId)와 별개 — google-free/chrome-builtin은 자유서술 해설을 못 하므로
+// 자유 프롬프트 chat이 가능한 BYOK 백엔드(gemini/mindlogic)만 노출. 키는 secrets.ts 재사용.
+export const ExplainBackendSchema = z.enum(['gemini', 'mindlogic']);
+export type ExplainBackend = z.infer<typeof ExplainBackendSchema>;
+
+// 해설 기본 프롬프트 — 사용자의 Gemini "영어 선생님" Gem 프롬프트를 기본값으로 박는다.
+// 옵션 페이지에서 자유 편집 가능(explainPrompt). system 메시지로 그대로 전달된다.
+export const DEFAULT_EXPLAIN_PROMPT = `너는 나의 영어 선생님이야. 내가 영어를 잘 할 수 있도록 최선을 다해. 답변할 때 정보 전달 외 불필요한 인삿말은 하지 마.
+
+답변은 다음과 같이 할것
+- 답변은 한국말로
+- 답변 최상단에는 질문에 적합한 영어예문을 인라인 코드로 작성
+- 예문 아래에 한글 해석 작성
+- 영어 예문들만 인라인 코드로 작성할것
+- 관용어(idiom)의 경우 어원 설명
+- 표로 만들 수 있는건 되도록 표로 제작
+- 의미가 다양할 경우 관통하는 하나의 이미지 표현을 제시, 유연하게 해석할 수 있도록 한다.`;
+
 // 누적 표시 레이아웃 — cue마다 한 줄(stacked) vs 한 문단처럼 이어 흘림(inline).
 export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
 export type HistoryLayout = z.infer<typeof HistoryLayoutSchema>;
@@ -87,6 +106,10 @@ export const SettingsSchema = z.object({
     normal: PositionSchema,
     shorts: PositionSchema,
   }),
+  // 단어/표현 해설 — 자막 텍스트를 드래그 선택하면 작은 버튼으로 AI 해설 패널 호출.
+  explainEnabled: z.boolean(),
+  explainBackend: ExplainBackendSchema,
+  explainPrompt: z.string(),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -111,6 +134,9 @@ export const DEFAULT_SETTINGS: Settings = {
     normal: { xPercent: 50, yPercent: 10 },
     shorts: { xPercent: 50, yPercent: 18 },
   },
+  explainEnabled: true,
+  explainBackend: 'gemini',
+  explainPrompt: DEFAULT_EXPLAIN_PROMPT,
 };
 
 export async function loadSettings(): Promise<Settings> {

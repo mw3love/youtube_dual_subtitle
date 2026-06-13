@@ -98,6 +98,126 @@ const STYLES = `
    (applyCurrentPosition이 mode별 storage 값을 박음 — Shorts default 18%). */
 .ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * var(--ydt-shorts-scale, 1)); }
 .ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * var(--ydt-shorts-scale, 1)); }
+
+/* ─── 단어/표현 해설 (드래그 선택 → AI 설명) ─── */
+/* 선택 위에 뜨는 작은 트리거 버튼 — fixed라 뷰포트 기준, 전체화면 host에 붙어도 동작. */
+.ydt-explain-btn {
+  position: fixed;
+  z-index: 2147483646;
+  display: none;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
+  color: #fff;
+  background: #3ea6ff;
+  border: none;
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  line-height: 1.2;
+}
+.ydt-explain-btn:hover { background: #5cb3ff; }
+
+/* 해설 패널 — 우상단 사이드 패널. 영상 중앙을 가리지 않게. */
+.ydt-explain-panel {
+  position: fixed;
+  z-index: 2147483646;
+  top: 72px;
+  right: 24px;
+  width: 420px;
+  max-width: calc(100vw - 48px);
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  color: #e8e8e8;
+  border: 1px solid #333;
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow: hidden;
+}
+.ydt-explain-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #232323;
+  border-bottom: 1px solid #333;
+  flex: 0 0 auto;
+}
+.ydt-explain-term {
+  font-weight: 700;
+  color: #ffa200;
+  font-size: 14px;
+  word-break: break-word;
+}
+.ydt-explain-close {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-size: 13px;
+  color: #ccc;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ydt-explain-close:hover { background: #383838; color: #fff; }
+.ydt-explain-body {
+  padding: 12px 16px 16px;
+  overflow-y: auto;
+}
+.ydt-explain-loading { color: #999; font-size: 13px; padding: 8px 0; }
+.ydt-explain-error { color: #ff8a8a; font-size: 13px; }
+
+/* 패널 내부 markdown 요소 — 패널 안에서만 스코프(.ydt-explain-body 하위). */
+.ydt-explain-body h3, .ydt-explain-body h4, .ydt-explain-body h5, .ydt-explain-body h6 {
+  margin: 14px 0 6px;
+  color: #ffd28a;
+  font-size: 14px;
+  font-weight: 700;
+}
+.ydt-explain-body h3 { font-size: 15px; }
+.ydt-explain-body p { margin: 6px 0; }
+.ydt-explain-body ul, .ydt-explain-body ol { margin: 6px 0; padding-left: 20px; }
+.ydt-explain-body li { margin: 3px 0; }
+.ydt-explain-body code {
+  font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 13px;
+  color: #9ee7ff;
+  background: #0f2630;
+  padding: 1px 5px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+.ydt-explain-body pre {
+  background: #0f2630;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.ydt-explain-body pre code { background: transparent; padding: 0; color: #cfeaff; }
+.ydt-explain-body strong { color: #fff; font-weight: 700; }
+.ydt-explain-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.ydt-explain-body th, .ydt-explain-body td {
+  border: 1px solid #3a3a3a;
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+.ydt-explain-body th { background: #2a2a2a; color: #ffd28a; font-weight: 700; }
 `;
 
 let injected = false;

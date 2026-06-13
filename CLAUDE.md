@@ -154,6 +154,18 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **배선** (`content/index.ts`): `parseJson3` 직후 `segmentCues` → `renderer.setCues(sentences)` + `translateCues(sentences)`. `lastSentences` 보관(재번역용, 섹션 6). 캐시 길이 검증·배치 분할 모두 문장 개수 기준. 배치 크기는 문장이 길어 25/4로 낮춤(섹션 5).
 - **한계:** `naughty.`처럼 종결부호로 끝나는 단독 문장은 여전히 단독 번역 — 청크 문맥으로 단어 뜻은 보정되나 완전 해소는 아님. `GAP_THRESHOLD_SEC`·길이 캡은 영상별 편차가 있어 Immersive와 나란히 두고 튜닝 대상.
 
+### 14. 단어·표현 해설 (드래그 선택 → AI 영어 선생님, A29, v0.5.0)
+
+**의도:** 자막에서 모르는 표현을 드래그하면 단순 번역을 넘어 예문·어원·표·뉘앙스까지 "영어 선생님" 스타일로 해설. 사용자가 쓰던 Gemini Gem 흐름(탭 왕복)을 확장 안으로 들여옴. **번역과 완전 별개 경로** — router/캐시/길이검증을 안 거치는 on-demand 단발 chat 호출.
+
+- **트리거·표시** (`content/explain/explain-ui.ts`, `ExplainUI`): `mouseup` → `window.getSelection()`이 `.ydt-container` 안의 비어있지 않은 선택이면 선택 rect 위에 `.ydt-explain-btn`("💡 해설")을 띄움. native 텍스트 선택은 이미 동작(렌더러 pointerdown이 `.ydt-cue-text`에서 양보, 섹션 8) — UI는 그 결과만 읽는다. 클릭 시 우상단 사이드 패널(`.ydt-explain-panel`)에 로딩→markdown 렌더. 문맥은 같은 박스의 원문 줄(`.ydt-source .ydt-cue-text`) 전체를 같이 보내 단어 뜻 disambiguation. 버튼/패널은 `document.fullscreenElement ?? document.body`에 append하고 `fullscreenchange`에 re-home(전체화면에서도 보이게). Esc로 패널 닫기.
+- **백엔드** (`background/explain.ts`, `explain()`): 자유서술이 가능한 BYOK 둘만 — `ExplainBackendSchema = enum('gemini','mindlogic')`. `google-free`/`chrome-builtin`은 해설 불가라 제외. gemini는 `generateContent`(systemInstruction=프롬프트, JSON schema 없음), mindlogic은 `chat/completions`(system+user). `temperature 0.3`, `maxOutputTokens/max_tokens 2048`. 429/5xx 1회 백오프, 401/403 즉시 throw. 키는 번역과 동일하게 `secrets.ts`(storage.local) 재사용 — 새 키 입력 UI 불필요.
+- **프롬프트는 사용자 편집 가능**: `settings.explainPrompt`(storage.sync), 기본값 `DEFAULT_EXPLAIN_PROMPT`(=사용자 Gem 프롬프트, `settings.ts`). 옵션 페이지 textarea + "기본값으로" 버튼. system 메시지로 그대로 전달돼 답변 형식을 정함.
+- **배선**: content `requestExplain(text, context)` → `EXPLAIN` 메시지(backend/model/prompt 동봉, 모델은 explainBackend에 따라 geminiModel/mindlogicModel 재사용) → background 핸들러 → `explain()` → `{ok, markdown}`. `applySettings`가 `explainUI.setEnabled(explainEnabled)`.
+- **markdown 렌더는 자체 구현** (`content/explain/markdown.ts`, `renderMarkdown`): 신뢰 불가한 LLM 출력이라 **innerHTML 미사용** — 모든 텍스트를 `textContent`로만 넣고 element를 직접 생성해 XSS를 원천 차단(sanitizer 의존성 불필요). 지원 문법은 해설에 실제 쓰이는 것만: 헤딩·GFM 표·순서/비순서 목록·코드펜스·인라인(`` `code` ``/`**bold**`/`*italic*`). 스타일은 `styles.ts`의 `.ydt-explain-*`(패널 하위로 스코프).
+- **옵션 키 노출 조건**: Gemini/Mindlogic 설정 섹션이 예전엔 번역 backend === 그 백엔드일 때만 보였으나, explain이 그 백엔드를 쓰면(`explainEnabled && explainBackend === ...`)도 보이도록 조건 확장 — 번역=google-free + 해설=gemini 조합에서 키 입력 가능.
+- **비용·한계:** 사용자가 누를 때만 1회 호출이라 비용 통제됨(자막 전체 번역과 다름). 페이지의 다른 사전 확장과 선택 팝업이 겹칠 수 있으나 우리 버튼은 `.ydt-container` 안 선택에만 발화. 후속 대화(follow-up Q)는 v1 미지원 — 단발 해설만.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

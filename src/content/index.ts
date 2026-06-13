@@ -7,6 +7,7 @@ import { parseJson3 } from '../shared/json3';
 import { segmentCues } from '../shared/segment';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
 import { applyStyleSettings } from './renderer/styles';
+import { ExplainUI, type ExplainResult } from './explain/explain-ui';
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
 import { makeKey } from '../shared/cache/idb-cache';
 import { getVideoIdFromLocation } from '../shared/url';
@@ -65,6 +66,33 @@ renderer.setOnFontSizeChange((sourceSize, targetSize) => {
     void saveSettings({ sourceStyle, targetStyle });
   }, 300);
 });
+
+// 단어/표현 해설 — 자막 드래그 선택 → 버튼 → AI 해설 패널. 선택 텍스트 + 자막 문맥을
+// background EXPLAIN으로 보내고 markdown을 받아 패널이 렌더한다. 백엔드/모델/프롬프트는
+// 현재 settings에서 가져옴(키는 background가 secrets.ts에서 읽음).
+async function requestExplain(text: string, context: string): Promise<ExplainResult> {
+  const s = currentSettings;
+  if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
+  if (!s.explainPrompt.trim()) {
+    return { ok: false, error: '해설 프롬프트가 비어 있어요 (옵션에서 입력하거나 "기본값으로").' };
+  }
+  const model = s.explainBackend === 'gemini' ? s.geminiModel : s.mindlogicModel;
+  try {
+    const res = (await chrome.runtime.sendMessage({
+      type: 'EXPLAIN',
+      text,
+      context,
+      backend: s.explainBackend,
+      model,
+      prompt: s.explainPrompt,
+    })) as ExplainResult | undefined;
+    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    return res;
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+const explainUI = new ExplainUI(requestExplain);
 
 const currentVideoId = getVideoIdFromLocation;
 
@@ -511,6 +539,7 @@ function applySettings(s: Settings): void {
     lineHeight: s.lineHeight,
   });
   renderer.setPositions(s.subtitlePosition);
+  explainUI.setEnabled(s.explainEnabled);
   // MAIN world에도 전달 — inject-main의 자동 CC 토글이 사용자 설정에 맞춰 동작하도록.
   window.postMessage(
     { source: 'YDT_CONTENT', type: 'SUBTITLES_ENABLED', enabled: s.subtitlesEnabled },

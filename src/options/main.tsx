@@ -1,12 +1,14 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  DEFAULT_EXPLAIN_PROMPT,
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
   type BackendId,
   type CueStyle,
   type DisplayMode,
+  type ExplainBackend,
   type GeminiModel,
   type HistoryLayout,
   type MindlogicModel,
@@ -675,7 +677,8 @@ function Options() {
         </Row>
       </Section>
 
-      {settings.backend === 'gemini' && (
+      {(settings.backend === 'gemini' ||
+        (settings.explainEnabled && settings.explainBackend === 'gemini')) && (
         <Section title="Gemini 설정">
           <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
             본인 API 키로 동작.{' '}
@@ -751,7 +754,8 @@ function Options() {
         </Section>
       )}
 
-      {settings.backend === 'mindlogic' && (
+      {(settings.backend === 'mindlogic' ||
+        (settings.explainEnabled && settings.explainBackend === 'mindlogic')) && (
         <Section title="Mindlogic Gateway 설정">
           <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
             학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델을 쓸 수 있는
@@ -819,6 +823,83 @@ function Options() {
           </Row>
         </Section>
       )}
+
+      <Section title="단어·표현 해설 (드래그)">
+        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+          영상에서 자막 텍스트를 드래그하면 작은 <b style={{ color: '#3ea6ff' }}>💡 해설</b> 버튼이 떠요.
+          누르면 AI 영어 선생님이 예문·어원·표로 설명해줍니다. (BYOK — 아래 백엔드의 키 필요)
+        </p>
+        <Row label="해설 켜기">
+          <input
+            type="checkbox"
+            checked={settings.explainEnabled}
+            onChange={(e) => update({ explainEnabled: e.target.checked })}
+          />
+          <span style={{ fontSize: 12, color: '#999' }}>드래그 선택 시 해설 버튼 표시</span>
+        </Row>
+        {settings.explainEnabled && (
+          <>
+            <Row label="해설 백엔드">
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  checked={settings.explainBackend === 'gemini'}
+                  onChange={() => update({ explainBackend: 'gemini' as ExplainBackend })}
+                />
+                <span>Gemini</span>
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: 8 }}>
+                <input
+                  type="radio"
+                  checked={settings.explainBackend === 'mindlogic'}
+                  onChange={() => update({ explainBackend: 'mindlogic' as ExplainBackend })}
+                />
+                <span>Mindlogic Gateway</span>
+              </label>
+              <span style={{ fontSize: 11, color: '#999' }}>
+                키·모델은 위 "{settings.explainBackend === 'gemini' ? 'Gemini' : 'Mindlogic Gateway'} 설정"에서
+              </span>
+            </Row>
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+              <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>해설 프롬프트</label>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <textarea
+                  value={settings.explainPrompt}
+                  onChange={(e) => update({ explainPrompt: e.target.value })}
+                  rows={9}
+                  spellCheck={false}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    fontFamily: 'inherit',
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    color: '#e8e8e8',
+                    background: '#1c1c1c',
+                    border: '1px solid #333',
+                    borderRadius: 6,
+                    padding: 8,
+                    resize: 'vertical',
+                  }}
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button
+                    onClick={() => update({ explainPrompt: DEFAULT_EXPLAIN_PROMPT })}
+                    disabled={settings.explainPrompt === DEFAULT_EXPLAIN_PROMPT}
+                    style={{ padding: '4px 10px', fontSize: 12 }}
+                    type="button"
+                  >
+                    기본값으로
+                  </button>
+                  <span style={{ fontSize: 11, color: '#999' }}>
+                    이 프롬프트가 AI에게 그대로 전달돼 답변 형식을 정합니다
+                  </span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </Section>
 
       <Section title="Single Subtitle (한 줄만 보일 때 적용)">
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
