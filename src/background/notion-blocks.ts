@@ -41,6 +41,14 @@ export function markdownToBlocks(md: string): NotionBlock[] {
       continue;
     }
 
+    // 가로줄(---/***/___, 3개 이상) → divider. 표 구분줄(|---|)은 파이프가 있어 안 걸림.
+    if (/^([-*_])\1{2,}$/.test(trimmed)) {
+      flushPara();
+      blocks.push({ type: 'divider', divider: {} });
+      i++;
+      continue;
+    }
+
     // 코드 펜스
     const fence = trimmed.match(/^```(\w*)\s*$/);
     if (fence) {

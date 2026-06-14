@@ -236,6 +236,7 @@ const STYLES = `
   margin: 8px 0;
 }
 .ydt-explain-body pre code { background: transparent; padding: 0; color: #cfeaff; border-bottom: none; }
+.ydt-explain-body hr { border: none; border-top: 1px solid #3a4a55; margin: 12px 0; }
 .ydt-explain-body strong { color: #fff; font-weight: 700; }
 .ydt-explain-body table {
   border-collapse: collapse;

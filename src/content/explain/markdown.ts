@@ -33,6 +33,14 @@ export function renderMarkdown(md: string): DocumentFragment {
       continue;
     }
 
+    // 가로줄(---/***/___, 3개 이상) → <hr>. 표 구분줄(|---|)은 파이프가 있어 안 걸림.
+    if (/^([-*_])\1{2,}$/.test(trimmed)) {
+      flushPara();
+      frag.appendChild(document.createElement('hr'));
+      i++;
+      continue;
+    }
+
     // 코드 펜스 ```lang ... ``` → <pre>
     const fence = trimmed.match(/^```(\w*)\s*$/);
     if (fence) {
@@ -177,6 +185,7 @@ function serializeBlock(el: HTMLElement): string {
     return '```\n' + (code?.textContent ?? el.textContent ?? '') + '\n```';
   }
   if (tag === 'TABLE') return serializeTable(el as HTMLTableElement);
+  if (tag === 'HR') return '---';
   return serializeInline(el).trim();
 }
 
