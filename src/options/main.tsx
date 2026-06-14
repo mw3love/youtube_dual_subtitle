@@ -9,14 +9,18 @@ import {
   type CueStyle,
   type DisplayMode,
   type ExplainBackend,
-  type GeminiModel,
   type HistoryLayout,
-  type MindlogicModel,
   type Settings,
   type SourceLang,
   type TargetLang,
 } from '../shared/settings';
-import { DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
+import {
+  DISPLAY_MODES,
+  GEMINI_MODELS,
+  MINDLOGIC_MODELS,
+  SOURCE_LANGS,
+  TARGET_LANGS,
+} from '../shared/lang-options';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
 import {
   getGeminiApiKey,
@@ -26,18 +30,6 @@ import {
   setMindlogicApiKey,
   setNotionToken,
 } from '../shared/secrets';
-
-// Mindlogic gateway가 통과시키는 모델 중 자막 번역에 가성비 좋은 라인만.
-// 통합 크레딧 방식이라 flagship/reasoning은 자막 cue 수백 개에 비효율 — 경량/저가만 노출.
-// gateway는 ID를 그대로 upstream에 전달하므로 학교/조직 계정에 권한 없는 모델은 401/403으로
-// 떨어진 뒤 router가 google-free로 fallback.
-const MINDLOGIC_MODELS: Array<{ value: MindlogicModel; label: string; hint: string }> = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', hint: '균형 (추천)' },
-  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', hint: '최저가' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', hint: '자연스러움' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini', hint: 'OpenAI 경량' },
-  { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano', hint: 'OpenAI 초경량' },
-];
 
 const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 400, label: '보통' },
@@ -396,6 +388,17 @@ function Options() {
     | { kind: 'err'; error: string };
   const [notionTestState, setNotionTestState] = useState<NotionTestState>({ kind: 'idle' });
 
+  // Mindlogic 동적 모델 목록 — 게이트웨이 /models로 가져와 storage.local에 캐시(설정 아님 —
+  // 휘발성 런타임 데이터). null=아직 안 가져옴(하드코딩 추천 목록으로 fallback).
+  type MindlogicModelInfo = { id: string; ownedBy: string };
+  const [mindlogicModels, setMindlogicModels] = useState<MindlogicModelInfo[] | null>(null);
+  type ModelsFetch =
+    | { kind: 'idle' }
+    | { kind: 'pending' }
+    | { kind: 'ok'; count: number }
+    | { kind: 'err'; error: string };
+  const [modelsFetch, setModelsFetch] = useState<ModelsFetch>({ kind: 'idle' });
+
   useEffect(() => {
     void loadSettings().then((s) => {
       setSettings(s);
@@ -405,7 +408,72 @@ function Options() {
     void getGeminiApiKey().then((k) => setApiKey(k ?? ''));
     void getMindlogicApiKey().then((k) => setMindlogicApiKeyState(k ?? ''));
     void getNotionToken().then((k) => setNotionTokenState(k ?? ''));
+    void chrome.storage.local.get('ydtMindlogicModels').then((r) => {
+      if (Array.isArray(r.ydtMindlogicModels)) setMindlogicModels(r.ydtMindlogicModels);
+    });
   }, []);
+
+  // 게이트웨이에서 사용 가능한 모델 목록을 가져와 캐시. 키 저장이 보류 중이면 먼저 flush.
+  const onRefreshMindlogicModels = async (): Promise<void> => {
+    if (mindlogicKeySaveTimerRef.current !== null) {
+      clearTimeout(mindlogicKeySaveTimerRef.current);
+      mindlogicKeySaveTimerRef.current = null;
+      await setMindlogicApiKey(mindlogicApiKey.trim() || null);
+    }
+    setModelsFetch({ kind: 'pending' });
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'MINDLOGIC_LIST_MODELS',
+        apiKey: mindlogicApiKey.trim(),
+      })) as { ok: true; models: MindlogicModelInfo[] } | { ok: false; error: string } | undefined;
+      if (!res) setModelsFetch({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      else if (res.ok) {
+        await chrome.storage.local.set({ ydtMindlogicModels: res.models });
+        setMindlogicModels(res.models);
+        setModelsFetch({ kind: 'ok', count: res.models.length });
+      } else setModelsFetch({ kind: 'err', error: res.error });
+    } catch (e) {
+      setModelsFetch({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  // Mindlogic 모델 <select> — 동적 목록(있으면) 또는 하드코딩 추천 목록을 owner별 그룹으로 렌더.
+  // forExplain=true면 해설 추천 마커, false면 번역 추천 마커. 현재 선택값이 목록에 없으면 추가.
+  const renderMindlogicSelect = (
+    value: string,
+    onChange: (v: string) => void,
+    forExplain: boolean,
+  ): React.ReactNode => {
+    const known = new Map(MINDLOGIC_MODELS.map((m) => [m.value, m]));
+    let base: MindlogicModelInfo[] =
+      mindlogicModels && mindlogicModels.length
+        ? mindlogicModels
+        : MINDLOGIC_MODELS.map((m) => ({ id: m.value, ownedBy: '추천' }));
+    if (!base.some((x) => x.id === value)) base = [{ id: value, ownedBy: '현재' }, ...base];
+    const groups = new Map<string, MindlogicModelInfo[]>();
+    for (const it of base) {
+      const arr = groups.get(it.ownedBy) ?? [];
+      arr.push(it);
+      groups.set(it.ownedBy, arr);
+    }
+    return (
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {[...groups.entries()].map(([owner, items]) => (
+          <optgroup key={owner} label={owner}>
+            {items.map((it) => {
+              const hint = forExplain ? known.get(it.id)?.explainHint : known.get(it.id)?.transHint;
+              return (
+                <option key={it.id} value={it.id}>
+                  {it.id}
+                  {hint ? ` — ${hint}` : ''}
+                </option>
+              );
+            })}
+          </optgroup>
+        ))}
+      </select>
+    );
+  };
 
   // API 키 입력은 settings와 다른 storage area라 별도 디바운스 저장.
   // 300ms — 빠른 paste/타이핑 도중 부분 키 저장 방지.
@@ -762,23 +830,22 @@ function Options() {
               </span>
             )}
           </Row>
-          <Row label="모델">
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer' }}>
-              <input
-                type="radio"
-                checked={settings.geminiModel === 'flash'}
-                onChange={() => update({ geminiModel: 'flash' as GeminiModel })}
-              />
-              <span>Flash (품질 우선)</span>
-            </label>
-            <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: 8 }}>
-              <input
-                type="radio"
-                checked={settings.geminiModel === 'flash-lite'}
-                onChange={() => update({ geminiModel: 'flash-lite' as GeminiModel })}
-              />
-              <span>Flash-Lite (한도·속도 우선)</span>
-            </label>
+          <Row label="번역 모델">
+            {GEMINI_MODELS.map((m, i) => (
+              <label
+                key={m.value}
+                style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: i === 0 ? 0 : 8 }}
+              >
+                <input
+                  type="radio"
+                  checked={settings.geminiModel === m.value}
+                  onChange={() => update({ geminiModel: m.value })}
+                />
+                <span>
+                  {m.label} <span style={{ fontSize: 11, color: '#999' }}>{m.transHint}</span>
+                </span>
+              </label>
+            ))}
           </Row>
           <Row label="키 확인">
             <button
@@ -831,21 +898,30 @@ function Options() {
               </span>
             )}
           </Row>
-          <Row label="모델">
-            <select
-              value={settings.mindlogicModel}
-              onChange={(e) =>
-                update({ mindlogicModel: e.target.value as MindlogicModel })
-              }
+          <Row label="번역 모델">
+            {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
+            <button
+              onClick={() => void onRefreshMindlogicModels()}
+              disabled={!mindlogicApiKey.trim() || modelsFetch.kind === 'pending'}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+              title="게이트웨이에서 사용 가능한 모델 목록을 다시 가져옵니다"
             >
-              {MINDLOGIC_MODELS.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label} — {m.hint}
-                </option>
-              ))}
-            </select>
+              {modelsFetch.kind === 'pending' ? '불러오는 중…' : '↻ 모델 새로고침'}
+            </button>
+            {modelsFetch.kind === 'ok' && (
+              <span style={{ fontSize: 11, color: '#9eff9e' }}>✓ {modelsFetch.count}개</span>
+            )}
+            {modelsFetch.kind === 'err' && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>✗ {modelsFetch.error}</span>
+            )}
+          </Row>
+          <Row label="">
             <span style={{ fontSize: 11, color: '#999' }}>
-              계정에 권한 없으면 해당 모델은 인증 실패 → Google 무료로 fallback
+              {mindlogicModels
+                ? `게이트웨이 모델 ${mindlogicModels.length}개 (새로고침으로 갱신). `
+                : '새로고침 누르면 게이트웨이의 전체 모델이 뜸. '}
+              계정에 권한 없는 모델은 인증 실패 → 번역은 Google 무료로 fallback
             </span>
           </Row>
           <Row label="키 확인">
@@ -904,8 +980,36 @@ function Options() {
                 <span>Mindlogic Gateway</span>
               </label>
               <span style={{ fontSize: 11, color: '#999' }}>
-                키·모델은 위 "{settings.explainBackend === 'gemini' ? 'Gemini' : 'Mindlogic Gateway'} 설정"에서
+                키는 위 "{settings.explainBackend === 'gemini' ? 'Gemini' : 'Mindlogic Gateway'} 설정"에서
               </span>
+            </Row>
+            <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
+              {settings.explainBackend === 'gemini' ? (
+                GEMINI_MODELS.map((m, i) => (
+                  <label
+                    key={m.value}
+                    style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: i === 0 ? 0 : 8 }}
+                  >
+                    <input
+                      type="radio"
+                      checked={settings.explainGeminiModel === m.value}
+                      onChange={() => update({ explainGeminiModel: m.value })}
+                    />
+                    <span>
+                      {m.label}
+                      {m.explainHint && (
+                        <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 4 }}>{m.explainHint}</span>
+                      )}
+                    </span>
+                  </label>
+                ))
+              ) : (
+                renderMindlogicSelect(
+                  settings.explainMindlogicModel,
+                  (v) => update({ explainMindlogicModel: v }),
+                  true,
+                )
+              )}
             </Row>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
               <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>해설 프롬프트</label>

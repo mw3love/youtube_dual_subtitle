@@ -86,21 +86,40 @@ export async function testMindlogicKey(
   return out[0] ?? '';
 }
 
+// 게이트웨이가 통과시키는 모델 목록 (OpenAI 호환 GET /models). 옵션 페이지가 "모델 새로고침"으로
+// 호출 → storage.local에 캐시 → 드롭다운에 동적 표시. 하드코딩 큐레이션(MINDLOGIC_MODELS)은
+// 추천 마커/새로고침 전 fallback으로 남는다.
+const MODELS_ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/models';
+
+export interface MindlogicModelInfo {
+  id: string;
+  ownedBy: string;
+}
+
+export async function listMindlogicModels(apiKey?: string): Promise<MindlogicModelInfo[]> {
+  const key = apiKey || (await getMindlogicApiKey());
+  if (!key) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  const res = await fetch(MODELS_ENDPOINT, { headers: { Authorization: `Bearer ${key}` } });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
+    throw new Error(`모델 목록 실패 (HTTP ${res.status})`);
+  }
+  const data = (await res.json()) as { data?: Array<{ id?: string; owned_by?: string }> };
+  const models = (data.data ?? [])
+    .filter((m): m is { id: string; owned_by?: string } => typeof m.id === 'string' && !!m.id)
+    .map((m) => ({ id: m.id, ownedBy: m.owned_by ?? 'other' }));
+  if (models.length === 0) throw new Error('모델 목록이 비어 있음 (응답 형식 변경?)');
+  return models;
+}
+
 async function readModel(): Promise<MindlogicModel> {
   const r = await chrome.storage.sync.get({ mindlogicModel: 'gemini-2.5-flash' });
   return validateModel(r.mindlogicModel);
 }
 
+// 모델 ID는 자유 문자열(게이트웨이가 유효성 판정) — 비어있지 않은 문자열이면 그대로 사용.
 function validateModel(v: unknown): MindlogicModel {
-  if (
-    v === 'gpt-5.4-nano' ||
-    v === 'gpt-5.4-mini' ||
-    v === 'claude-haiku-4-5-20251001' ||
-    v === 'gemini-3.1-flash-lite'
-  ) {
-    return v;
-  }
-  return 'gemini-2.5-flash';
+  return typeof v === 'string' && v.trim() ? v : 'gemini-2.5-flash';
 }
 
 function systemPrompt(src: string, tgt: string, count: number, title?: string): string {

@@ -1,4 +1,12 @@
-import type { BackendId, DisplayMode, SourceLang, TargetLang } from './settings';
+import type {
+  BackendId,
+  DisplayMode,
+  ExplainBackend,
+  GeminiModel,
+  MindlogicModel,
+  SourceLang,
+  TargetLang,
+} from './settings';
 
 export const SOURCE_LANGS: Array<{ value: SourceLang; label: string }> = [
   { value: 'en', label: '영어 (English)' },
@@ -32,3 +40,45 @@ export const BACKENDS: Array<{ value: BackendId; label: string }> = [
   { value: 'gemini', label: 'Gemini (내 키)' },
   { value: 'mindlogic', label: 'Mindlogic Gateway (학교/조직)' },
 ];
+
+// 모델 선택지 — 옵션 페이지(드롭다운/라디오)와 content(해설 로딩 라벨)가 공유.
+// transHint=번역 관점, explainHint=해설 관점 추천 마커. 번역(자막 수백 cue)과 해설(드래그 1회)은
+// 가성비/품질 기준이 정반대라 추천 모델이 다르다.
+export interface ModelOption<V> {
+  value: V;
+  label: string;
+  transHint: string;
+  explainHint?: string;
+}
+
+// Gemini 직접 API. 2.5 세대는 번역 가성비, 3.5 Flash는 최신 세대로 자유서술 해설 품질이 큼.
+export const GEMINI_MODELS: Array<ModelOption<GeminiModel>> = [
+  { value: 'flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
+  { value: 'flash-lite', label: 'Gemini 2.5 Flash-Lite', transHint: '한도·속도' },
+  { value: '3.5-flash', label: 'Gemini 3.5 Flash', transHint: '최신·고품질', explainHint: '해설 추천' },
+];
+
+// Mindlogic gateway. gateway가 ID를 그대로 upstream에 전달하므로 권한 없는 모델은 401/403
+// (번역은 router가 google-free로 fallback, 해설은 fallback 없이 에러 → 모델 바꾸면 됨).
+export const MINDLOGIC_MODELS: Array<ModelOption<MindlogicModel>> = [
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', transHint: '최저가' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', transHint: '고품질·고가', explainHint: '해설 추천' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', transHint: '자연스러움' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini', transHint: 'OpenAI 경량' },
+  { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano', transHint: 'OpenAI 초경량' },
+];
+
+// 해설에 쓰이는 모델의 사람용 표시 이름 — 로딩 메시지 "…로 해설 생성 중"에 사용.
+// 목록에 없는(옛 storage) 값이면 raw 값 그대로 fallback.
+export function explainModelLabel(
+  backend: ExplainBackend,
+  geminiModel: GeminiModel,
+  mindlogicModel: MindlogicModel,
+): string {
+  if (backend === 'gemini') {
+    return GEMINI_MODELS.find((m) => m.value === geminiModel)?.label ?? geminiModel;
+  }
+  const label = MINDLOGIC_MODELS.find((m) => m.value === mindlogicModel)?.label ?? mindlogicModel;
+  return `${label} · Mindlogic`;
+}

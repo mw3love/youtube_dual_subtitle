@@ -11,7 +11,7 @@
 // 패널 헤더에는 해설을 외부로 보내는 액션 둘: 📋 클립보드 복사(무설정 — markdown을 복사해
 // Notion에 붙여넣으면 자동 리치 변환), 📝 Notion 저장(BYOK — background가 Notion API로 DB에 페이지 생성).
 
-import { renderMarkdown } from './markdown';
+import { renderMarkdown, domToMarkdown } from './markdown';
 
 const TAG = '[YDT/explain]';
 
@@ -30,6 +30,10 @@ export class ExplainUI {
   // 패널 헤더 액션 버튼 — 결과 도착 시 활성화.
   private copyBtn: HTMLButtonElement | null = null;
   private notionBtn: HTMLButtonElement | null = null;
+  // 형광펜(백틱) 모드 — 켜면 패널 본문에서 드래그한 부분이 백틱으로 감싸지고(코드 칩),
+  // 칩을 클릭하면 해제. lastResult.markdown을 직접 수정하므로 복사/Notion에 그대로 반영.
+  private highlightBtn: HTMLButtonElement | null = null;
+  private highlightMode = false;
   // Notion 저장 상태 — 저장 후 버튼을 다시 누르면 재저장(중복) 대신 페이지를 연다.
   private notionSaved = false;
   private notionPageUrl: string | null = null;
@@ -41,6 +45,8 @@ export class ExplainUI {
       markdown: string,
       context: string,
     ) => Promise<NotionSaveResult>,
+    // 로딩 메시지에 띄울 현재 해설 모델 이름 (content가 settings에서 계산해 넘김).
+    private readonly modelLabel: () => string,
   ) {
     document.addEventListener('mouseup', this.onMouseUp, true);
     document.addEventListener('mousedown', this.onMouseDown, true);
@@ -198,9 +204,13 @@ export class ExplainUI {
     this.lastResult = null;
     this.notionSaved = false;
     this.notionPageUrl = null;
+    this.highlightMode = false;
     const panel = document.createElement('div');
     panel.className = 'ydt-explain-panel';
     panel.dataset.term = term;
+    // 형광펜 모드 동작 — 본문 드래그(mouseup)는 백틱 감싸기, 코드 칩 클릭은 해제.
+    panel.addEventListener('mouseup', () => window.setTimeout(() => this.applyHighlight(), 0));
+    panel.addEventListener('click', (e) => this.onPanelClick(e));
 
     const header = document.createElement('div');
     header.className = 'ydt-explain-header';
@@ -210,6 +220,17 @@ export class ExplainUI {
 
     const actions = document.createElement('div');
     actions.className = 'ydt-explain-actions';
+
+    // ✏️ 형광펜(백틱) — 모드 토글. 결과 도착 전엔 비활성.
+    this.highlightBtn = document.createElement('button');
+    this.highlightBtn.className = 'ydt-explain-action';
+    this.highlightBtn.type = 'button';
+    this.highlightBtn.textContent = '✏️ 백틱';
+    this.highlightBtn.disabled = true;
+    this.highlightBtn.title = '드래그 후 누르면 그 부분을 백틱 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동)';
+    // mousedown 기본 동작(본문 선택 collapse)을 막아야 "드래그 후 버튼 클릭"에서 선택이 살아있음.
+    this.highlightBtn.addEventListener('mousedown', (e) => e.preventDefault());
+    this.highlightBtn.addEventListener('click', () => this.onHighlightClick());
 
     // 📋 클립보드 복사 — 무설정. 결과 도착 전엔 비활성.
     this.copyBtn = document.createElement('button');
@@ -236,6 +257,7 @@ export class ExplainUI {
     close.textContent = '✕';
     close.addEventListener('click', () => this.closePanel());
 
+    actions.appendChild(this.highlightBtn);
     actions.appendChild(this.copyBtn);
     actions.appendChild(this.notionBtn);
     actions.appendChild(close);
@@ -246,7 +268,15 @@ export class ExplainUI {
     body.className = 'ydt-explain-body';
     const loading = document.createElement('div');
     loading.className = 'ydt-explain-loading';
-    loading.textContent = '해설 생성 중…';
+    loading.append('해설 생성 중…');
+    // 어떤 AI 모델로 생성 중인지 한눈에 — 백엔드/모델 바꿔가며 비교할 때 유용.
+    const label = this.modelLabel();
+    if (label) {
+      const m = document.createElement('span');
+      m.className = 'ydt-explain-model';
+      m.textContent = label;
+      loading.append(' · ', m);
+    }
     body.appendChild(loading);
 
     panel.appendChild(header);
@@ -258,11 +288,109 @@ export class ExplainUI {
   private enableActions(enabled: boolean): void {
     if (this.copyBtn) this.copyBtn.disabled = !enabled;
     if (this.notionBtn) this.notionBtn.disabled = !enabled;
+    if (this.highlightBtn) this.highlightBtn.disabled = !enabled;
+  }
+
+  // ─── 형광펜(백틱) 모드 ───
+  // 버튼 클릭: 본문에 선택이 있으면 그 선택을 바로 감싼다(드래그 먼저 → 버튼 OK, 순서 무관).
+  // 선택이 없으면 자동-감쌈 모드를 토글(켜진 동안 드래그마다 mouseup에서 자동 감쌈).
+  private onHighlightClick(): void {
+    const sel = window.getSelection();
+    const body = this.panel?.querySelector('.ydt-explain-body');
+    const hasBodySel =
+      !!sel &&
+      !sel.isCollapsed &&
+      sel.rangeCount > 0 &&
+      !!sel.toString().trim() &&
+      !!body?.contains(sel.getRangeAt(0).commonAncestorContainer);
+    if (hasBodySel) {
+      this.toggleMarkSelection();
+      // 선택을 처리한 뒤 모드를 켠 채로 유지 — 이후 드래그마다 자동 백틱(매번 버튼 안 눌러도 됨).
+      if (!this.highlightMode) this.toggleHighlight();
+    } else {
+      this.toggleHighlight();
+    }
+  }
+
+  private toggleHighlight(): void {
+    this.highlightMode = !this.highlightMode;
+    this.highlightBtn?.classList.toggle('active', this.highlightMode);
+    this.panel?.querySelector('.ydt-explain-body')?.classList.toggle('highlighting', this.highlightMode);
+  }
+
+  // 자동-감쌈 모드일 때 본문 드래그(mouseup)에서 호출.
+  private applyHighlight(): void {
+    if (this.highlightMode) this.toggleMarkSelection();
+  }
+
+  // 현재 선택을 백틱(코드)으로 토글. DOM이 source of truth — 선택된 텍스트 노드마다 그 부분만
+  // surroundContents로 <code class=ydt-user-mark>로 감싼다(노드 경계 걸침 회피). 선택 전체가
+  // 이미 한 마크 안이면 해제. markdown은 내보낼 때 domToMarkdown으로 직렬화(섹션 14). 레퍼런스
+  // (Chrome Annotation 프로젝트)의 검증된 방식 차용 — 옛 markdown 문자열 매칭의 드래그 불안정 해결.
+  private toggleMarkSelection(): void {
+    if (!this.panel) return;
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    const body = this.panel.querySelector('.ydt-explain-body') as HTMLElement | null;
+    if (!body) return;
+    const range = sel.getRangeAt(0);
+    if (!body.contains(range.commonAncestorContainer)) return;
+    const sm = closestUserMark(range.startContainer);
+    if (sm && sm === closestUserMark(range.endContainer)) {
+      unwrapMark(sm); // 선택이 이미 한 마크 안 → 해제
+    } else {
+      for (const node of textNodesInRange(body, range)) {
+        if (node.parentElement?.closest('code')) continue; // 이미 코드(AI/내 표시) 안이면 skip
+        const start = node === range.startContainer ? range.startOffset : 0;
+        const end = node === range.endContainer ? range.endOffset : (node.nodeValue?.length ?? 0);
+        if (start >= end) continue;
+        const r = document.createRange();
+        r.setStart(node, start);
+        r.setEnd(node, end);
+        const code = document.createElement('code');
+        code.className = 'ydt-user-mark';
+        try {
+          r.surroundContents(code);
+        } catch {
+          /* 경계 걸치면 그 노드는 skip */
+        }
+      }
+    }
+    sel.removeAllRanges();
+    this.markEdited();
+  }
+
+  // 빨간 칩(내가 표시한 백틱) 클릭 → 해제. AI 예문 백틱은 대상 아님.
+  private onPanelClick(ev: MouseEvent): void {
+    const t = ev.target as HTMLElement | null;
+    const code = t?.closest('.ydt-explain-body code.ydt-user-mark') as HTMLElement | null;
+    if (!code) return;
+    unwrapMark(code);
+    this.markEdited();
+  }
+
+  // 내보낼 markdown — 패널 DOM을 직렬화(사용자 표시 백틱 포함). 패널 없으면 원본 fallback.
+  private currentMarkdown(): string {
+    const body = this.panel?.querySelector('.ydt-explain-body') as HTMLElement | null;
+    if (body) return domToMarkdown(body);
+    return this.lastResult?.markdown ?? '';
+  }
+
+  // 본문이 수정되면(백틱 추가/해제) 이미 한 Notion 저장은 stale — 다시 저장할 수 있게 상태 원복.
+  private markEdited(): void {
+    if (!this.notionSaved) return;
+    this.notionSaved = false;
+    this.notionPageUrl = null;
+    if (this.notionBtn) {
+      this.notionBtn.textContent = '📝 Notion';
+      this.notionBtn.title = '';
+    }
   }
 
   private async onCopy(): Promise<void> {
     if (!this.lastResult || !this.copyBtn) return;
-    const { term, markdown, context } = this.lastResult;
+    const { term, context } = this.lastResult;
+    const markdown = this.currentMarkdown();
     const parts = [`## ${term}`, '', markdown];
     if (context && context !== term) parts.push('', `> 자막: ${context}`);
     const text = parts.join('\n');
@@ -283,7 +411,8 @@ export class ExplainUI {
       return;
     }
     if (!this.lastResult || !this.notionBtn) return;
-    const { term, markdown, context } = this.lastResult;
+    const { term, context } = this.lastResult;
+    const markdown = this.currentMarkdown();
     const btn = this.notionBtn;
     btn.disabled = true;
     btn.textContent = '저장 중…';
@@ -321,6 +450,8 @@ export class ExplainUI {
     this.panel = null;
     this.copyBtn = null;
     this.notionBtn = null;
+    this.highlightBtn = null;
+    this.highlightMode = false;
     this.lastResult = null;
     this.notionSaved = false;
     this.notionPageUrl = null;
@@ -333,6 +464,40 @@ function flash(btn: HTMLButtonElement, temp: string, restore: string): void {
   window.setTimeout(() => {
     btn.textContent = restore;
   }, 1500);
+}
+
+// 노드가 속한 사용자 마크(code.ydt-user-mark) 찾기.
+function closestUserMark(node: Node): HTMLElement | null {
+  const el = node.nodeType === 1 ? (node as HTMLElement) : node.parentElement;
+  return el ? el.closest('code.ydt-user-mark') : null;
+}
+
+// 마크 해제 — code의 자식을 부모로 옮기고 code 제거 후 인접 텍스트 노드 병합.
+function unwrapMark(code: HTMLElement): void {
+  const p = code.parentNode;
+  if (!p) return;
+  while (code.firstChild) p.insertBefore(code.firstChild, code);
+  p.removeChild(code);
+  (p as Element).normalize?.();
+}
+
+// range와 겹치는 텍스트 노드들(부분 겹침 포함)을 순서대로 반환.
+function textNodesInRange(root: HTMLElement, range: Range): Text[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      if (!n.nodeValue) return NodeFilter.FILTER_REJECT;
+      const r = document.createRange();
+      r.selectNodeContents(n);
+      const hit =
+        range.compareBoundaryPoints(Range.END_TO_START, r) < 0 &&
+        range.compareBoundaryPoints(Range.START_TO_END, r) > 0;
+      return hit ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const out: Text[] = [];
+  let n: Node | null;
+  while ((n = walker.nextNode())) out.push(n as Text);
+  return out;
 }
 
 function closestContainer(node: Node): HTMLElement | null {

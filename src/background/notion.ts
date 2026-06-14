@@ -8,7 +8,7 @@
 // - 제목 속성 = 선택 표현. DB마다 title 속성 "이름"이 달라(Name/이름/…) GET databases로 찾아 매핑.
 // - URL/Date 타입 속성이 DB에 있으면 best-effort로 영상 링크/오늘 날짜를 채움(없으면 건너뜀 —
 //   어떤 DB에도 안 깨지게). 그 외 속성은 건드리지 않음.
-// - 본문 = 영상 링크 + 자막 문맥(quote) + 구분선 + 해설(markdown→블록).
+// - 본문 = (URL 속성 없을 때만 영상 링크) + 자막 문맥(quote) + 구분선 + 해설(markdown→블록).
 
 import { getNotionToken } from '../shared/secrets';
 import { markdownToBlocks, type NotionBlock, type RichText } from './notion-blocks';
@@ -48,7 +48,9 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
 
   // 3) 본문 블록
   const children: NotionBlock[] = [];
-  if (params.videoUrl) {
+  // URL 속성이 있으면 영상 링크는 거기로 들어가므로 본문 맨 윗줄 링크는 생략(중복 제거).
+  // URL 속성이 없는 DB에서만 링크를 잃지 않게 본문에 fallback으로 넣는다.
+  if (params.videoUrl && !schema.urlProp) {
     const label = params.videoTitle?.trim() || '영상';
     children.push({
       type: 'paragraph',

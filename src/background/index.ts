@@ -4,7 +4,7 @@
 
 import { translateBatch } from './translators/router';
 import { testGeminiKey } from './translators/gemini';
-import { testMindlogicKey } from './translators/mindlogic';
+import { testMindlogicKey, listMindlogicModels } from './translators/mindlogic';
 import { explain } from './explain';
 import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
@@ -149,6 +149,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'mindlogic test failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'MINDLOGIC_LIST_MODELS') {
+    const apiKey = typeof m.apiKey === 'string' ? m.apiKey : '';
+    (async (): Promise<void> => {
+      try {
+        const models = await listMindlogicModels(apiKey);
+        sendResponse({ ok: true, models });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'mindlogic models list failed:', error);
         sendResponse({ ok: false, error });
       }
     })();

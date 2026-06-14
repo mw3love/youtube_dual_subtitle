@@ -20,10 +20,11 @@ const MINDLOGIC_ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/chat/
 const GEMINI_MODEL_ID: Record<GeminiModel, string> = {
   flash: 'gemini-2.5-flash',
   'flash-lite': 'gemini-2.5-flash-lite',
+  '3.5-flash': 'gemini-3.5-flash',
 };
 
-// 해설은 표/예문 등으로 번역보다 길어질 수 있어 토큰 여유를 크게.
-const MAX_TOKENS = 2048;
+// 해설은 표·예문 여러 개로 번역보다 훨씬 길어질 수 있어 토큰 여유를 크게(잘림 방지).
+const MAX_TOKENS = 4096;
 
 export interface ExplainParams {
   text: string; // 사용자가 선택한 영어 표현

@@ -149,6 +149,69 @@ function isListItem(trimmed: string): boolean {
   return /^([-*+]\s+|\d+[.)]\s+)/.test(trimmed);
 }
 
+// renderMarkdown의 역방향 — 렌더된 패널 DOM을 다시 markdown으로 직렬화한다. 해설 패널에서
+// 사용자가 백틱(코드)으로 표시한 부분이 DOM에 들어가므로(원본 markdown 매칭이 아니라 DOM이
+// source of truth), 복사/Notion 내보낼 때 이걸로 백틱 포함 markdown을 만든다.
+export function domToMarkdown(root: HTMLElement): string {
+  return Array.from(root.children)
+    .map((el) => serializeBlock(el as HTMLElement))
+    .filter((b) => b !== '')
+    .join('\n\n');
+}
+
+function serializeBlock(el: HTMLElement): string {
+  const tag = el.tagName;
+  if (/^H[1-6]$/.test(tag)) {
+    // 렌더 시 heading level+2로 태그를 만들었으므로 역산(h3→#, h4→##…).
+    const n = Math.max(1, Number(tag[1]) - 2);
+    return '#'.repeat(n) + ' ' + serializeInline(el).trim();
+  }
+  if (tag === 'UL' || tag === 'OL') {
+    const ordered = tag === 'OL';
+    return Array.from(el.children)
+      .map((li, i) => (ordered ? `${i + 1}. ` : '- ') + serializeInline(li as HTMLElement).trim())
+      .join('\n');
+  }
+  if (tag === 'PRE') {
+    const code = el.querySelector('code');
+    return '```\n' + (code?.textContent ?? el.textContent ?? '') + '\n```';
+  }
+  if (tag === 'TABLE') return serializeTable(el as HTMLTableElement);
+  return serializeInline(el).trim();
+}
+
+function serializeInline(el: HTMLElement): string {
+  let s = '';
+  el.childNodes.forEach((n) => {
+    if (n.nodeType === Node.TEXT_NODE) {
+      s += n.nodeValue ?? '';
+      return;
+    }
+    const e = n as HTMLElement;
+    if (e.tagName === 'STRONG') s += '**' + serializeInline(e) + '**';
+    else if (e.tagName === 'EM') s += '*' + serializeInline(e) + '*';
+    else if (e.tagName === 'CODE') s += '`' + (e.textContent ?? '') + '`';
+    else s += serializeInline(e); // span 등은 내부만
+  });
+  return s;
+}
+
+function serializeTable(table: HTMLTableElement): string {
+  const lines: string[] = [];
+  const header = Array.from(table.querySelectorAll('thead th')).map((th) =>
+    serializeInline(th as HTMLElement).trim(),
+  );
+  if (header.length) {
+    lines.push('| ' + header.join(' | ') + ' |');
+    lines.push('| ' + header.map(() => '---').join(' | ') + ' |');
+  }
+  table.querySelectorAll('tbody tr').forEach((tr) => {
+    const cells = Array.from(tr.children).map((td) => serializeInline(td as HTMLElement).trim());
+    lines.push('| ' + cells.join(' | ') + ' |');
+  });
+  return lines.join('\n');
+}
+
 // 인라인 토큰: `code`, **bold**, *italic*. 나머지는 평문(textContent).
 // element + textContent로만 구성 — HTML 주입 불가.
 const INLINE_RE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;

@@ -149,22 +149,30 @@ function tableBlock(header: string[], rows: string[][]): NotionBlock {
 // ─── 인라인 rich_text ───
 const INLINE_RE = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g;
 
-function inlineToRichText(text: string): RichText[] {
+function inlineToRichText(text: string, base: RichText['annotations'] = {}): RichText[] {
   const out: RichText[] = [];
   for (const part of text.split(INLINE_RE)) {
     if (!part) continue;
-    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
-      pushChunks(out, part.slice(1, -1), { code: true });
-    } else if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
-      pushChunks(out, part.slice(2, -2), { bold: true });
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      // 볼드 안에 코드/이탤릭이 중첩될 수 있어 재귀 — 안쪽 annotation과 병합(bold+code 등).
+      // 사용자가 볼드 단어에 백틱 표시하면 직렬화가 **`word`**를 만드는데, 평면 파싱하면
+      // 안쪽 백틱이 리터럴로 남아 Notion에 깨져 들어가던 버그를 이 재귀가 해결.
+      out.push(...inlineToRichText(part.slice(2, -2), { ...base, bold: true }));
+    } else if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      // 코드 내용은 리터럴 — 더 파싱하지 않고 바깥 annotation(볼드 등)과만 병합.
+      pushChunks(out, part.slice(1, -1), { ...base, code: true });
     } else if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
-      pushChunks(out, part.slice(1, -1), { italic: true });
+      out.push(...inlineToRichText(part.slice(1, -1), { ...base, italic: true }));
     } else {
-      pushChunks(out, part);
+      pushChunks(out, part, hasAnnotations(base) ? base : undefined);
     }
   }
   // 빈 셀/빈 문단에도 Notion은 최소 빈 rich_text를 허용 → 빈 배열 그대로 둬도 됨.
   return out;
+}
+
+function hasAnnotations(a?: RichText['annotations']): boolean {
+  return !!a && (!!a.bold || !!a.italic || !!a.code);
 }
 
 function plainRichText(text: string): RichText[] {

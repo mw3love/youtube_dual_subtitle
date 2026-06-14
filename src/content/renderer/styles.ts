@@ -176,6 +176,13 @@ const STYLES = `
 }
 .ydt-explain-action:hover:not(:disabled) { background: #3f3f3f; color: #fff; }
 .ydt-explain-action:disabled { opacity: 0.45; cursor: default; }
+/* 형광펜 모드 ON — 켜진 상태를 또렷이. 켜진 동안 패널 본문 커서도 text로. */
+.ydt-explain-action.active {
+  background: #2e6f86;
+  border-color: #4aa3c4;
+  color: #fff;
+}
+.ydt-explain-body.highlighting { cursor: text; }
 .ydt-explain-close {
   flex: 0 0 auto;
   width: 26px;
@@ -194,6 +201,7 @@ const STYLES = `
   overflow-y: auto;
 }
 .ydt-explain-loading { color: #999; font-size: 13px; padding: 8px 0; }
+.ydt-explain-model { color: #9ee7ff; font-weight: 600; }
 .ydt-explain-error { color: #ff8a8a; font-size: 13px; }
 
 /* 패널 내부 markdown 요소 — 패널 안에서만 스코프(.ydt-explain-body 하위). */
@@ -215,7 +223,11 @@ const STYLES = `
   padding: 1px 5px;
   border-radius: 4px;
   word-break: break-word;
+  /* 공부용 강조 — 형광펜으로 밑줄 친 느낌. 인라인 코드(주로 영어 예문)가 눈에 띄게. */
+  border-bottom: 2px solid #2e6f86;
 }
+/* 내가 수동으로 표시한 백틱 — AI 예문 백틱과 구분되게 빨강(패널 안에서만, Notion엔 동일 백틱). */
+.ydt-explain-body code.ydt-user-mark { color: #ff8a8a; border-bottom-color: #a33; }
 .ydt-explain-body pre {
   background: #0f2630;
   border-radius: 6px;
@@ -223,7 +235,7 @@ const STYLES = `
   overflow-x: auto;
   margin: 8px 0;
 }
-.ydt-explain-body pre code { background: transparent; padding: 0; color: #cfeaff; }
+.ydt-explain-body pre code { background: transparent; padding: 0; color: #cfeaff; border-bottom: none; }
 .ydt-explain-body strong { color: #fff; font-weight: 700; }
 .ydt-explain-body table {
   border-collapse: collapse;

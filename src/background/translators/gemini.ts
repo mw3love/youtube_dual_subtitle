@@ -27,6 +27,7 @@ const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MODEL_ID: Record<GeminiModel, string> = {
   flash: 'gemini-2.5-flash',
   'flash-lite': 'gemini-2.5-flash-lite',
+  '3.5-flash': 'gemini-3.5-flash',
 };
 
 // 청크당 최대 항목 수. 50 정도면 모델이 짧은 cue를 합쳐 응답이 줄어들고,

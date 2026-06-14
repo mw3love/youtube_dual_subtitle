@@ -11,6 +11,7 @@ import { ExplainUI, type ExplainResult, type NotionSaveResult } from './explain/
 import { loadSettings, saveSettings, type BackendId, type Settings } from '../shared/settings';
 import { makeKey } from '../shared/cache/idb-cache';
 import { getVideoIdFromLocation } from '../shared/url';
+import { explainModelLabel } from '../shared/lang-options';
 
 const TAG = '[YDT]';
 
@@ -76,7 +77,7 @@ async function requestExplain(text: string, context: string): Promise<ExplainRes
   if (!s.explainPrompt.trim()) {
     return { ok: false, error: '해설 프롬프트가 비어 있어요 (옵션에서 입력하거나 "기본값으로").' };
   }
-  const model = s.explainBackend === 'gemini' ? s.geminiModel : s.mindlogicModel;
+  const model = s.explainBackend === 'gemini' ? s.explainGeminiModel : s.explainMindlogicModel;
   try {
     const res = (await chrome.runtime.sendMessage({
       type: 'EXPLAIN',
@@ -120,7 +121,13 @@ async function requestNotionSave(
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
-const explainUI = new ExplainUI(requestExplain, requestNotionSave);
+// 해설 로딩 메시지에 띄울 현재 해설 모델 이름 ("Gemini 3.5 Flash" 등). 설정 로드 전이면 빈 문자열.
+function currentExplainModelLabel(): string {
+  const s = currentSettings;
+  if (!s) return '';
+  return explainModelLabel(s.explainBackend, s.explainGeminiModel, s.explainMindlogicModel);
+}
+const explainUI = new ExplainUI(requestExplain, requestNotionSave, currentExplainModelLabel);
 
 const currentVideoId = getVideoIdFromLocation;
 

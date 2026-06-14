@@ -6,23 +6,22 @@ import { z } from 'zod';
 export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free', 'gemini', 'mindlogic']);
 export type BackendId = z.infer<typeof BackendIdSchema>;
 
-// Gemini API 모델 — Flash는 품질, Flash-Lite는 속도/한도 우선.
+// Gemini API 모델 — 'flash'/'flash-lite'는 2.5 세대(번역 가성비), '3.5-flash'는 최신 세대
+// (gemini-3.5-flash, 자유서술 해설 품질 우선). 값은 storage에 박히므로 옛 값 유지 + 추가만.
 // API key는 storage.sync(설정) 아니라 storage.local에 별도(secrets.ts) — 웹스토어 배포 시 키가
 // Google 계정 동기화로 전파되지 않도록.
-export const GeminiModelSchema = z.enum(['flash', 'flash-lite']);
+export const GeminiModelSchema = z.enum(['flash', 'flash-lite', '3.5-flash']);
 export type GeminiModel = z.infer<typeof GeminiModelSchema>;
 
 // Mindlogic API Gateway는 OpenAI/Anthropic/Gemini 등을 단일 endpoint로 통과시킨다.
 // 학교/조직 계정 통합 크레딧 방식이라 가성비/저가 라인만 노출 — flagship/codex/reasoning은
 // 자막 번역(짧은 cue × N)에 비용 대비 가치가 낮음. 모델 ID는 gateway가 upstream에 그대로
 // 전달하므로 ID 변경/추가는 이 enum 갱신으로 처리.
-export const MindlogicModelSchema = z.enum([
-  'gpt-5.4-nano',
-  'gpt-5.4-mini',
-  'claude-haiku-4-5-20251001',
-  'gemini-2.5-flash',
-  'gemini-3.1-flash-lite',
-]);
+// Mindlogic 모델 ID는 게이트웨이가 그대로 upstream에 전달 — 유효성은 게이트웨이가 판정한다.
+// 따라서 고정 enum이 아니라 자유 문자열: 옵션 페이지가 게이트웨이 /models로 동적 목록을 가져와
+// 보여주고, 사용자가 그중 무엇을 골라도 검증 통과(enum이면 목록 밖 값이 default로 리셋됨).
+// lang-options의 MINDLOGIC_MODELS는 추천/힌트가 붙은 "알려진" 부분집합(새로고침 전 기본 목록).
+export const MindlogicModelSchema = z.string().min(1);
 export type MindlogicModel = z.infer<typeof MindlogicModelSchema>;
 
 export const DisplayModeSchema = z.enum(['dual', 'translation-only', 'source-only']);
@@ -109,6 +108,10 @@ export const SettingsSchema = z.object({
   // 단어/표현 해설 — 자막 텍스트를 드래그 선택하면 작은 버튼으로 AI 해설 패널 호출.
   explainEnabled: z.boolean(),
   explainBackend: ExplainBackendSchema,
+  // 해설 모델 — 번역 모델(geminiModel/mindlogicModel)과 별개로 선택. 번역은 자막 수백 줄 ×N이라
+  // 가성비, 해설은 누를 때 1회라 품질 우선 — 호출 프로필이 정반대라 분리.
+  explainGeminiModel: GeminiModelSchema,
+  explainMindlogicModel: MindlogicModelSchema,
   explainPrompt: z.string(),
   // 해설 패널을 Notion DB에 저장 (BYOK — 토큰은 secrets.ts, DB ID는 여기).
   notionEnabled: z.boolean(),
@@ -139,6 +142,8 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   explainEnabled: true,
   explainBackend: 'gemini',
+  explainGeminiModel: '3.5-flash',
+  explainMindlogicModel: 'claude-sonnet-4-6',
   explainPrompt: DEFAULT_EXPLAIN_PROMPT,
   notionEnabled: false,
   notionDatabaseId: '',
