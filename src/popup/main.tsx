@@ -203,6 +203,20 @@ function Popup() {
     window.close();
   };
 
+  // 폰트 크기 ± — 렌더러 휠 조절과 같은 범위(8~72), settings 스키마와도 동일.
+  // update()가 storage.sync 저장 → content가 onChanged로 즉시 반영(setFontSizes).
+  const FONT_MIN = 8;
+  const FONT_MAX = 72;
+  const clampFont = (v: number): number => Math.max(FONT_MIN, Math.min(FONT_MAX, v));
+  const bumpSource = (d: number): void =>
+    update({
+      sourceStyle: { ...settings.sourceStyle, fontSize: clampFont(settings.sourceStyle.fontSize + d) },
+    });
+  const bumpTarget = (d: number): void =>
+    update({
+      targetStyle: { ...settings.targetStyle, fontSize: clampFont(settings.targetStyle.fontSize + d) },
+    });
+
   const rowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
@@ -213,6 +227,38 @@ function Popup() {
   };
 
   const selectStyle: React.CSSProperties = { fontSize: 12, padding: '2px 4px', maxWidth: 170 };
+
+  const sizeBtnStyle: React.CSSProperties = {
+    width: 26,
+    height: 24,
+    fontSize: 15,
+    lineHeight: '1',
+    padding: 0,
+    cursor: 'pointer',
+  };
+
+  const SizeRow = ({
+    label,
+    value,
+    bump,
+  }: {
+    label: string;
+    value: number;
+    bump: (d: number) => void;
+  }): React.ReactElement => (
+    <div style={rowStyle}>
+      <span>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(-2)} title="작게">
+          −
+        </button>
+        <span style={{ fontSize: 12, minWidth: 26, textAlign: 'center', color: '#ccc' }}>{value}</span>
+        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(2)} title="크게">
+          +
+        </button>
+      </span>
+    </div>
+  );
 
   return (
     <div
@@ -265,6 +311,9 @@ function Popup() {
           ))}
         </select>
       </label>
+
+      <SizeRow label="원문 크기" value={settings.sourceStyle.fontSize} bump={bumpSource} />
+      <SizeRow label="번역 크기" value={settings.targetStyle.fontSize} bump={bumpTarget} />
 
       <label style={rowStyle} title="영상 자막에서 우선 고를 언어">
         <span>영상 자막</span>

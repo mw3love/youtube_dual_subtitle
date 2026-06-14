@@ -597,8 +597,10 @@ export class SubtitleRenderer {
   };
 
   // ─── 휠 폰트 크기 조절 ───
-  // 자막 컨테이너 위에서 휠 → source/target 폰트 크기를 1px씩 ±. passive:false로 페이지 스크롤 차단.
+  // 자막 컨테이너 위에서 휠 → 폰트 크기를 1px씩 ±. passive:false로 페이지 스크롤 차단.
   // 범위는 settings 스키마와 동일(8~72). 한쪽이 bound에 닿아도 다른 쪽이 움직일 수 있으면 진행.
+  // 행 분기: 번역 행(targetEl) 위에서 굴리면 번역만, 그 외(원문 행·행 사이 여백·외곽 halo)는
+  // 원문+번역 둘 다. 원문을 크게 보는 사용 패턴상 원문 행이 호버하기 쉬워 "둘 다"의 기본 타겟이 됨.
   // YouTube player가 wheel을 자체 핸들러로 가로채는 경우가 있어 document에 capture phase로
   // 부착하고 target이 컨테이너 안일 때만 처리한다 — 일반 listener는 YouTube보다 늦게 발화 가능.
   private readonly FONT_SIZE_MIN = 8;
@@ -619,14 +621,12 @@ export class SubtitleRenderer {
     ev.preventDefault();
     ev.stopPropagation();
     const step = ev.deltaY < 0 ? 1 : -1;
-    const nextSource = Math.max(
-      this.FONT_SIZE_MIN,
-      Math.min(this.FONT_SIZE_MAX, this.sourceFontSize + step),
-    );
-    const nextTarget = Math.max(
-      this.FONT_SIZE_MIN,
-      Math.min(this.FONT_SIZE_MAX, this.targetFontSize + step),
-    );
+    const clamp = (v: number): number =>
+      Math.max(this.FONT_SIZE_MIN, Math.min(this.FONT_SIZE_MAX, v));
+    // 번역 행 위 → 번역만. 원문 행·여백·halo → 둘 다.
+    const targetOnly = !!this.targetEl && this.targetEl.contains(target);
+    const nextTarget = clamp(this.targetFontSize + step);
+    const nextSource = targetOnly ? this.sourceFontSize : clamp(this.sourceFontSize + step);
     if (nextSource === this.sourceFontSize && nextTarget === this.targetFontSize) return;
     this.sourceFontSize = nextSource;
     this.targetFontSize = nextTarget;
