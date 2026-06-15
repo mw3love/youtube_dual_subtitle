@@ -138,7 +138,10 @@ export const DEFAULT_SETTINGS: Settings = {
   lineHeight: 1.3,
   subtitlePosition: {
     normal: { xPercent: 50, yPercent: 10 },
-    shorts: { xPercent: 50, yPercent: 18 },
+    // Shorts 하단 30% — YouTube Shorts 자체 하단 오버레이(scrim+채널/제목/음악 메타데이터)
+    // 띠를 벗어나 깨끗한 영상 구간에 두기 위함. 18%였을 땐 세로 모니터에서 자막이 그 오버레이
+    // 아래로 깔려 흐릿+드래그/휠 불가였고, "위치 초기화"가 이 값으로 되돌려 탈출구가 된다.
+    shorts: { xPercent: 50, yPercent: 30 },
   },
   explainEnabled: true,
   explainBackend: 'gemini',

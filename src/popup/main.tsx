@@ -217,6 +217,11 @@ function Popup() {
       targetStyle: { ...settings.targetStyle, fontSize: clampFont(settings.targetStyle.fontSize + d) },
     });
 
+  // 자막 위치 초기화 — Shorts 하단 제목 오버레이 등으로 자막이 흐려져 드래그/휠이 막힐 때의 탈출구.
+  // 일반/Shorts 두 모드 위치를 모두 기본값으로. update()→storage.sync→content onChanged→setPositions로 즉시 반영.
+  const resetPosition = (): void =>
+    update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition });
+
   const rowStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
@@ -314,6 +319,20 @@ function Popup() {
 
       <SizeRow label="원문 크기" value={settings.sourceStyle.fontSize} bump={bumpSource} />
       <SizeRow label="번역 크기" value={settings.targetStyle.fontSize} bump={bumpTarget} />
+
+      <div style={rowStyle}>
+        <span title="Shorts 하단 제목 등으로 자막이 흐려져 드래그/휠이 막힐 때 위치를 기본값으로 되돌림">
+          자막 위치
+        </span>
+        <button
+          style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}
+          disabled={!loaded}
+          onClick={resetPosition}
+          title="일반 영상/Shorts 위치를 모두 기본값으로 초기화"
+        >
+          위치 초기화
+        </button>
+      </div>
 
       <label style={rowStyle} title="영상 자막에서 우선 고를 언어">
         <span>영상 자막</span>
