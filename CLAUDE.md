@@ -208,6 +208,16 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **기존 사용자 마이그레이션:** 이미 저장된 값(18%)은 유지되다가 사용자가 "위치 초기화"를 눌러야 30%로 탈출 — 기본값 변경이 기존 storage를 자동 덮어쓰진 않음. 버튼이 곧 탈출구.
 - 위치 버튼(up/down 미세조정)까지는 과하다고 판단해 미채택 — 초기화 한 번으로 갇힘 해소가 목적.
 
+### 19. 드래그 선택 → 자유 질문 (A35, v0.9.0)
+
+**의도:** 해설(섹션 14)은 "선택 표현을 영어 선생님 형식으로 설명"하는 고정 답이다. 그 위에 **사용자가 직접 질문을 적어 묻는** 경로를 더한다(예: "이 단어 반대말?", "여기서 who 빼면 이상한가?"). 자유 질문이라 언어 락이 없어 한글 영상에서도 궁금한 부분을 자막으로 바로 물어볼 수 있다. **해설과 같은 단발 chat 경로**를 재사용하되 user 메시지에 질문을 끼우고 system 프롬프트만 바꾼다.
+
+- **트리거 — 단일 버튼이 툴바로** (`explain-ui.ts`): 선택 시 뜨던 `💡 해설` 단일 버튼을 `.ydt-explain-toolbar`(flex 컨테이너) 안 두 버튼(`💡 해설` + `❓ 질문`)으로 바꿈. 위치/clamp/`mousedown preventDefault`(선택 보존) 로직은 그대로 툴바로 이전. `onMouseUp`/`onMouseDown`의 양보 가드도 `.ydt-explain-btn` → `.ydt-explain-toolbar`로 확장(버튼 사이 gap 클릭 포함).
+- **질문 패널 — 입력칸은 본문 바깥** (`openPanel(term, context, question)`): `❓ 질문`이면 헤더와 본문(`.ydt-explain-body`) **사이**에 `.ydt-explain-qform`(textarea + 전송 버튼)을 둔다. Enter 전송 / Shift+Enter 줄바꿈. 핵심: 입력칸을 본문 **밖** 형제로 둬야 복사/Notion(`currentMarkdown`=`domToMarkdown(body)`)·백틱 하이라이트(`body.contains` 게이트)가 textarea를 안 건드리고 **답변만** 대상으로 한다(기존 인프라 무수정 재사용). 답이 와도 입력칸은 남아 **재질문 가능**(v1은 단발 — 이전 답 기억 안 함, 각 질문은 선택+문맥 기준 독립). 멀티턴(대화 누적)은 다음 단계(gemini contents[]/mindlogic messages[] 둘 다 지원).
+- **질문은 답 위에 함께 렌더**: `runQuestion`이 성공 시 `**질문:** {q}\n\n{답}`을 `renderMarkdown`. 패널에 Q/A가 같이 보이고, P 문단은 `domToMarkdown`의 default 분기(`markdown.ts`)로 `**질문:**`까지 직렬화돼 **복사/Notion 내보내기에 질문이 포함**된다.
+- **백엔드 — 질문 전용 프롬프트** (`background/explain.ts`, `settings.ts:QUESTION_SYSTEM_PROMPT`): `EXPLAIN` 메시지에 `question?` 필드 추가. `explain()`이 `question`이 있으면 고정 표 형식의 `explainPrompt` 대신 **가벼운 튜터 프롬프트**(`QUESTION_SYSTEM_PROMPT`, 코드 상수·사용자 편집 대상 아님)를 system으로 쓰고, `buildUserMessage`가 "고른 부분 + 자막 문장 + 질문" 형태로 조립. "who 빼면 이상해?" 같은 자유 질문에 고정 형식이 끼어드는 걸 방지. 백엔드(gemini/mindlogic)·키·재시도·`temperature 0.3`·`max_tokens 4096`은 해설과 공유.
+- **배선** (`content/index.ts:requestQuestion`): 해설의 `requestExplain`와 같은 `EXPLAIN` 메시지에 `question` 동봉. **질문 경로는 `explainPrompt` 비어있음 가드를 안 함**(질문 전용 프롬프트를 쓰므로). background 핸들러 가드도 `(m.prompt || m.question)`으로 완화 — 단 `AnyMsg`가 `Partial<ExplainMsg>`라 `||` 가드는 `prompt`를 string으로 좁히지 못해 `prompt: prompt ?? ''` 폴백 필요(해설 경로에선 항상 채워져 옴). `ExplainUI` 생성자에 `requestQuestion` 콜백을 `requestExplain` 다음 인자로 주입.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

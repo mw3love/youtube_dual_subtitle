@@ -46,6 +46,16 @@ export const DEFAULT_EXPLAIN_PROMPT = `너는 나의 영어 선생님이야. 내
 - 표로 만들 수 있는건 되도록 표로 제작
 - 의미가 다양할 경우 관통하는 하나의 이미지 표현을 제시, 유연하게 해석할 수 있도록 한다.`;
 
+// 질문 전용 시스템 프롬프트 — "❓ 질문" 경로에서 쓴다(해설 프롬프트와 분리).
+// 해설은 고정 표 형식의 "영어 선생님"이라 "who 빼면 이상한가?" 같은 자유 질문엔 형식이
+// 끼어들어 어색하다. 질문은 형식 강제 없이 자막 문맥을 참고해 핵심만 답하는 가벼운 튜터로.
+// (사용자 편집 대상 아님 — 코드 상수. 자유 질문이라 영어/한글 영상 모두 동작.)
+export const QUESTION_SYSTEM_PROMPT = `너는 나의 언어 학습 도우미야. 사용자가 자막에서 고른 표현과 그 문맥을 참고해 사용자의 질문에 답해.
+- 답변은 한국어로, 핵심만 간결하게.
+- 영어 예문이나 단어는 인라인 코드(\`backtick\`)로 표시.
+- 표로 정리하는 게 더 명확하면 표로.
+- 정보 전달 외 불필요한 인삿말은 하지 마.`;
+
 // 누적 표시 레이아웃 — cue마다 한 줄(stacked) vs 한 문단처럼 이어 흘림(inline).
 export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
 export type HistoryLayout = z.infer<typeof HistoryLayoutSchema>;

@@ -99,12 +99,16 @@ const STYLES = `
 .ydt-container[data-mode="shorts"] .ydt-source { font-size: calc(var(--ydt-source-size, 22px) * var(--ydt-shorts-scale, 1)); }
 .ydt-container[data-mode="shorts"] .ydt-target { font-size: calc(var(--ydt-target-size, 18px) * var(--ydt-shorts-scale, 1)); }
 
-/* ─── 단어/표현 해설 (드래그 선택 → AI 설명) ─── */
-/* 선택 위에 뜨는 작은 트리거 버튼 — fixed라 뷰포트 기준, 전체화면 host에 붙어도 동작. */
-.ydt-explain-btn {
+/* ─── 단어/표현 해설 (드래그 선택 → AI 설명/질문) ─── */
+/* 선택 위에 뜨는 트리거 툴바(💡 해설 + ❓ 질문) — fixed라 뷰포트 기준, 전체화면 host에 붙어도 동작. */
+.ydt-explain-toolbar {
   position: fixed;
   z-index: 2147483646;
   display: none;
+  gap: 6px;
+  align-items: center;
+}
+.ydt-explain-btn {
   padding: 5px 10px;
   font-size: 12px;
   font-weight: 600;
@@ -116,6 +120,7 @@ const STYLES = `
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
   cursor: pointer;
   line-height: 1.2;
+  white-space: nowrap;
 }
 .ydt-explain-btn:hover { background: #5cb3ff; }
 
@@ -203,6 +208,45 @@ const STYLES = `
 .ydt-explain-loading { color: #999; font-size: 13px; padding: 8px 0; }
 .ydt-explain-model { color: #9ee7ff; font-weight: 600; }
 .ydt-explain-error { color: #ff8a8a; font-size: 13px; }
+
+/* 질문 입력칸 — 헤더와 본문 사이. 답이 와도 남아 재질문 가능. */
+.ydt-explain-qform {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #1f1f1f;
+  border-bottom: 1px solid #333;
+  flex: 0 0 auto;
+}
+.ydt-explain-qinput {
+  flex: 1 1 auto;
+  resize: vertical;
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #e8e8e8;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+}
+.ydt-explain-qinput:focus { outline: none; border-color: #3ea6ff; }
+.ydt-explain-qinput::placeholder { color: #777; }
+.ydt-explain-qsend {
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: #3ea6ff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+}
+.ydt-explain-qsend:hover { background: #5cb3ff; }
 
 /* 패널 내부 markdown 요소 — 패널 안에서만 스코프(.ydt-explain-body 하위). */
 .ydt-explain-body h3, .ydt-explain-body h4, .ydt-explain-body h5, .ydt-explain-body h6 {

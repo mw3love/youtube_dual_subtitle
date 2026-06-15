@@ -93,6 +93,33 @@ async function requestExplain(text: string, context: string): Promise<ExplainRes
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }
+// 자유 질문 — 드래그 선택 + 사용자 질문을 background EXPLAIN으로 보낸다(question 필드 동봉).
+// 해설과 같은 경로지만 question이 있으면 background가 질문 전용 프롬프트를 쓴다(해설 프롬프트
+// 비어도 됨 — 그래서 여기선 explainPrompt 비어있음 가드 안 함).
+async function requestQuestion(
+  text: string,
+  context: string,
+  question: string,
+): Promise<ExplainResult> {
+  const s = currentSettings;
+  if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
+  const model = s.explainBackend === 'gemini' ? s.explainGeminiModel : s.explainMindlogicModel;
+  try {
+    const res = (await chrome.runtime.sendMessage({
+      type: 'EXPLAIN',
+      text,
+      context,
+      question,
+      backend: s.explainBackend,
+      model,
+      prompt: s.explainPrompt,
+    })) as ExplainResult | undefined;
+    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    return res;
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
 // 해설을 Notion DB에 페이지로 저장 — background가 Notion API 호출(토큰은 secrets.ts).
 // 영상 제목·URL은 content가 알고 있으니 같이 보내 페이지 본문/속성에 넣게 한다.
 async function requestNotionSave(
@@ -127,7 +154,12 @@ function currentExplainModelLabel(): string {
   if (!s) return '';
   return explainModelLabel(s.explainBackend, s.explainGeminiModel, s.explainMindlogicModel);
 }
-const explainUI = new ExplainUI(requestExplain, requestNotionSave, currentExplainModelLabel);
+const explainUI = new ExplainUI(
+  requestExplain,
+  requestQuestion,
+  requestNotionSave,
+  currentExplainModelLabel,
+);
 
 const currentVideoId = getVideoIdFromLocation;
 

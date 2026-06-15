@@ -9,6 +9,7 @@
 // user = 선택 표현 + 자막 문맥. 응답 markdown 문자열을 그대로 content로 돌려 패널이 렌더한다.
 
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
+import { QUESTION_SYSTEM_PROMPT } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 
 const TAG = '[YDT/explain]';
@@ -32,19 +33,30 @@ export interface ExplainParams {
   backend: ExplainBackend;
   model: GeminiModel | MindlogicModel;
   prompt: string; // system 프롬프트 (옵션 explainPrompt)
+  question?: string; // 사용자 자유 질문 — 있으면 해설이 아니라 "질문" 경로(질문 전용 프롬프트)
 }
 
 export async function explain(params: ExplainParams): Promise<string> {
-  const userMsg = buildUserMessage(params.text, params.context);
+  const q = params.question?.trim();
+  // 질문이 있으면 고정 표 형식의 해설 프롬프트 대신 가벼운 질문 프롬프트를 system으로 쓴다.
+  const systemPrompt = q ? QUESTION_SYSTEM_PROMPT : params.prompt;
+  const userMsg = buildUserMessage(params.text, params.context, q);
   if (params.backend === 'mindlogic') {
-    return explainMindlogic(params.prompt, userMsg, params.model as MindlogicModel);
+    return explainMindlogic(systemPrompt, userMsg, params.model as MindlogicModel);
   }
-  return explainGemini(params.prompt, userMsg, params.model as GeminiModel);
+  return explainGemini(systemPrompt, userMsg, params.model as GeminiModel);
 }
 
-function buildUserMessage(text: string, context?: string): string {
+function buildUserMessage(text: string, context?: string, question?: string): string {
   const t = text.trim();
   const ctx = context?.trim();
+  const q = question?.trim();
+  if (q) {
+    const lines = [`자막에서 고른 부분: "${t}"`];
+    if (ctx && ctx !== t) lines.push(`자막 문장: ${ctx}`);
+    lines.push(`질문: ${q}`);
+    return lines.join('\n');
+  }
   if (ctx && ctx !== t) {
     return `아래 자막 문장에서 "${t}" 부분을 설명해줘.\n자막 문장: ${ctx}`;
   }

@@ -59,6 +59,7 @@ interface ExplainMsg {
   backend: ExplainBackend;
   model: GeminiModel | MindlogicModel;
   prompt: string;
+  question?: string; // 있으면 해설이 아니라 사용자 자유 질문 경로
 }
 
 // 해설을 Notion DB에 페이지로 저장. content가 영상 메타까지 동봉, 토큰은 secrets.ts.
@@ -170,11 +171,19 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     return true;
   }
 
-  if (m?.type === 'EXPLAIN' && typeof m.text === 'string' && m.backend && m.model && m.prompt) {
-    const { text, context, backend, model, prompt } = m;
+  if (
+    m?.type === 'EXPLAIN' &&
+    typeof m.text === 'string' &&
+    m.backend &&
+    m.model &&
+    (m.prompt || m.question) // 질문 경로는 prompt가 비어도 됨(질문 전용 프롬프트 사용)
+  ) {
+    const { text, context, backend, model, prompt, question } = m;
     (async (): Promise<void> => {
       try {
-        const markdown = await explain({ text, context, backend, model, prompt });
+        // prompt는 해설 경로에서만 쓰임(질문 경로는 explain()이 질문 전용 프롬프트 사용).
+        // 가드가 (prompt || question)이라 prompt는 string|undefined → 빈 문자열 폴백.
+        const markdown = await explain({ text, context, backend, model, prompt: prompt ?? '', question });
         sendResponse({ ok: true, markdown });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);

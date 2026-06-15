@@ -21,10 +21,14 @@ export type NotionSaveResult = { ok: true; url?: string } | { ok: false; error: 
 export class ExplainUI {
   private enabled = true;
   private notionEnabled = false;
-  private button: HTMLButtonElement | null = null;
+  // 선택 위에 뜨는 툴바(💡 해설 + ❓ 질문) — 둘 다 같은 pending 선택을 쓴다.
+  private toolbar: HTMLElement | null = null;
   private panel: HTMLElement | null = null;
   // 버튼 클릭 시점에 넘길 선택 텍스트/문맥 — 선택이 사라져도 유지.
   private pending: { text: string; context: string } | null = null;
+  // 질문 패널의 입력칸 + 그 패널이 다루는 선택(재질문 시 재사용).
+  private qInput: HTMLTextAreaElement | null = null;
+  private questionCtx: { text: string; context: string } | null = null;
   // 현재 패널에 표시 중인 해설 결과 — 복사/Notion 저장이 참조.
   private lastResult: { term: string; markdown: string; context: string } | null = null;
   // 패널 헤더 액션 버튼 — 결과 도착 시 활성화.
@@ -40,6 +44,11 @@ export class ExplainUI {
 
   constructor(
     private readonly requestExplain: (text: string, context: string) => Promise<ExplainResult>,
+    private readonly requestQuestion: (
+      text: string,
+      context: string,
+      question: string,
+    ) => Promise<ExplainResult>,
     private readonly requestNotionSave: (
       term: string,
       markdown: string,
@@ -58,7 +67,7 @@ export class ExplainUI {
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;
     if (!enabled) {
-      this.hideButton();
+      this.hideToolbar();
       this.closePanel();
     }
   }
@@ -76,9 +85,9 @@ export class ExplainUI {
   // ─── 선택 감지 ───
   private onMouseUp = (ev: MouseEvent): void => {
     if (!this.enabled) return;
-    // 우리 버튼/패널 클릭으로 끝난 mouseup은 무시(선택 평가 안 함).
+    // 우리 툴바/패널 클릭으로 끝난 mouseup은 무시(선택 평가 안 함).
     const t = ev.target as HTMLElement | null;
-    if (t && (t.closest('.ydt-explain-btn') || t.closest('.ydt-explain-panel'))) return;
+    if (t && (t.closest('.ydt-explain-toolbar') || t.closest('.ydt-explain-panel'))) return;
     // 선택 평가는 다음 tick에 — mouseup 직후 selection이 확정됨.
     window.setTimeout(() => this.evaluateSelection(), 0);
   };
@@ -86,37 +95,37 @@ export class ExplainUI {
   private evaluateSelection(): void {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || sel.rangeCount === 0) {
-      this.hideButton();
+      this.hideToolbar();
       return;
     }
     const text = sel.toString().trim();
     if (!text) {
-      this.hideButton();
+      this.hideToolbar();
       return;
     }
     const range = sel.getRangeAt(0);
     const container = closestContainer(range.commonAncestorContainer);
     if (!container) {
-      this.hideButton();
+      this.hideToolbar();
       return;
     }
     // 문맥 = 같은 자막 박스의 원문(영어) 줄 전체. 없으면 컨테이너 전체 텍스트.
     const sourceText = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
     const context = sourceText || container.textContent?.trim() || text;
     this.pending = { text, context };
-    this.showButton(range.getBoundingClientRect());
+    this.showToolbar(range.getBoundingClientRect());
   }
 
   private onSelectionChange = (): void => {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) this.hideButton();
+    if (!sel || sel.isCollapsed) this.hideToolbar();
   };
 
   private onMouseDown = (ev: MouseEvent): void => {
     const t = ev.target as HTMLElement | null;
-    if (t && (t.closest('.ydt-explain-btn') || t.closest('.ydt-explain-panel'))) return;
-    // 새 클릭 시작 → 기존 버튼 숨김(패널은 명시적 닫기 전까지 유지).
-    this.hideButton();
+    if (t && (t.closest('.ydt-explain-toolbar') || t.closest('.ydt-explain-panel'))) return;
+    // 새 클릭 시작 → 기존 툴바 숨김(패널은 명시적 닫기 전까지 유지).
+    this.hideToolbar();
   };
 
   private onKeyDown = (ev: KeyboardEvent): void => {
@@ -130,47 +139,66 @@ export class ExplainUI {
     // 전체화면 진입/이탈 시 부모가 바뀌므로 떠 있는 패널/버튼을 새 host로 옮긴다.
     const h = this.host();
     if (this.panel && this.panel.parentElement !== h) h.appendChild(this.panel);
-    if (this.button && this.button.parentElement !== h) h.appendChild(this.button);
+    if (this.toolbar && this.toolbar.parentElement !== h) h.appendChild(this.toolbar);
   };
 
-  // ─── 트리거 버튼 ───
-  private showButton(rect: DOMRect): void {
-    if (!this.button) {
-      this.button = document.createElement('button');
-      this.button.className = 'ydt-explain-btn';
-      this.button.type = 'button';
-      this.button.textContent = '💡 해설';
+  // ─── 트리거 툴바 ───
+  private showToolbar(rect: DOMRect): void {
+    if (!this.toolbar) {
+      this.toolbar = document.createElement('div');
+      this.toolbar.className = 'ydt-explain-toolbar';
       // mousedown 기본 동작(선택 collapse·포커스 이동)을 막아 click 직전에 선택이 사라지며
       // 버튼이 hide→click 미발화되는 것을 방지. 툴바-오버-선택의 표준 패턴.
-      this.button.addEventListener('mousedown', (e) => e.preventDefault());
-      this.button.addEventListener('click', this.onButtonClick);
+      this.toolbar.addEventListener('mousedown', (e) => e.preventDefault());
+      const explainBtn = document.createElement('button');
+      explainBtn.className = 'ydt-explain-btn';
+      explainBtn.type = 'button';
+      explainBtn.textContent = '💡 해설';
+      explainBtn.addEventListener('click', this.onExplainClick);
+      const questionBtn = document.createElement('button');
+      questionBtn.className = 'ydt-explain-btn';
+      questionBtn.type = 'button';
+      questionBtn.textContent = '❓ 질문';
+      questionBtn.addEventListener('click', this.onQuestionClick);
+      this.toolbar.appendChild(explainBtn);
+      this.toolbar.appendChild(questionBtn);
     }
     const host = this.host();
-    if (this.button.parentElement !== host) host.appendChild(this.button);
+    if (this.toolbar.parentElement !== host) host.appendChild(this.toolbar);
     // 선택 위에 배치, 화면 밖이면 아래로. 좌우는 뷰포트 안으로 clamp.
-    const BTN_W = 78;
-    const BTN_H = 30;
-    let top = rect.top - BTN_H - 6;
+    const TB_W = 150; // 두 버튼 합 대략치 (clamp용)
+    const TB_H = 30;
+    let top = rect.top - TB_H - 6;
     if (top < 4) top = rect.bottom + 6;
-    let left = rect.left + rect.width / 2 - BTN_W / 2;
-    left = Math.max(4, Math.min(window.innerWidth - BTN_W - 4, left));
-    this.button.style.top = `${Math.round(top)}px`;
-    this.button.style.left = `${Math.round(left)}px`;
-    this.button.style.display = 'block';
+    let left = rect.left + rect.width / 2 - TB_W / 2;
+    left = Math.max(4, Math.min(window.innerWidth - TB_W - 4, left));
+    this.toolbar.style.top = `${Math.round(top)}px`;
+    this.toolbar.style.left = `${Math.round(left)}px`;
+    this.toolbar.style.display = 'flex';
   }
 
-  private hideButton(): void {
-    if (this.button) this.button.style.display = 'none';
+  private hideToolbar(): void {
+    if (this.toolbar) this.toolbar.style.display = 'none';
   }
 
-  private onButtonClick = (ev: MouseEvent): void => {
+  private onExplainClick = (ev: MouseEvent): void => {
     ev.preventDefault();
     ev.stopPropagation();
     if (!this.pending) return;
     const { text, context } = this.pending;
-    this.hideButton();
-    this.openPanel(text);
+    this.hideToolbar();
+    this.openPanel(text, context, false);
     void this.runExplain(text, context);
+  };
+
+  // ❓ 질문: 패널을 열되 입력칸을 띄운다. 답은 입력칸 아래 본문에 렌더(입력칸은 남아 재질문 가능).
+  private onQuestionClick = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!this.pending) return;
+    const { text, context } = this.pending;
+    this.hideToolbar();
+    this.openPanel(text, context, true);
   };
 
   private async runExplain(text: string, context: string): Promise<void> {
@@ -199,12 +227,15 @@ export class ExplainUI {
   }
 
   // ─── 패널 ───
-  private openPanel(term: string): void {
+  // question=true면 헤더 아래 입력칸(qform)을 띄우고 본문은 비워 둔다(답은 제출 시 채움).
+  private openPanel(term: string, context: string, question: boolean): void {
     this.closePanel();
     this.lastResult = null;
     this.notionSaved = false;
     this.notionPageUrl = null;
     this.highlightMode = false;
+    this.qInput = null;
+    this.questionCtx = question ? { text: term, context } : null;
     const panel = document.createElement('div');
     panel.className = 'ydt-explain-panel';
     panel.dataset.term = term;
@@ -264,12 +295,81 @@ export class ExplainUI {
     header.appendChild(title);
     header.appendChild(actions);
 
+    // 질문 모드: 헤더와 본문 사이에 입력칸. 비질문(해설) 모드: 바로 로딩.
+    let qform: HTMLElement | null = null;
+    if (question) {
+      qform = document.createElement('div');
+      qform.className = 'ydt-explain-qform';
+      const input = document.createElement('textarea');
+      input.className = 'ydt-explain-qinput';
+      input.rows = 2;
+      input.placeholder = '이 표현에 대해 물어보기… (예: 반대말 알려줘 / who 빼면 이상해?)';
+      // Enter 전송, Shift+Enter 줄바꿈.
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          this.submitQuestion();
+        }
+      });
+      const send = document.createElement('button');
+      send.className = 'ydt-explain-qsend';
+      send.type = 'button';
+      send.textContent = '질문';
+      send.addEventListener('click', () => this.submitQuestion());
+      qform.appendChild(input);
+      qform.appendChild(send);
+      this.qInput = input;
+    }
+
     const body = document.createElement('div');
     body.className = 'ydt-explain-body';
+    if (question) {
+      // 답 도착 전 안내. 제출 시 교체됨.
+      const hint = document.createElement('div');
+      hint.className = 'ydt-explain-loading';
+      hint.append('질문을 입력하고 Enter(또는 "질문") 누르기.');
+      body.appendChild(hint);
+    } else {
+      const loading = document.createElement('div');
+      loading.className = 'ydt-explain-loading';
+      loading.append('해설 생성 중…');
+      // 어떤 AI 모델로 생성 중인지 한눈에 — 백엔드/모델 바꿔가며 비교할 때 유용.
+      const label = this.modelLabel();
+      if (label) {
+        const m = document.createElement('span');
+        m.className = 'ydt-explain-model';
+        m.textContent = label;
+        loading.append(' · ', m);
+      }
+      body.appendChild(loading);
+    }
+
+    panel.appendChild(header);
+    if (qform) panel.appendChild(qform);
+    panel.appendChild(body);
+    this.host().appendChild(panel);
+    this.panel = panel;
+    this.qInput?.focus();
+  }
+
+  // 입력칸의 질문을 제출 — 답은 본문에 렌더(입력칸은 그대로 남아 재질문 가능).
+  private submitQuestion(): void {
+    if (!this.qInput || !this.questionCtx) return;
+    const q = this.qInput.value.trim();
+    if (!q) {
+      this.qInput.focus();
+      return;
+    }
+    void this.runQuestion(this.questionCtx.text, this.questionCtx.context, q);
+  }
+
+  private async runQuestion(text: string, context: string, question: string): Promise<void> {
+    const body = this.panel?.querySelector('.ydt-explain-body');
+    if (!body) return;
+    body.textContent = '';
     const loading = document.createElement('div');
     loading.className = 'ydt-explain-loading';
-    loading.append('해설 생성 중…');
-    // 어떤 AI 모델로 생성 중인지 한눈에 — 백엔드/모델 바꿔가며 비교할 때 유용.
+    loading.append('답변 생성 중…');
     const label = this.modelLabel();
     if (label) {
       const m = document.createElement('span');
@@ -278,11 +378,31 @@ export class ExplainUI {
       loading.append(' · ', m);
     }
     body.appendChild(loading);
+    this.enableActions(false);
 
-    panel.appendChild(header);
-    panel.appendChild(body);
-    this.host().appendChild(panel);
-    this.panel = panel;
+    let res: ExplainResult;
+    try {
+      res = await this.requestQuestion(text, context, question);
+    } catch (e) {
+      res = { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    if (!this.panel || this.panel.dataset.term !== text) return;
+    const body2 = this.panel.querySelector('.ydt-explain-body');
+    if (!body2) return;
+    body2.textContent = '';
+    if (res.ok) {
+      // 질문을 답 위에 함께 렌더 → 패널에 Q/A가 같이 보이고, 복사/Notion에도 질문이 포함됨.
+      const md = `**질문:** ${question}\n\n${res.markdown}`;
+      body2.appendChild(renderMarkdown(md));
+      this.lastResult = { term: text, markdown: md, context };
+      this.enableActions(true);
+    } else {
+      const err = document.createElement('div');
+      err.className = 'ydt-explain-error';
+      err.textContent = `답변을 불러오지 못했어요: ${res.error}`;
+      body2.appendChild(err);
+      console.warn(TAG, 'question error:', res.error);
+    }
   }
 
   private enableActions(enabled: boolean): void {
@@ -455,6 +575,8 @@ export class ExplainUI {
     this.lastResult = null;
     this.notionSaved = false;
     this.notionPageUrl = null;
+    this.qInput = null;
+    this.questionCtx = null;
   }
 }
 
