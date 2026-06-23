@@ -80,7 +80,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
   - `OFFSCREEN_PING`으로 살아있는지 확인 후 reuse, 죽었으면 재생성.
   - `Translator.translate`는 단건만 받아 N회 **순차** 호출(메모리 충돌 회피, `offscreen/index.ts:96-99`). 짧은 자막 한 줄씩 독립 번역되므로 문맥 손실 있음.
   - Translator 인스턴스는 `(src, tgt)` pair별로 캐시.
-- `gemini.ts` (BYOK, A19): `generativelanguage.googleapis.com/v1beta/models/{id}:generateContent`. 사용자가 본인 키 입력. 모델 ID는 `gemini-2.5-flash` / `gemini-2.5-flash-lite` / `gemini-3.5-flash`(A32 추가) 안정 버전(preview/latest alias 회피). 번역은 `geminiModel`, 해설은 별도 `explainGeminiModel`로 분리(섹션 17).
+- `gemini.ts` (BYOK, A19): `generativelanguage.googleapis.com/v1beta/models/{id}:generateContent`. 사용자가 본인 키 입력. 모델 ID는 **A38부터 자유 문자열 + `/models` 동적 목록**(섹션 21) — `gemini-2.5-flash` / `gemini-2.5-flash-lite` / `gemini-3.5-flash`는 추천 curated 기본값(안정 버전, preview/latest alias 회피)이자 새로고침 전 fallback. 번역은 `geminiModel`, 해설은 별도 `explainGeminiModel`로 분리(섹션 17).
   - 입력 배열을 `JSON.stringify` → user 메시지 한 줄, `generationConfig.responseMimeType=application/json + responseSchema(ARRAY of STRING)`로 JSON 강제. 응답 배열 길이 ≠ 입력 길이면 throw → router fallback.
   - 429/5xx만 1500ms 1회 재시도. 401/403/400은 즉시 throw. safety filter로 candidate empty면 finishReason 포함 throw.
   - **429 cooldown (A21)**: 429 받으면 `rateLimitedUntil`을 60s 후로 set → 다음 `translateBatch` 진입 시 즉시 throw → router가 google-free로 fallback. 매 batch마다 1.5s 백오프 × 청크 누적 지연 방지. `testGeminiKey`는 cooldown 우회 + 성공 시 reset (사용자가 새 키 검증 가능하게).
