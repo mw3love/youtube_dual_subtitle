@@ -197,7 +197,7 @@ function videoTitle(): string {
 function cacheBackendTag(): string {
   const b = activeBackend();
   if (b === 'gemini') {
-    const model = currentSettings?.geminiModel ?? 'flash';
+    const model = currentSettings?.geminiModel ?? 'gemini-2.5-flash';
     return `gemini:${model}`;
   }
   if (b === 'mindlogic') {

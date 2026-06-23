@@ -230,6 +230,17 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **CSS** (`styles.ts`): `.ydt-explain-tabs`(스트립)·`.ydt-explain-tab`(칩, ellipsis)·`.ydt-explain-tabsbody`/`.ydt-explain-tabcontent`(flex column 체인)·`.ydt-explain-fab`(핸들). `.ydt-explain-body`에 `flex:1 1 auto; min-height:0` 추가 — 본문이 중첩 flex(`panel > tabsbody > tabcontent > body`) 안에서 남은 높이를 채우고 그 안에서 스크롤하게(없으면 장문이 contentEl을 넘쳐 스크롤 안 됨).
 - **한계:** 메모리 only라 F5/탭 닫기로 사라짐(영구 보관·"단어장"은 `ai-dictionary`가 담당 — 기능 중복 회피). 멀티턴 대화는 여전히 미지원(각 탭은 단발).
 
+### 21. Gemini 동적 모델 (A38, v0.11.0)
+
+Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용. 단일 제공자라 목록이 작고 안정적이지만 모델이 주기적으로 추가/폐기돼 코드 고정 enum이 금방 낡는다 → 동적 조회 + 추천 힌트 오버레이로 통일.
+
+- **스키마 enum→자유 문자열** (`settings.ts:GeminiModelSchema = z.string().min(1)`): 목록 밖 모델을 골라도 검증 통과(enum이면 default 리셋). 실제 유효성은 Gemini API가 판정. `MindlogicModelSchema`와 같은 이유.
+- **하위 호환** (`gemini.ts:resolveGeminiModelId`): 자유 문자열 전환 전(A38 이전) storage에 박힌 옛 별칭 `flash`/`flash-lite`/`3.5-flash`를 `LEGACY_ALIAS`로 실제 ID(`gemini-2.5-flash` 등)로 변환. 새 값은 이미 실제 ID라 그대로 통과. **번역(`callGemini`)·해설(`explain.ts:explainGemini`) 양쪽이 이 함수를 공용** — explain.ts의 옛 `GEMINI_MODEL_ID` 테이블 제거. `lang-options.ts:GEMINI_MODELS`의 value도 실제 ID로 교체(추천 힌트 + 새로고침 전 fallback 목록).
+- **동적 조회** (`gemini.ts:listGeminiModels`): `GET /v1beta/models?pageSize=200` → `supportedGenerationMethods`에 `generateContent` 있는 것만, `embedding|aqa|imagen|veo|tts|image-generation` 제외, `geminiFamily(id)`로 세대 그룹(`gemini-2.5`/`gemini-3.5`/`gemma`) 추출해 optgroup 라벨. background `GEMINI_LIST_MODELS` 메시지 → `chrome.storage.local`(`ydtGeminiModels`) 캐시. 키는 `secrets.ts` 재사용(401/403 즉시 throw).
+- **옵션 UI 통합** (`options/main.tsx`): Mindlogic 전용이던 `renderMindlogicSelect`/`onRefreshMindlogicModels`를 **제공자 공용 `renderModelSelect`/`refreshModels`/`modelRefreshControls`**로 일반화(메시지 타입·키·캐시 키만 분기). 번역·해설 모델 둘 다 `<select>`(owner별 optgroup) + "↻ 모델 새로고침" 버튼. Gemini 번역 모델 행이 radio→select로 바뀜.
+- **캐시 태그**(`content/index.ts:cacheBackendTag`)의 gemini 기본값 `'flash'`→`'gemini-2.5-flash'`(실제 ID와 정합).
+- **검증 한계:** `/models` 동적 조회는 라이브 키 필요 — 빌드·타입체크만 통과(프록시검증, 실조건 미확인).
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

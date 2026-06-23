@@ -6,11 +6,14 @@ import { z } from 'zod';
 export const BackendIdSchema = z.enum(['chrome-builtin', 'google-free', 'gemini', 'mindlogic']);
 export type BackendId = z.infer<typeof BackendIdSchema>;
 
-// Gemini API 모델 — 'flash'/'flash-lite'는 2.5 세대(번역 가성비), '3.5-flash'는 최신 세대
-// (gemini-3.5-flash, 자유서술 해설 품질 우선). 값은 storage에 박히므로 옛 값 유지 + 추가만.
-// API key는 storage.sync(설정) 아니라 storage.local에 별도(secrets.ts) — 웹스토어 배포 시 키가
-// Google 계정 동기화로 전파되지 않도록.
-export const GeminiModelSchema = z.enum(['flash', 'flash-lite', '3.5-flash']);
+// Gemini API 모델 ID. Mindlogic과 같은 이유로 고정 enum이 아니라 자유 문자열:
+// 옵션 페이지가 Gemini /v1beta/models로 동적 목록을 가져와 보여주고(모델이 주기적으로
+// 추가/폐기되므로 코드 고정 목록은 금방 낡음), 사용자가 그중 무엇을 골라도 검증 통과한다
+// (enum이면 목록 밖 값이 default로 리셋됨). 실제 유효성은 Gemini API가 판정.
+// lang-options의 GEMINI_MODELS는 추천 힌트가 붙은 "알려진" 부분집합(새로고침 전 fallback).
+// 옛 사용자의 별칭값('flash'/'flash-lite'/'3.5-flash')은 gemini.ts:resolveGeminiModelId가
+// 실제 ID로 변환해 하위 호환. API key는 storage.local에 별도(secrets.ts).
+export const GeminiModelSchema = z.string().min(1);
 export type GeminiModel = z.infer<typeof GeminiModelSchema>;
 
 // Mindlogic API Gateway는 OpenAI/Anthropic/Gemini 등을 단일 endpoint로 통과시킨다.
@@ -132,7 +135,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export const DEFAULT_SETTINGS: Settings = {
   subtitlesEnabled: true,
   backend: 'google-free',
-  geminiModel: 'flash',
+  geminiModel: 'gemini-2.5-flash',
   mindlogicModel: 'gemini-2.5-flash',
   sourceLang: 'en',
   targetLang: 'ko',
@@ -155,7 +158,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   explainEnabled: true,
   explainBackend: 'gemini',
-  explainGeminiModel: '3.5-flash',
+  explainGeminiModel: 'gemini-3.5-flash',
   explainMindlogicModel: 'claude-sonnet-4-6',
   explainPrompt: DEFAULT_EXPLAIN_PROMPT,
   notionEnabled: false,

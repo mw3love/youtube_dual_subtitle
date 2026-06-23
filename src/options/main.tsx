@@ -388,16 +388,18 @@ function Options() {
     | { kind: 'err'; error: string };
   const [notionTestState, setNotionTestState] = useState<NotionTestState>({ kind: 'idle' });
 
-  // Mindlogic 동적 모델 목록 — 게이트웨이 /models로 가져와 storage.local에 캐시(설정 아님 —
-  // 휘발성 런타임 데이터). null=아직 안 가져옴(하드코딩 추천 목록으로 fallback).
-  type MindlogicModelInfo = { id: string; ownedBy: string };
-  const [mindlogicModels, setMindlogicModels] = useState<MindlogicModelInfo[] | null>(null);
+  // 동적 모델 목록 — 제공자 /models로 가져와 storage.local에 캐시(설정 아님 — 휘발성 런타임
+  // 데이터). null=아직 안 가져옴(하드코딩 추천 목록으로 fallback). Mindlogic·Gemini 동일 패턴.
+  type ModelInfo = { id: string; ownedBy: string };
+  const [mindlogicModels, setMindlogicModels] = useState<ModelInfo[] | null>(null);
+  const [geminiModels, setGeminiModels] = useState<ModelInfo[] | null>(null);
   type ModelsFetch =
     | { kind: 'idle' }
     | { kind: 'pending' }
     | { kind: 'ok'; count: number }
     | { kind: 'err'; error: string };
   const [modelsFetch, setModelsFetch] = useState<ModelsFetch>({ kind: 'idle' });
+  const [geminiModelsFetch, setGeminiModelsFetch] = useState<ModelsFetch>({ kind: 'idle' });
 
   useEffect(() => {
     void loadSettings().then((s) => {
@@ -408,49 +410,65 @@ function Options() {
     void getGeminiApiKey().then((k) => setApiKey(k ?? ''));
     void getMindlogicApiKey().then((k) => setMindlogicApiKeyState(k ?? ''));
     void getNotionToken().then((k) => setNotionTokenState(k ?? ''));
-    void chrome.storage.local.get('ydtMindlogicModels').then((r) => {
+    void chrome.storage.local.get(['ydtMindlogicModels', 'ydtGeminiModels']).then((r) => {
       if (Array.isArray(r.ydtMindlogicModels)) setMindlogicModels(r.ydtMindlogicModels);
+      if (Array.isArray(r.ydtGeminiModels)) setGeminiModels(r.ydtGeminiModels);
     });
   }, []);
 
-  // 게이트웨이에서 사용 가능한 모델 목록을 가져와 캐시. 키 저장이 보류 중이면 먼저 flush.
-  const onRefreshMindlogicModels = async (): Promise<void> => {
-    if (mindlogicKeySaveTimerRef.current !== null) {
-      clearTimeout(mindlogicKeySaveTimerRef.current);
-      mindlogicKeySaveTimerRef.current = null;
-      await setMindlogicApiKey(mindlogicApiKey.trim() || null);
+  // 제공자에서 사용 가능한 모델 목록을 가져와 캐시. 키 저장이 보류 중이면 먼저 flush.
+  // Mindlogic·Gemini가 같은 흐름(메시지 타입·키·캐시 키만 다름)이라 한 함수로 묶음.
+  const refreshModels = async (
+    provider: 'mindlogic' | 'gemini',
+  ): Promise<void> => {
+    const isGemini = provider === 'gemini';
+    const apiKeyVal = isGemini ? apiKey : mindlogicApiKey;
+    const keyTimerRef = isGemini ? keySaveTimerRef : mindlogicKeySaveTimerRef;
+    const setKey = isGemini ? setGeminiApiKey : setMindlogicApiKey;
+    const setFetch = isGemini ? setGeminiModelsFetch : setModelsFetch;
+    const setModels = isGemini ? setGeminiModels : setMindlogicModels;
+    const msgType = isGemini ? 'GEMINI_LIST_MODELS' : 'MINDLOGIC_LIST_MODELS';
+    const cacheKey = isGemini ? 'ydtGeminiModels' : 'ydtMindlogicModels';
+
+    if (keyTimerRef.current !== null) {
+      clearTimeout(keyTimerRef.current);
+      keyTimerRef.current = null;
+      await setKey(apiKeyVal.trim() || null);
     }
-    setModelsFetch({ kind: 'pending' });
+    setFetch({ kind: 'pending' });
     try {
       const res = (await chrome.runtime.sendMessage({
-        type: 'MINDLOGIC_LIST_MODELS',
-        apiKey: mindlogicApiKey.trim(),
-      })) as { ok: true; models: MindlogicModelInfo[] } | { ok: false; error: string } | undefined;
-      if (!res) setModelsFetch({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+        type: msgType,
+        apiKey: apiKeyVal.trim(),
+      })) as { ok: true; models: ModelInfo[] } | { ok: false; error: string } | undefined;
+      if (!res) setFetch({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
       else if (res.ok) {
-        await chrome.storage.local.set({ ydtMindlogicModels: res.models });
-        setMindlogicModels(res.models);
-        setModelsFetch({ kind: 'ok', count: res.models.length });
-      } else setModelsFetch({ kind: 'err', error: res.error });
+        await chrome.storage.local.set({ [cacheKey]: res.models });
+        setModels(res.models);
+        setFetch({ kind: 'ok', count: res.models.length });
+      } else setFetch({ kind: 'err', error: res.error });
     } catch (e) {
-      setModelsFetch({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+      setFetch({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
     }
   };
 
-  // Mindlogic 모델 <select> — 동적 목록(있으면) 또는 하드코딩 추천 목록을 owner별 그룹으로 렌더.
+  // 모델 <select> — 동적 목록(있으면) 또는 하드코딩 추천 목록을 owner별 그룹으로 렌더.
   // forExplain=true면 해설 추천 마커, false면 번역 추천 마커. 현재 선택값이 목록에 없으면 추가.
-  const renderMindlogicSelect = (
+  // Mindlogic·Gemini 공용(curated 힌트 목록 + 동적 목록만 주입 차이).
+  const renderModelSelect = (
     value: string,
     onChange: (v: string) => void,
     forExplain: boolean,
+    dynamic: ModelInfo[] | null,
+    curated: Array<{ value: string; transHint: string; explainHint?: string }>,
   ): React.ReactNode => {
-    const known = new Map(MINDLOGIC_MODELS.map((m) => [m.value, m]));
-    let base: MindlogicModelInfo[] =
-      mindlogicModels && mindlogicModels.length
-        ? mindlogicModels
-        : MINDLOGIC_MODELS.map((m) => ({ id: m.value, ownedBy: '추천' }));
+    const known = new Map(curated.map((m) => [m.value, m]));
+    let base: ModelInfo[] =
+      dynamic && dynamic.length
+        ? dynamic
+        : curated.map((m) => ({ id: m.value, ownedBy: '추천' }));
     if (!base.some((x) => x.id === value)) base = [{ id: value, ownedBy: '현재' }, ...base];
-    const groups = new Map<string, MindlogicModelInfo[]>();
+    const groups = new Map<string, ModelInfo[]>();
     for (const it of base) {
       const arr = groups.get(it.ownedBy) ?? [];
       arr.push(it);
@@ -472,6 +490,45 @@ function Options() {
           </optgroup>
         ))}
       </select>
+    );
+  };
+  const renderMindlogicSelect = (
+    value: string,
+    onChange: (v: string) => void,
+    forExplain: boolean,
+  ): React.ReactNode =>
+    renderModelSelect(value, onChange, forExplain, mindlogicModels, MINDLOGIC_MODELS);
+  const renderGeminiSelect = (
+    value: string,
+    onChange: (v: string) => void,
+    forExplain: boolean,
+  ): React.ReactNode => renderModelSelect(value, onChange, forExplain, geminiModels, GEMINI_MODELS);
+
+  // 모델 새로고침 버튼 + 결과 표시(번역/해설 모델 행에서 재사용).
+  const modelRefreshControls = (
+    provider: 'mindlogic' | 'gemini',
+  ): React.ReactNode => {
+    const isGemini = provider === 'gemini';
+    const apiKeyVal = isGemini ? apiKey : mindlogicApiKey;
+    const fetchState = isGemini ? geminiModelsFetch : modelsFetch;
+    return (
+      <>
+        <button
+          onClick={() => void refreshModels(provider)}
+          disabled={!apiKeyVal.trim() || fetchState.kind === 'pending'}
+          style={{ padding: '4px 10px', fontSize: 12 }}
+          type="button"
+          title="제공자에서 사용 가능한 모델 목록을 다시 가져옵니다"
+        >
+          {fetchState.kind === 'pending' ? '불러오는 중…' : '↻ 모델 새로고침'}
+        </button>
+        {fetchState.kind === 'ok' && (
+          <span style={{ fontSize: 11, color: '#9eff9e' }}>✓ {fetchState.count}개</span>
+        )}
+        {fetchState.kind === 'err' && (
+          <span style={{ fontSize: 11, color: '#ff7777' }}>✗ {fetchState.error}</span>
+        )}
+      </>
     );
   };
 
@@ -831,21 +888,16 @@ function Options() {
             )}
           </Row>
           <Row label="번역 모델">
-            {GEMINI_MODELS.map((m, i) => (
-              <label
-                key={m.value}
-                style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: i === 0 ? 0 : 8 }}
-              >
-                <input
-                  type="radio"
-                  checked={settings.geminiModel === m.value}
-                  onChange={() => update({ geminiModel: m.value })}
-                />
-                <span>
-                  {m.label} <span style={{ fontSize: 11, color: '#999' }}>{m.transHint}</span>
-                </span>
-              </label>
-            ))}
+            {renderGeminiSelect(settings.geminiModel, (v) => update({ geminiModel: v }), false)}
+            {modelRefreshControls('gemini')}
+          </Row>
+          <Row label="">
+            <span style={{ fontSize: 11, color: '#999' }}>
+              {geminiModels
+                ? `Gemini 모델 ${geminiModels.length}개 (새로고침으로 갱신). `
+                : '새로고침 누르면 키로 사용 가능한 전체 모델이 뜸. '}
+              새 모델 출시·구 모델 폐기 시 코드 수정 없이 갱신
+            </span>
           </Row>
           <Row label="키 확인">
             <button
@@ -900,21 +952,7 @@ function Options() {
           </Row>
           <Row label="번역 모델">
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
-            <button
-              onClick={() => void onRefreshMindlogicModels()}
-              disabled={!mindlogicApiKey.trim() || modelsFetch.kind === 'pending'}
-              style={{ padding: '4px 10px', fontSize: 12 }}
-              type="button"
-              title="게이트웨이에서 사용 가능한 모델 목록을 다시 가져옵니다"
-            >
-              {modelsFetch.kind === 'pending' ? '불러오는 중…' : '↻ 모델 새로고침'}
-            </button>
-            {modelsFetch.kind === 'ok' && (
-              <span style={{ fontSize: 11, color: '#9eff9e' }}>✓ {modelsFetch.count}개</span>
-            )}
-            {modelsFetch.kind === 'err' && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>✗ {modelsFetch.error}</span>
-            )}
+            {modelRefreshControls('mindlogic')}
           </Row>
           <Row label="">
             <span style={{ fontSize: 11, color: '#999' }}>
@@ -985,24 +1023,14 @@ function Options() {
             </Row>
             <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
               {settings.explainBackend === 'gemini' ? (
-                GEMINI_MODELS.map((m, i) => (
-                  <label
-                    key={m.value}
-                    style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, cursor: 'pointer', marginLeft: i === 0 ? 0 : 8 }}
-                  >
-                    <input
-                      type="radio"
-                      checked={settings.explainGeminiModel === m.value}
-                      onChange={() => update({ explainGeminiModel: m.value })}
-                    />
-                    <span>
-                      {m.label}
-                      {m.explainHint && (
-                        <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 4 }}>{m.explainHint}</span>
-                      )}
-                    </span>
-                  </label>
-                ))
+                <>
+                  {renderGeminiSelect(
+                    settings.explainGeminiModel,
+                    (v) => update({ explainGeminiModel: v }),
+                    true,
+                  )}
+                  {modelRefreshControls('gemini')}
+                </>
               ) : (
                 renderMindlogicSelect(
                   settings.explainMindlogicModel,

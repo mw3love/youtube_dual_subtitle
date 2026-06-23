@@ -23,12 +23,19 @@ import type { GeminiModel } from '../../shared/settings';
 const TAG = '[YDT/gemini]';
 const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// 정식 안정 모델 ID. preview/latest alias 대신 고정 버전 사용해 갑작스러운 동작 변화 회피.
-const MODEL_ID: Record<GeminiModel, string> = {
+// 옛 enum 별칭 → 실제 모델 ID. 모델이 자유 문자열로 바뀌기 전(A38 이전) storage에 박힌
+// 'flash'/'flash-lite'/'3.5-flash'를 하위 호환으로 변환. 새 값은 이미 실제 ID라 그대로 통과.
+const LEGACY_ALIAS: Record<string, string> = {
   flash: 'gemini-2.5-flash',
   'flash-lite': 'gemini-2.5-flash-lite',
   '3.5-flash': 'gemini-3.5-flash',
 };
+
+// 저장된 모델값을 실제 API 모델 ID로 정규화. 옛 별칭이면 변환, 이미 실제 ID면 그대로.
+// explain.ts도 이 함수를 재사용(별칭 변환 로직 일원화).
+export function resolveGeminiModelId(model: string): string {
+  return LEGACY_ALIAS[model] ?? model;
+}
 
 // 청크당 최대 항목 수. 50 정도면 모델이 짧은 cue를 합쳐 응답이 줄어들고,
 // 그러면 router fallback이 끼어 들어 사실상 google-free로 동작하게 됨.
@@ -86,8 +93,48 @@ export async function testGeminiKey(apiKey: string, model: GeminiModel): Promise
 }
 
 async function readModel(): Promise<GeminiModel> {
-  const r = await chrome.storage.sync.get({ geminiModel: 'flash' });
-  return r.geminiModel === 'flash-lite' ? 'flash-lite' : 'flash';
+  const r = await chrome.storage.sync.get({ geminiModel: 'gemini-2.5-flash' });
+  // 자유 문자열 — 비어있지 않으면 그대로(실제 유효성은 API가 판정). resolveGeminiModelId가
+  // 옛 별칭을 변환하므로 여기선 raw 저장값을 그대로 반환.
+  return typeof r.geminiModel === 'string' && r.geminiModel.trim()
+    ? r.geminiModel
+    : 'gemini-2.5-flash';
+}
+
+// 게이트웨이가 아닌 단일 제공자라 목록이 작고 안정적이지만, 모델이 주기적으로 추가/폐기되므로
+// 코드 고정 목록 대신 동적 조회를 제공(Mindlogic과 동일 UX). 옵션 "모델 새로고침"이 호출 →
+// storage.local 캐시 → 드롭다운. generateContent 미지원/임베딩·이미지·음성 계열은 제외.
+const MODELS_ENDPOINT = `${ENDPOINT_BASE}?pageSize=200`;
+
+export interface GeminiModelInfo {
+  id: string;
+  ownedBy: string; // 세대 그룹(gemini-2.5 / gemini-3.5 …) — 옵션 드롭다운 optgroup 라벨용
+}
+
+export async function listGeminiModels(apiKey?: string): Promise<GeminiModelInfo[]> {
+  const key = apiKey || (await getGeminiApiKey());
+  if (!key) throw new Error('Gemini API 키가 없음 (옵션 페이지에서 입력 필요)');
+  const res = await fetch(MODELS_ENDPOINT, { headers: { 'x-goog-api-key': key } });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
+    throw new Error(`모델 목록 실패 (HTTP ${res.status})`);
+  }
+  const data = (await res.json()) as {
+    models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+  };
+  const models = (data.models ?? [])
+    .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
+    .map((m) => (m.name ?? '').replace(/^models\//, ''))
+    .filter((id) => id && !/embedding|aqa|imagen|veo|tts|image-generation/i.test(id))
+    .map((id) => ({ id, ownedBy: geminiFamily(id) }));
+  if (models.length === 0) throw new Error('사용 가능한 모델이 없음 (응답 형식 변경?)');
+  return models;
+}
+
+// 모델 ID에서 세대 그룹 추출: gemini-2.5-flash → "gemini-2.5", gemma-3-1b → "gemma". 그 외 "기타".
+function geminiFamily(id: string): string {
+  const m = id.match(/^(gemini-\d+(?:\.\d+)?|gemma)/);
+  return m ? m[1] : '기타';
 }
 
 function systemInstruction(src: string, tgt: string, count: number): string {
@@ -131,7 +178,7 @@ async function callGemini(
   apiKey: string,
   model: GeminiModel,
 ): Promise<string[]> {
-  const url = `${ENDPOINT_BASE}/${MODEL_ID[model]}:generateContent`;
+  const url = `${ENDPOINT_BASE}/${resolveGeminiModelId(model)}:generateContent`;
   const n = texts.length;
   const body = {
     systemInstruction: { parts: [{ text: systemInstruction(src, tgt, n) }] },

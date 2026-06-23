@@ -3,7 +3,7 @@
 // 옵션 페이지의 Gemini 키 테스트는 router 우회 — fallback에 가려져 성공처럼 보이지 않게.
 
 import { translateBatch } from './translators/router';
-import { testGeminiKey } from './translators/gemini';
+import { testGeminiKey, listGeminiModels } from './translators/gemini';
 import { testMindlogicKey, listMindlogicModels } from './translators/mindlogic';
 import { explain } from './explain';
 import { saveToNotion, testNotion } from './notion';
@@ -165,6 +165,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'mindlogic models list failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'GEMINI_LIST_MODELS') {
+    const apiKey = typeof m.apiKey === 'string' ? m.apiKey : '';
+    (async (): Promise<void> => {
+      try {
+        const models = await listGeminiModels(apiKey);
+        sendResponse({ ok: true, models });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'gemini models list failed:', error);
         sendResponse({ ok: false, error });
       }
     })();

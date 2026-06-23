@@ -52,10 +52,12 @@ export interface ModelOption<V> {
 }
 
 // Gemini 직접 API. 2.5 세대는 번역 가성비, 3.5 Flash는 최신 세대로 자유서술 해설 품질이 큼.
+// value는 실제 모델 ID — 옵션 페이지가 /models 동적 목록(같은 id)에 이 힌트를 오버레이하고,
+// 새로고침 전 fallback 목록으로도 쓴다(Mindlogic의 MINDLOGIC_MODELS와 동일 역할).
 export const GEMINI_MODELS: Array<ModelOption<GeminiModel>> = [
-  { value: 'flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
-  { value: 'flash-lite', label: 'Gemini 2.5 Flash-Lite', transHint: '한도·속도' },
-  { value: '3.5-flash', label: 'Gemini 3.5 Flash', transHint: '최신·고품질', explainHint: '해설 추천' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', transHint: '한도·속도' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', transHint: '최신·고품질', explainHint: '해설 추천' },
 ];
 
 // Mindlogic gateway. gateway가 ID를 그대로 upstream에 전달하므로 권한 없는 모델은 401/403

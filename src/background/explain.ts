@@ -11,18 +11,12 @@
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
 import { QUESTION_SYSTEM_PROMPT } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
+import { resolveGeminiModelId } from './translators/gemini';
 
 const TAG = '[YDT/explain]';
 
 const GEMINI_ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 const MINDLOGIC_ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions';
-
-// gemini.ts와 동일 — preview/latest alias 회피용 고정 버전.
-const GEMINI_MODEL_ID: Record<GeminiModel, string> = {
-  flash: 'gemini-2.5-flash',
-  'flash-lite': 'gemini-2.5-flash-lite',
-  '3.5-flash': 'gemini-3.5-flash',
-};
 
 // 해설은 표·예문 여러 개로 번역보다 훨씬 길어질 수 있어 토큰 여유를 크게(잘림 방지).
 const MAX_TOKENS = 4096;
@@ -70,8 +64,7 @@ async function explainGemini(
 ): Promise<string> {
   const apiKey = await getGeminiApiKey();
   if (!apiKey) throw new Error('Gemini API 키가 없음 (옵션 페이지에서 입력 필요)');
-  const modelId = GEMINI_MODEL_ID[model] ?? GEMINI_MODEL_ID.flash;
-  const url = `${GEMINI_ENDPOINT_BASE}/${modelId}:generateContent`;
+  const url = `${GEMINI_ENDPOINT_BASE}/${resolveGeminiModelId(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: prompt }] },
     contents: [{ role: 'user', parts: [{ text: userMsg }] }],
