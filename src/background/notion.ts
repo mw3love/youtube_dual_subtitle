@@ -25,6 +25,20 @@ export interface NotionSaveParams {
   videoUrl?: string;
 }
 
+// 페이지 제목 선택 — 단어보다 "예문"이 복습에 유용(ai-dictionary 차용). 우선순위:
+// ① 자막 원문 문장(context)이 의미있으면(선택 단어와 다르고 더 길면) 그걸 제목으로 — YDT는
+//    드래그 출처라 실제 용례 문장을 갖고 있음(ai-dictionary엔 없어 AI 예문을 썼다).
+// ② degenerate(빈/단어와 동일)면 AI 해설의 첫 인라인 백틱 예문. 코드펜스(```)는 [^`]에 안 걸림.
+// ③ 그래도 없으면 단어.
+function pickNotionTitle(term: string, context: string | undefined, markdown: string): string {
+  const t = term.trim();
+  const ctx = (context ?? '').trim();
+  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) return ctx;
+  const example = markdown.match(/`([^`\n]+)`/)?.[1]?.trim();
+  if (example) return example;
+  return t || '(제목 없음)';
+}
+
 // 해설을 DB에 페이지로 저장. 생성된 페이지 URL 반환.
 export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: string }> {
   const token = await getNotionToken();
@@ -35,9 +49,10 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
   // 1) DB 스키마 조회 — title 속성 이름 + (있으면) url/date 속성 이름.
   const schema = await getDatabaseSchema(token, dbId);
 
-  // 2) 속성 구성
+  // 2) 속성 구성 — 제목은 "예문"(자막 문장) 우선, degenerate면 AI 첫 백틱 예문 → 단어.
+  const title = pickNotionTitle(params.term, params.context, params.markdown);
   const properties: Record<string, unknown> = {
-    [schema.titleProp]: { title: [{ text: { content: truncate(params.term, 2000) } }] },
+    [schema.titleProp]: { title: [{ text: { content: truncate(title, 2000) } }] },
   };
   if (schema.urlProp && params.videoUrl) {
     properties[schema.urlProp] = { url: params.videoUrl };
@@ -61,7 +76,13 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
       },
     });
   }
-  if (params.context && params.context.trim() && params.context.trim() !== params.term.trim()) {
+  // 자막 문장을 제목으로 이미 썼으면 본문 인용은 중복이라 생략(degenerate fallback 시엔 유지).
+  if (
+    params.context &&
+    params.context.trim() &&
+    params.context.trim() !== params.term.trim() &&
+    params.context.trim() !== title.trim()
+  ) {
     children.push({
       type: 'quote',
       quote: { rich_text: [{ type: 'text', text: { content: truncate(params.context.trim(), 2000) } }] },

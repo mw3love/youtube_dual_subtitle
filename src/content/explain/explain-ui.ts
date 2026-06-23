@@ -713,8 +713,11 @@ export class ExplainUI {
     if (!tab?.result || !this.copyBtn) return;
     const { term, context } = tab.result;
     const markdown = this.currentMarkdown();
-    const parts = [`## ${term}`, '', markdown];
-    if (context && context !== term) parts.push('', `> 자막: ${context}`);
+    // 제목은 Notion과 동일하게 "예문"(자막 문장) 우선 → degenerate면 AI 첫 백틱 → 단어.
+    const title = pickTitle(term, context, markdown);
+    const parts = [`## ${title}`, '', markdown];
+    if (context && context.trim() !== term.trim() && context.trim() !== title.trim())
+      parts.push('', `> 자막: ${context}`);
     const text = parts.join('\n');
     const btn = this.copyBtn;
     try {
@@ -772,6 +775,18 @@ export class ExplainUI {
       }
     }
   }
+}
+
+// 복사/Notion 제목 — 단어보다 "예문"이 복습에 유용. ① 자막 문장(context)이 의미있으면 그걸,
+// ② degenerate면 답변의 첫 인라인 백틱 예문, ③ 없으면 단어. background/notion.ts:pickNotionTitle과
+// 같은 로직의 평행 구현(content/background 분리 — 섹션 15의 markdown 평행 구현과 동일 사유).
+function pickTitle(term: string, context: string | undefined, markdown: string): string {
+  const t = term.trim();
+  const ctx = (context ?? '').trim();
+  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) return ctx;
+  const example = markdown.match(/`([^`\n]+)`/)?.[1]?.trim();
+  if (example) return example;
+  return t || '(제목 없음)';
 }
 
 // 버튼 라벨을 잠깐 바꿨다 원복(피드백용).
