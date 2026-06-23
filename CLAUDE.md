@@ -138,6 +138,8 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 
 `ccButtonObserver`는 page CC 버튼의 `aria-pressed`를 감시하지만 **CC=true → 우리 true만 sync**, CC=false는 무시. 이유: page sticky 잘못된 lang으로 새 영상에 자막이 자동 disable되는 케이스에서 우리까지 따라 disable되면 사용자가 자막을 못 봄. 자막 끄기는 사용자가 C 키나 팝업으로만 함. trade-off: 사용자가 native CC 버튼을 직접 클릭해 끄는 동작이 우리에 반영 안 됨 (native만 끔, 우리 자막은 계속 표시).
 
+**사용자 제스처 게이팅 (A39, v0.11.1):** "CC=true → 우리 true"를 **무조건** 적용하면, 사용자가 자막을 꺼둔 영상에서 YouTube가 sticky·계정설정으로 CC를 **자동 enable**할 때 우리 자막이 몇 분 뒤 저절로 되살아나는 버그가 있었다. 해결: 진짜 사용자 클릭(`isTrusted=true`)이 최근 `USER_CC_CLICK_WINDOW_MS`(1초) 내 있었을 때만 honor (`content/index.ts:lastUserCcClickAt`, capture-phase document click 리스너로 `.ytmClosedCaptioningButtonButton, .ytp-subtitles-button` 클릭 시각 기록). YouTube 자동 enable이나 **우리 `tryEnableCaptions`의 프로그램적 `.click()`은 둘 다 `isTrusted=false`라** 기록 안 됨 → `syncSubtitlesEnabledFromCc`의 게이트에서 걸러져 꺼둔 자막이 안 되살아남. (실조건 미확인 — 프록시검증.)
+
 ### 13. 문장 재조립 — cue → Sentence 세그멘테이션 (A27, v0.4.0)
 
 **근본 문제:** YouTube ASR이 단어/구 중간에서 cue를 토막낸다(예: "amazing social currency"가 `...amazing social` / `currency` 두 cue로). cue 단위로 번역하면 토막만 보고 번역해 문맥이 손실된다(currency 누락 등). Immersive Translate처럼 인접 cue를 한 문장으로 묶어 번역·표시하면 온전한 문맥을 본다.

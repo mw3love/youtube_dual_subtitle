@@ -617,14 +617,29 @@ function applySettings(s: Settings): void {
 
 void loadSettings().then(applySettings);
 
-// CC 버튼 양방향 동기 — 사용자가 native CC를 직접 클릭하면 우리 subtitlesEnabled도 따라감.
-// 우리 C 키 토글이나 자동 토글로 인한 변화도 같이 감지되지만 saveSettings가 idempotent +
-// 이미 같은 값이면 storage.onChanged가 안 발화하므로 무한 루프는 없음.
+// CC 버튼 → 우리 subtitlesEnabled 단방향 동기 (사용자가 native CC를 "직접" 켰을 때만).
 let ccButtonObserver: MutationObserver | null = null;
 let observedCcButton: HTMLElement | null = null;
 
-// ccObserver — page CC 버튼 상태와 우리 storage sync. 단 한 방향만:
-//   CC=true → 우리 true (사용자가 native CC를 켰거나 우리 tryEnableCaptions이 켰음)
+// 사용자가 native CC 버튼을 직접 클릭한 마지막 시각. YouTube의 자동 CC enable(sticky/계정
+// 설정으로 영상 진입 시 켜짐)이나 우리 tryEnableCaptions의 프로그램적 .click()은 둘 다
+// isTrusted=false라 기록되지 않는다. 이 게이트가 없으면 CC=true를 무조건 사용자 의도로 간주해,
+// 사용자가 꺼둔 자막이 YouTube 자동 enable로 몇 분 뒤 저절로 되살아나는 버그가 생김.
+let lastUserCcClickAt = 0;
+const USER_CC_CLICK_WINDOW_MS = 1000;
+const CC_BUTTON_SELECTORS = '.ytmClosedCaptioningButtonButton, .ytp-subtitles-button';
+document.addEventListener(
+  'click',
+  (ev) => {
+    if (!ev.isTrusted) return; // 진짜 사용자 클릭만 (프로그램적 .click()은 isTrusted=false)
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest(CC_BUTTON_SELECTORS)) lastUserCcClickAt = Date.now();
+  },
+  true,
+);
+
+// ccObserver — page CC 버튼 상태와 우리 storage sync. 단 한 방향만 + 사용자 제스처 게이팅:
+//   CC=true → 우리 true (단, 최근 ~1초 내 사용자가 native CC를 직접 클릭했을 때만 honor)
 //   CC=false → 무시 (page sticky의 잘못된 lang으로 자막 자동 disable되는 케이스를 막기 위해.
 //   자막 끄기는 사용자가 C 키나 팝업으로만 — page CC의 disable은 sticky-induced로 가정.)
 function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
@@ -632,7 +647,10 @@ function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
   if (!currentSettings) return;
   if (currentSettings.subtitlesEnabled === pressed) return;
   if (!pressed) return;
-  console.log(TAG, `CC button -> subtitlesEnabled=true`);
+  // CC=true는 사용자가 방금 직접 CC를 클릭했을 때만 honor. YouTube 자동 enable이나 우리
+  // 프로그램적 click은 lastUserCcClickAt을 안 남겨 여기서 걸러짐 → 꺼둔 자막이 안 되살아남.
+  if (Date.now() - lastUserCcClickAt > USER_CC_CLICK_WINDOW_MS) return;
+  console.log(TAG, `CC button -> subtitlesEnabled=true (user click)`);
   void saveSettings({ subtitlesEnabled: true });
 }
 
