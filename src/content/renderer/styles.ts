@@ -188,6 +188,91 @@ const STYLES = `
   color: #fff;
 }
 .ydt-explain-body.highlighting { cursor: text; }
+
+/* 탭 스트립 — 탭 2개 이상일 때만(렌더 측 hidden 토글). 가로 스크롤·라벨 ellipsis. */
+.ydt-explain-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  background: #1f1f1f;
+  border-bottom: 1px solid #333;
+  overflow-x: auto;
+  flex: 0 0 auto;
+}
+.ydt-explain-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  padding: 3px 4px 3px 8px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.ydt-explain-tab:hover { background: #333; }
+.ydt-explain-tab.active { background: #2e6f86; border-color: #4aa3c4; }
+.ydt-explain-tab-label {
+  font-size: 12px;
+  color: #ddd;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 116px;
+}
+.ydt-explain-tab.active .ydt-explain-tab-label { color: #fff; }
+.ydt-explain-tab-close {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1;
+  color: #aaa;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.ydt-explain-tab-close:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+
+/* 탭 콘텐츠 컨테이너 — 활성 탭(contentEl)만 display, 본문은 그 안에서 스크롤. */
+.ydt-explain-tabsbody {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.ydt-explain-tabcontent {
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 최소화 핸들 — 패널을 접으면 우상단에 작게. 클릭하면 복원(탭 보존). */
+.ydt-explain-fab {
+  position: fixed;
+  z-index: 2147483646;
+  top: 72px;
+  right: 24px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 13px;
+  background: #2e6f86;
+  color: #fff;
+  border: 1px solid #4aa3c4;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ydt-explain-fab:hover { background: #357f99; }
 .ydt-explain-close {
   flex: 0 0 auto;
   width: 26px;
@@ -204,6 +289,9 @@ const STYLES = `
 .ydt-explain-body {
   padding: 12px 16px 16px;
   overflow-y: auto;
+  /* 탭 콘텐츠(flex column) 안에서 남은 높이를 채우고 그 안에서 스크롤. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .ydt-explain-loading { color: #999; font-size: 13px; padding: 8px 0; }
 .ydt-explain-model { color: #9ee7ff; font-weight: 600; }

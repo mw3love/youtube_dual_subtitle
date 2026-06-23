@@ -218,6 +218,18 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **백엔드 — 질문 전용 프롬프트** (`background/explain.ts`, `settings.ts:QUESTION_SYSTEM_PROMPT`): `EXPLAIN` 메시지에 `question?` 필드 추가. `explain()`이 `question`이 있으면 고정 표 형식의 `explainPrompt` 대신 **가벼운 튜터 프롬프트**(`QUESTION_SYSTEM_PROMPT`, 코드 상수·사용자 편집 대상 아님)를 system으로 쓰고, `buildUserMessage`가 "고른 부분 + 자막 문장 + 질문" 형태로 조립. "who 빼면 이상해?" 같은 자유 질문에 고정 형식이 끼어드는 걸 방지. 백엔드(gemini/mindlogic)·키·재시도·`temperature 0.3`·`max_tokens 4096`은 해설과 공유.
 - **배선** (`content/index.ts:requestQuestion`): 해설의 `requestExplain`와 같은 `EXPLAIN` 메시지에 `question` 동봉. **질문 경로는 `explainPrompt` 비어있음 가드를 안 함**(질문 전용 프롬프트를 쓰므로). background 핸들러 가드도 `(m.prompt || m.question)`으로 완화 — 단 `AnyMsg`가 `Partial<ExplainMsg>`라 `||` 가드는 `prompt`를 string으로 좁히지 못해 `prompt: prompt ?? ''` 폴백 필요(해설 경로에선 항상 채워져 옴). `ExplainUI` 생성자에 `requestQuestion` 콜백을 `requestExplain` 다음 인자로 주입.
 
+### 20. 해설 패널 탭 누적 + 최소화 (A37, v0.10.0)
+
+**문제:** 옛 `openPanel`은 새 해설/질문을 띄울 때마다 맨 앞에서 `closePanel()`로 **이전 패널을 파괴**했다. 그래서 ⓐ 새 단어를 물으면 직전 해설이 사라져 "다시 볼 수가 없고" ⓑ ✕/Esc로 닫으면 **복구 진입점이 0**이었다. (패널 자체는 영상 시청·SPA 이동에는 안 죽음 — teardown은 위 두 경로뿐이었다.) prior art: `ai-dictionary`(C:\Dev\ai-dictionary)가 팝업 내부 탭 모델을 이미 구현 — 그 데이터 모델을 in-page 패널 특성에 맞게 단순화해 차용([[project_ai_dictionary]]).
+
+- **탭 모델은 메모리 only** (`explain-ui.ts:Tab[]` + `active`): content script가 YouTube SPA 이동에서 reload되지 않으므로 탭이 영상 전환·Shorts 스와이프를 가로질러 생존한다. 전체 새로고침(F5)·탭 닫기에서만 초기화. `ai-dictionary`는 팝업 document가 매번 파괴돼 `storage.session` 직렬화가 필수였지만, **우리 패널은 안 죽으므로 storage 불필요** — 각 탭의 렌더된 `bodyEl`(DOM)을 그대로 들고 show/hide만 한다. 그 덕에 라이브 형광펜(`code.ydt-user-mark`)·offset 재적용 문제가 통째로 사라짐(섹션 17의 "DOM이 source of truth"와 정합).
+- **셸 1개 + 탭별 콘텐츠 swap** (`ensureShell`/`openTab`/`activateTab`): 헤더(제목·액션·`–`·`✕`)와 탭스트립은 패널에 고정, `tabsContainer` 안에서 활성 탭의 `contentEl`(=`[qform?] + body`)만 `display:flex`. `openTab`이 옛 `openPanel`을 대체해 **`closePanel` 대신 새 탭 push**. 제목·액션 버튼 상태는 `activateTab`→`refreshActions`가 활성 탭 기준으로 갱신. 탭 ≥2면 `renderTabstrip`이 스트립(라벨+✕) 표시, 1개면 숨김(`ai-dictionary`와 동일 규칙).
+- **탭별 독립 상태**: `result`(복사/Notion 참조)·`notionSaved`/`notionPageUrl`·`qInput`이 전부 `Tab`에. 형광펜 모드(`highlightMode`)는 탭 전환 시 off로 리셋(탭마다 독립). 복사/Notion/백틱은 전부 `activeTab().bodyEl` 대상 — `currentMarkdown()`=`domToMarkdown(activeTab.bodyEl)`.
+- **비동기 가드 전환**: 옛 코드는 `panel.dataset.term !== text`로 "패널이 그 단어 것인지" 검사했으나, 탭 구조에선 `this.tabs.includes(tab)`(탭이 닫혔나)로 바꿈 — 결과는 비활성 탭이어도 그 `tab.bodyEl`에 쓰고(살아있으면), **버튼 갱신은 `activeTab()===tab`일 때만**. 그래서 로딩 중 탭 전환·패널 닫힘에도 다른 탭 버튼을 오염시키지 않음. 질문 **에러** 시엔 `refreshActions`를 부르지 않음(본문이 에러 텍스트라 옛 `result`로 버튼이 켜지면 복사가 에러를 복사 — 해설 에러 경로와 동일하게 비활성 유지).
+- **최소화 ≠ 닫기** (`minimize`/`restore`/`ensureFab`): `–` 또는 **Esc**는 패널을 파괴하지 않고 `display:none` + 우상단 `💡 N` 핸들(`.ydt-explain-fab`)로 접어 탭을 보존, 핸들 클릭으로 복원. `✕`(헤더)는 패널·모든 탭 완전 제거(`closePanel`), 탭스트립의 탭별 `✕`는 그 탭만(`closeTab`, 마지막 하나면 패널 닫힘). Esc 최소화는 전체화면 Esc 탈출과 비충돌(UA 전체화면 해제는 JS `stopPropagation`과 무관) + 시청 중 갇힘 해소.
+- **CSS** (`styles.ts`): `.ydt-explain-tabs`(스트립)·`.ydt-explain-tab`(칩, ellipsis)·`.ydt-explain-tabsbody`/`.ydt-explain-tabcontent`(flex column 체인)·`.ydt-explain-fab`(핸들). `.ydt-explain-body`에 `flex:1 1 auto; min-height:0` 추가 — 본문이 중첩 flex(`panel > tabsbody > tabcontent > body`) 안에서 남은 높이를 채우고 그 안에서 스크롤하게(없으면 장문이 contentEl을 넘쳐 스크롤 안 됨).
+- **한계:** 메모리 only라 F5/탭 닫기로 사라짐(영구 보관·"단어장"은 `ai-dictionary`가 담당 — 기능 중복 회피). 멀티턴 대화는 여전히 미지원(각 탭은 단발).
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.
