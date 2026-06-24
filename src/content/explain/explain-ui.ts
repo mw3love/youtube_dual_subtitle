@@ -22,7 +22,9 @@ import { renderMarkdown, domToMarkdown } from './markdown';
 const TAG = '[YDT/explain]';
 
 export type ExplainResult = { ok: true; markdown: string } | { ok: false; error: string };
-export type NotionSaveResult = { ok: true; url?: string } | { ok: false; error: string };
+export type NotionSaveResult =
+  | { ok: true; url?: string; title?: string }
+  | { ok: false; error: string };
 
 // 한 해설/질문 = 한 탭. 탭별 상태는 여기에 보관(전환은 contentEl 표시/숨김).
 interface Tab {
@@ -35,6 +37,7 @@ interface Tab {
   result: { term: string; markdown: string; context: string } | null; // 도착한 답변(복사/Notion 참조)
   notionSaved: boolean;
   notionPageUrl: string | null;
+  notionTitle: string | null; // Notion에 실제 저장된 제목 — 저장 후 알림 줄에 표시
 }
 
 export class ExplainUI {
@@ -56,6 +59,7 @@ export class ExplainUI {
 
   // 패널 헤더 요소(활성 탭 기준으로 동작).
   private titleEl: HTMLElement | null = null;
+  private noticeEl: HTMLElement | null = null; // Notion 저장 결과 알림 줄(헤더 아래)
   private tabstripEl: HTMLElement | null = null;
   private copyBtn: HTMLButtonElement | null = null;
   private notionBtn: HTMLButtonElement | null = null;
@@ -110,15 +114,15 @@ export class ExplainUI {
   // ─── 선택 감지 ───
   private onMouseUp = (ev: MouseEvent): void => {
     if (!this.enabled) return;
-    // 우리 툴바/패널/핸들 클릭으로 끝난 mouseup은 무시(선택 평가 안 함).
     const t = ev.target as HTMLElement | null;
-    if (
-      t &&
-      (t.closest('.ydt-explain-toolbar') ||
-        t.closest('.ydt-explain-panel') ||
-        t.closest('.ydt-explain-fab'))
-    )
-      return;
+    // 툴바/핸들 클릭으로 끝난 mouseup은 무시.
+    if (t && (t.closest('.ydt-explain-toolbar') || t.closest('.ydt-explain-fab'))) return;
+    // 패널 안이라도 **본문(.ydt-explain-body)** 선택은 "그 표현 다시 해설/질문"용으로 평가한다.
+    // 본문 외 패널 영역(헤더·질문 입력칸 등) 선택은 무시.
+    const inBody = !!t && !!t.closest('.ydt-explain-body');
+    if (t && t.closest('.ydt-explain-panel') && !inBody) return;
+    // 형광펜 모드면 본문 드래그는 마킹용 mouseup이라 툴바 평가 skip(applyHighlight가 처리).
+    if (inBody && this.highlightMode) return;
     // 선택 평가는 다음 tick에 — mouseup 직후 selection이 확정됨.
     window.setTimeout(() => this.evaluateSelection(), 0);
   };
@@ -135,16 +139,26 @@ export class ExplainUI {
       return;
     }
     const range = sel.getRangeAt(0);
-    const container = closestContainer(range.commonAncestorContainer);
-    if (!container) {
-      this.hideToolbar();
+    const node = range.commonAncestorContainer;
+    // 1) 자막 박스(.ydt-container) 안 선택 — 문맥 = 원문(영어) 줄 전체. 없으면 컨테이너 전체 텍스트.
+    const container = closestContainer(node);
+    if (container) {
+      const sourceText = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
+      const context = sourceText || container.textContent?.trim() || text;
+      this.pending = { text, context };
+      this.showToolbar(range.getBoundingClientRect());
       return;
     }
-    // 문맥 = 같은 자막 박스의 원문(영어) 줄 전체. 없으면 컨테이너 전체 텍스트.
-    const sourceText = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
-    const context = sourceText || container.textContent?.trim() || text;
-    this.pending = { text, context };
-    this.showToolbar(range.getBoundingClientRect());
+    // 2) 해설 본문 안 선택 — 그 표현을 새 탭에서 다시 해설/질문. 문맥 = 선택이 든 블록 텍스트.
+    const body = closestExplainBody(node);
+    if (body) {
+      const block = closestBlock(node, body);
+      const context = (block?.textContent || body.textContent || text).trim();
+      this.pending = { text, context };
+      this.showToolbar(range.getBoundingClientRect());
+      return;
+    }
+    this.hideToolbar();
   }
 
   private onSelectionChange = (): void => {
@@ -170,6 +184,21 @@ export class ExplainUI {
     if (ev.key === 'Escape' && this.panel && this.panel.style.display !== 'none') {
       ev.stopPropagation();
       this.minimize();
+      return;
+    }
+
+    // Shift+백틱(~) — 헤더 ✏️ 백틱 버튼과 동일 토글. 본문에 선택이 있으면 그 선택을 마킹(+모드 ON),
+    // 없으면 형광펜 모드 자체를 on/off. 물리 키 Backquote 기준(IME/레이아웃 무관, CLAUDE.md 섹션 10
+    // 패턴) + ev.key === '~' 폴백. 패널이 떠 있고 활성 탭에 답이 있을 때만(버튼 disabled 조건과 동일).
+    if ((ev.code === 'Backquote' && ev.shiftKey) || ev.key === '~') {
+      // 질문 입력칸/검색창 등에 포커스 중이면 ~ 입력을 보호(가로채지 않음).
+      const el = ev.target as HTMLElement | null;
+      if (el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.isContentEditable)) return;
+      if (!this.panel || this.panel.style.display === 'none') return;
+      if (!this.activeTab()?.result) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.onHighlightClick();
     }
   };
 
@@ -263,7 +292,7 @@ export class ExplainUI {
     this.highlightBtn.textContent = '✏️ 백틱';
     this.highlightBtn.disabled = true;
     this.highlightBtn.title =
-      '드래그 후 누르면 그 부분을 백틱 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동)';
+      '드래그 후 누르면 그 부분을 백틱 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`';
     // mousedown 기본 동작(본문 선택 collapse)을 막아야 "드래그 후 버튼 클릭"에서 선택이 살아있음.
     this.highlightBtn.addEventListener('mousedown', (e) => e.preventDefault());
     this.highlightBtn.addEventListener('click', () => this.onHighlightClick());
@@ -303,6 +332,12 @@ export class ExplainUI {
     actions.append(this.highlightBtn, this.copyBtn, this.notionBtn, min, close);
     header.append(title, actions);
 
+    // Notion 저장 결과 알림 줄 — 저장 후 실제 제목을 보여줌(어떤 제목으로 들어갔는지 바로 확인).
+    const notice = document.createElement('div');
+    notice.className = 'ydt-explain-notice';
+    notice.hidden = true;
+    this.noticeEl = notice;
+
     // 탭스트립 — 탭 2개 이상일 때만 표시(renderTabstrip이 hidden 토글).
     const tabstrip = document.createElement('div');
     tabstrip.className = 'ydt-explain-tabs';
@@ -313,7 +348,7 @@ export class ExplainUI {
     tabsContainer.className = 'ydt-explain-tabsbody';
     this.tabsContainer = tabsContainer;
 
-    panel.append(header, tabstrip, tabsContainer);
+    panel.append(header, notice, tabstrip, tabsContainer);
     this.host().appendChild(panel);
     this.panel = panel;
   }
@@ -394,6 +429,7 @@ export class ExplainUI {
       result: null,
       notionSaved: false,
       notionPageUrl: null,
+      notionTitle: null,
     };
     this.tabsContainer!.appendChild(contentEl);
     this.tabs.push(tab);
@@ -480,6 +516,30 @@ export class ExplainUI {
         this.notionBtn.title = '';
       }
     }
+    // 알림 줄은 저장된 탭에서만 표시(탭 전환 시에도 그 탭 기준으로 따라옴).
+    if (tab?.notionSaved && tab.notionTitle) this.showNotice(tab.notionTitle, tab.notionPageUrl);
+    else this.hideNotice();
+  }
+
+  // Notion 저장 결과를 헤더 아래 한 줄로 — 어떤 제목으로 저장됐는지 바로 확인.
+  private showNotice(title: string, url: string | null): void {
+    const el = this.noticeEl;
+    if (!el) return;
+    el.replaceChildren(document.createTextNode(`📝 Notion 저장됨: 「${title}」`));
+    if (url) {
+      el.append('  ');
+      const a = document.createElement('a');
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = '열기 ↗';
+      el.append(a);
+    }
+    el.hidden = false;
+  }
+
+  private hideNotice(): void {
+    if (this.noticeEl) this.noticeEl.hidden = true;
   }
 
   // 로딩 중 액션 비활성(활성 탭일 때만 — 다른 탭 보고 있으면 그 탭 버튼은 건드리지 않음).
@@ -530,6 +590,7 @@ export class ExplainUI {
     this.active = -1;
     this.tabsContainer = null;
     this.titleEl = null;
+    this.noticeEl = null;
     this.tabstripEl = null;
     this.copyBtn = null;
     this.notionBtn = null;
@@ -681,8 +742,10 @@ export class ExplainUI {
     this.markEdited();
   }
 
-  // 빨간 칩(내가 표시한 백틱) 클릭 → 해제. AI 예문 백틱은 대상 아님.
+  // 빨간 칩(내가 표시한 백틱) 클릭 → 해제. 단 **형광펜 모드 ON일 때만** — OFF에선 칠한 단어를
+  // 클릭/드래그해도 해제 안 하고 그냥 선택(재해설 등)에 양보한다. AI 예문 백틱은 대상 아님.
   private onPanelClick(ev: MouseEvent): void {
+    if (!this.highlightMode) return;
     const t = ev.target as HTMLElement | null;
     const code = t?.closest('.ydt-explain-body code.ydt-user-mark') as HTMLElement | null;
     if (!code) return;
@@ -702,6 +765,8 @@ export class ExplainUI {
     if (!tab || !tab.notionSaved) return;
     tab.notionSaved = false;
     tab.notionPageUrl = null;
+    tab.notionTitle = null;
+    this.hideNotice();
     if (this.notionBtn) {
       this.notionBtn.textContent = '📝 Notion';
       this.notionBtn.title = '';
@@ -754,10 +819,12 @@ export class ExplainUI {
     if (res.ok) {
       tab.notionSaved = true;
       tab.notionPageUrl = res.url ?? null;
+      tab.notionTitle = res.title?.trim() || term;
       if (this.activeTab() === tab) {
         btn.textContent = tab.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
         btn.disabled = false;
         btn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
+        this.showNotice(tab.notionTitle, tab.notionPageUrl);
       }
     } else {
       console.warn(TAG, 'notion save error:', res.error);
@@ -777,16 +844,53 @@ export class ExplainUI {
   }
 }
 
-// 복사/Notion 제목 — 단어보다 "예문"이 복습에 유용. ① 자막 문장(context)이 의미있으면 그걸,
-// ② degenerate면 답변의 첫 인라인 백틱 예문, ③ 없으면 단어. background/notion.ts:pickNotionTitle과
-// 같은 로직의 평행 구현(content/background 분리 — 섹션 15의 markdown 평행 구현과 동일 사유).
+// 제목 길이 상한 — 넘으면(구두점 없는 ASR 런온 등) AI 예문으로. notion.ts:TITLE_MAX_LEN과 동일.
+const TITLE_MAX_LEN = 100;
+
+// 복사/Notion 제목 — 단어보다 "예문"이 복습에 유용. ① 자막 문장(context) 중 **선택 단어가 든 한
+// 문장**이 적당한 길이면 그것, ② 없거나 너무 길면(런온) 답변의 첫 인라인 백틱 예문, ③ 없으면 단어.
+// background/notion.ts:pickNotionTitle과 같은 로직의 평행 구현(섹션 15의 평행 구현과 동일 사유).
 function pickTitle(term: string, context: string | undefined, markdown: string): string {
   const t = term.trim();
   const ctx = (context ?? '').trim();
-  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) return ctx;
   const example = markdown.match(/`([^`\n]+)`/)?.[1]?.trim();
+  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) {
+    const sentence = pickContextSentence(ctx, t);
+    if (sentence.length <= TITLE_MAX_LEN) return sentence;
+    if (example) return example;
+    return sentence;
+  }
   if (example) return example;
   return t || '(제목 없음)';
+}
+
+// 여러 문장일 수 있는 자막 문맥에서 선택 표현(term)이 든 한 문장만 고른다(없으면 첫 문장).
+function pickContextSentence(context: string, term: string): string {
+  const sentences = splitSentences(context);
+  if (sentences.length <= 1) return context.trim();
+  const t = term.trim().toLowerCase();
+  const hit = t ? sentences.find((s) => s.toLowerCase().includes(t)) : undefined;
+  return (hit ?? sentences[0]).trim();
+}
+
+// 종결부호(.?!…。！？) 뒤에서 문장 분할(부호 + 뒤따르는 닫는 따옴표/괄호는 앞 문장에 포함).
+function splitSentences(text: string): string[] {
+  const parts = text.trim().match(/[^.?!…。！？]+[.?!…。！？]*["'”’)\]】」』]*\s*/g);
+  if (!parts) return [text.trim()].filter(Boolean);
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+
+// 노드가 속한 해설 본문(.ydt-explain-body) 찾기 — 패널 안 드래그 재해설용.
+function closestExplainBody(node: Node): HTMLElement | null {
+  const el = node instanceof HTMLElement ? node : node.parentElement;
+  return el?.closest('.ydt-explain-body') ?? null;
+}
+
+// 선택이 든 가장 가까운 블록(문단/목록/셀/헤딩/인용)의 요소 — 그 텍스트를 재해설 문맥으로.
+function closestBlock(node: Node, root: HTMLElement): HTMLElement | null {
+  const el = node instanceof HTMLElement ? node : node.parentElement;
+  const block = el?.closest('p,li,td,th,h1,h2,h3,h4,h5,h6,blockquote,pre') as HTMLElement | null;
+  return block && root.contains(block) ? block : null;
 }
 
 // 버튼 라벨을 잠깐 바꿨다 원복(피드백용).

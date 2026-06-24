@@ -25,22 +25,47 @@ export interface NotionSaveParams {
   videoUrl?: string;
 }
 
+// 제목으로 적당한 한 문장 길이 상한. 넘으면(구두점 없는 ASR 런온 등 — 한 문장으로 안 쪼개짐) AI 예문으로.
+const TITLE_MAX_LEN = 100;
+
 // 페이지 제목 선택 — 단어보다 "예문"이 복습에 유용(ai-dictionary 차용). 우선순위:
-// ① 자막 원문 문장(context)이 의미있으면(선택 단어와 다르고 더 길면) 그걸 제목으로 — YDT는
-//    드래그 출처라 실제 용례 문장을 갖고 있음(ai-dictionary엔 없어 AI 예문을 썼다).
-// ② degenerate(빈/단어와 동일)면 AI 해설의 첫 인라인 백틱 예문. 코드펜스(```)는 [^`]에 안 걸림.
+// ① 자막 원문 문장(context) 중 **선택 단어가 든 한 문장**이 적당한 길이면 그것(실제 용례 우선).
+// ② ①이 없거나(빈/단어와 동일) 한 문장이 상한 초과(ASR이 구두점을 안 줘 런온으로 안 쪼개짐)면
+//    AI 해설의 첫 인라인 백틱 예문(깔끔한 한 문장). 코드펜스(```)는 [^`]에 안 걸림.
 // ③ 그래도 없으면 단어.
 function pickNotionTitle(term: string, context: string | undefined, markdown: string): string {
   const t = term.trim();
   const ctx = (context ?? '').trim();
-  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) return ctx;
   const example = markdown.match(/`([^`\n]+)`/)?.[1]?.trim();
+  if (ctx && ctx.toLowerCase() !== t.toLowerCase() && ctx.length > t.length) {
+    const sentence = pickContextSentence(ctx, t);
+    if (sentence.length <= TITLE_MAX_LEN) return sentence;
+    if (example) return example; // 한 문장이 너무 길면 AI 예문으로
+    return sentence; // 예문도 없으면 어쩔 수 없이(caller가 truncate)
+  }
   if (example) return example;
   return t || '(제목 없음)';
 }
 
-// 해설을 DB에 페이지로 저장. 생성된 페이지 URL 반환.
-export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: string }> {
+// 여러 문장일 수 있는 자막 문맥에서 선택 표현(term)이 든 한 문장만 고른다(없으면 첫 문장).
+// 단어 해설 시 자막 2~3줄 전체가 제목이 되는 걸 막는다 — 제목엔 한 문장이 적합.
+function pickContextSentence(context: string, term: string): string {
+  const sentences = splitSentences(context);
+  if (sentences.length <= 1) return context.trim();
+  const t = term.trim().toLowerCase();
+  const hit = t ? sentences.find((s) => s.toLowerCase().includes(t)) : undefined;
+  return (hit ?? sentences[0]).trim();
+}
+
+// 종결부호(.?!…。！？) 뒤에서 문장 분할(부호 + 뒤따르는 닫는 따옴표/괄호는 앞 문장에 포함).
+function splitSentences(text: string): string[] {
+  const parts = text.trim().match(/[^.?!…。！？]+[.?!…。！？]*["'”’)\]】」』]*\s*/g);
+  if (!parts) return [text.trim()].filter(Boolean);
+  return parts.map((s) => s.trim()).filter(Boolean);
+}
+
+// 해설을 DB에 페이지로 저장. 생성된 페이지 URL + 실제 사용된 제목 반환(팝업/패널에 표시용).
+export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: string; title: string }> {
   const token = await getNotionToken();
   if (!token) throw new Error('Notion 토큰이 없음 (옵션 페이지에서 입력 필요)');
   const dbId = normalizeId(params.databaseId);
@@ -104,7 +129,7 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
   });
   if (!res.ok) throw await notionError(res);
   const data = (await res.json()) as { url?: string };
-  return { url: data.url };
+  return { url: data.url, title };
 }
 
 // 옵션 "테스트" 버튼용 — 토큰+DB 공유+ID를 한 번에 검증. DB 제목 반환.

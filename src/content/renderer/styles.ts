@@ -103,7 +103,7 @@ const STYLES = `
 /* 선택 위에 뜨는 트리거 툴바(💡 해설 + ❓ 질문) — fixed라 뷰포트 기준, 전체화면 host에 붙어도 동작. */
 .ydt-explain-toolbar {
   position: fixed;
-  z-index: 2147483646;
+  z-index: 2147483647;
   display: none;
   gap: 6px;
   align-items: center;
@@ -188,6 +188,20 @@ const STYLES = `
   color: #fff;
 }
 .ydt-explain-body.highlighting { cursor: text; }
+
+/* Notion 저장 결과 알림 줄 — 헤더 아래, 저장된 제목 표시. */
+.ydt-explain-notice {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  background: #1f3326;
+  color: #b8f0c8;
+  font-size: 12px;
+  line-height: 1.5;
+  border-bottom: 1px solid #2c4a36;
+  word-break: break-word;
+}
+.ydt-explain-notice a { color: #7fd0ff; text-decoration: none; }
+.ydt-explain-notice a:hover { text-decoration: underline; }
 
 /* 탭 스트립 — 탭 2개 이상일 때만(렌더 측 hidden 토글). 가로 스크롤·라벨 ellipsis. */
 .ydt-explain-tabs {

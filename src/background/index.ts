@@ -218,7 +218,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     const { term, markdown, context, databaseId, videoTitle, videoUrl } = m;
     (async (): Promise<void> => {
       try {
-        const { url } = await saveToNotion({
+        const { url, title } = await saveToNotion({
           term,
           markdown,
           context,
@@ -226,7 +226,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
           videoTitle,
           videoUrl,
         });
-        sendResponse({ ok: true, url });
+        sendResponse({ ok: true, url, title });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'notion save failed:', error);

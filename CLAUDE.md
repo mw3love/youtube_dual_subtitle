@@ -177,7 +177,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
   - **📝 Notion**: `requestNotionSave` → `NOTION_SAVE` 메시지(영상 제목/URL 동봉) → background. 저장중→`✓ 저장됨 ↗`(클릭 시 생성된 페이지 열기)/`✗ 저장 실패`(2.5s 후 원복).
 - **백엔드** (`background/notion.ts`, `saveToNotion`): 호출 경로는 gemini/mindlogic와 동일 — SW가 `host_permissions`의 `api.notion.com`으로 fetch(CORS 우회). 토큰은 `secrets.ts`(storage.local), DB ID는 settings(storage.sync). `Notion-Version: 2022-06-28`.
   - **DB 스키마 적응**: `GET /v1/databases/{id}`로 **title 속성 "이름"**(DB마다 Name/이름/… 다름)을 찾아 거기에 제목 매핑. URL/Date 타입 속성이 있으면 best-effort로 영상 링크/오늘 날짜 채움(없으면 건너뜀 — 어떤 DB에도 안 깨짐). 그 외 속성은 안 건드림.
-  - **제목 = "예문" (A40, v0.11.2)**: 단어보다 예문이 복습에 유용해(ai-dictionary 차용) 제목을 단어 대신 **그 단어가 쓰인 자막 문장(`context`)**으로 한다(`notion.ts:pickNotionTitle`). 우선순위 ① 자막 문장이 의미있으면(선택 단어와 다르고 더 길면) 그것 → ② degenerate(빈/단어와 동일)면 해설 markdown의 **첫 인라인 백틱 예문**(`` /`([^`\n]+)`/ ``, 코드펜스 ```` ``` ````는 안 걸림) → ③ 단어. ai-dictionary는 원문 문장이 없어 ②를 썼지만 YDT는 드래그 출처라 ①(실용례)을 우선. 같은 로직을 **📋 복사 헤딩**(`explain-ui.ts:pickTitle`, content/background 분리로 평행 구현)에도 적용. 제목이 자막 문장이면 본문 인용은 중복이라 생략.
+  - **제목 = "예문" (A40, v0.11.2 → 한 문장+길이 캡 A41, v0.12.0)**: 단어보다 예문이 복습에 유용해(ai-dictionary 차용) 제목을 단어 대신 **그 단어가 쓰인 자막 문장**으로 한다(`notion.ts:pickNotionTitle`). 우선순위 ① 자막 문맥(`context`) 중 **선택 단어가 든 한 문장**(`pickContextSentence` — 종결부호 `.?!…。！？` + 닫는 따옴표/괄호로 split)이 `TITLE_MAX_LEN`(100자) 이하면 그것(실제 용례 우선) → ② ①이 degenerate(빈/단어와 동일)거나 **한 문장이 100자 초과면**(구두점 없는 ASR 런온은 한 문장으로 안 쪼개져 통째로 길어짐 — 섹션 13) 해설 markdown의 **첫 인라인 백틱 예문**(`` /`([^`\n]+)`/ ``, AI가 만든 깔끔한 한 문장. 코드펜스 ```` ``` ````는 안 걸림) → ③ 단어. **A40은 ①을 자막 문장 통째로 썼으나**, 런온 자막에서 제목이 과도하게 길어져 A41에서 한 문장 추출 + 길이 캡 폴백을 추가. 같은 로직을 **📋 복사 헤딩**(`explain-ui.ts:pickTitle`, content/background 분리로 평행 구현 — `TITLE_MAX_LEN`도 양쪽 동일)에도 적용. 제목이 전체 자막과 다르면(=한 문장·예문) 본문 인용 quote는 전체 문맥을 그대로 보존(내용으론 유용), 같으면 중복이라 생략.
   - **본문**: 영상 링크 paragraph + 자막 문맥 quote + divider + `markdownToBlocks(markdown)`. 단 **URL 속성이 있으면 본문 영상링크 문단은 생략**(A32, 중복 제거 — 링크는 속성으로 가고, URL 속성 없는 DB에서만 본문 fallback). **자막 문맥 quote는 그게 제목으로 올라간 경우에도 생략**(A40, 위 참조).
   - **ID 정규화**: DB URL을 통째로 붙여넣어도 **첫 번째** 32 hex 추출 → 대시 형태로 재조립(`normalizeId`). DB URL은 경로의 DB id + 쿼리 `?v=`의 view id로 32-hex가 둘이라, 마지막을 쓰면 view id를 잡아 오답 — 첫 매치가 DB id.
 - **markdown→Notion 블록** (`background/notion-blocks.ts`, `markdownToBlocks`): SW엔 DOM이 없어 `content/explain/markdown.ts`를 재사용 못 함 — **같은 블록 인식 로직의 평행 구현**이되 출력이 Notion 블록 JSON. heading_1~3·paragraph·목록·code·table(+table_row)·divider(`---`)·인라인 rich_text(bold/italic/code). `inlineToRichText`는 **재귀**라 볼드/이탤릭 안의 코드를 결합 annotation(`{bold,code}`)으로 — 사용자가 볼드 단어에 백틱 표시 시 나오는 ``**`word`**``를 평면 파싱하면 안쪽 백틱이 리터럴로 깨지던 걸 해결(A32, 섹션 17). rich_text 조각 2000자 청크, children 100블록 cap.
@@ -243,6 +243,16 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **옵션 UI 통합** (`options/main.tsx`): Mindlogic 전용이던 `renderMindlogicSelect`/`onRefreshMindlogicModels`를 **제공자 공용 `renderModelSelect`/`refreshModels`/`modelRefreshControls`**로 일반화(메시지 타입·키·캐시 키만 분기). 번역·해설 모델 둘 다 `<select>`(owner별 optgroup) + "↻ 모델 새로고침" 버튼. Gemini 번역 모델 행이 radio→select로 바뀜.
 - **캐시 태그**(`content/index.ts:cacheBackendTag`)의 gemini 기본값 `'flash'`→`'gemini-2.5-flash'`(실제 ID와 정합).
 - **검증 한계:** `/models` 동적 조회는 라이브 키 필요 — 빌드·타입체크만 통과(프록시검증, 실조건 미확인).
+
+### 22. 해설 패널 안 재해설 + 저장 제목 알림 + 형광펜 UX (A41, v0.12.0)
+
+해설 패널을 **읽다가 모르는 단어를 또 파고드는** 흐름을 매끄럽게 + Notion 저장 결과 가시화. 모두 `explain-ui.ts` 중심(제목 길이 캡은 섹션 15).
+
+- **패널 본문 드래그 → 해설/질문 툴바 재출현** (`onMouseUp`/`evaluateSelection`): 옛 코드는 `.ydt-explain-panel` 안 선택을 전부 무시했으나, 이제 **본문(`.ydt-explain-body`) 안 선택**은 평가 대상 — 자막 박스(`.ydt-container`) 선택과 같은 `💡 해설`/`❓ 질문` 툴바를 띄워 **새 탭으로 누적**(섹션 20). 문맥(context)은 선택이 든 가장 가까운 블록(`closestBlock`: p/li/td/th/h*/blockquote/pre) 텍스트. 본문 외 패널 영역(헤더·질문 입력칸)·textarea 선택은 무시(입력 보호). **형광펜 모드 ON일 땐 본문 드래그는 마킹용**이라 툴바 평가 skip(`inBody && highlightMode` 게이트) — ai-dictionary의 markMode 분기와 동일. 툴바 z-index를 패널 위로(`2147483647 > 2147483646`).
+- **형광펜 OFF에서 칠한 텍스트 클릭 = 해제 안 함** (`onPanelClick`): 옛 코드는 모드 무관 클릭 시 `code.ydt-user-mark` 해제. 이제 `if (!this.highlightMode) return` 게이트 — OFF면 빨간 백틱 단어를 클릭/드래그해도 해제 않고 **선택에 양보**(위 재해설 흐름과 정합). 해제는 모드 ON에서만.
+- **Shift+백틱(`~`) = 형광펜 토글 단축키** (`onKeyDown`): 헤더 ✏️ 백틱 버튼의 `onHighlightClick`을 그대로 호출(버튼과 100% 동일 — 본문 선택 있으면 그 선택 마킹+모드 ON, 없으면 모드 on/off). 키 판별 물리 키 `code === 'Backquote' && shiftKey` 우선 + `key === '~'` 폴백(섹션 10의 IME/레이아웃 견고성 패턴). 가드: 입력칸(INPUT/TEXTAREA/contentEditable) 포커스 시 `~` 입력 보호, 패널이 떠 있고 활성 탭에 답이 도착한 뒤에만(버튼 disabled 조건과 동일).
+- **Notion 저장 제목 알림** (`saveToNotion`이 `{url, title}` 반환 → `NOTION_SAVE` 응답·`NotionSaveResult`에 `title` 추가): 저장 성공 시 패널 헤더 아래 알림 줄(`.ydt-explain-notice`)에 **`📝 Notion 저장됨: 「제목」  열기 ↗`** — 실제로 어떤 제목으로 들어갔는지 바로 확인(특히 한 문장/예문 폴백이 무엇으로 됐는지). 탭별 `notionTitle` 보관해 탭 전환 시도 따라오고, 백틱 수정으로 stale되면(`markEdited`) 사라짐. ai-dictionary의 `showNoticeLink` 패턴 차용.
+- **검증 한계:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 드래그/저장/단축키는 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 
