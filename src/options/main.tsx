@@ -37,7 +37,29 @@ const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 700, label: '굵게' },
 ];
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+// 섹션별 초기화 대상 키 — 해당 섹션 값만 default로 되돌리고 나머지(언어/백엔드/해설 등)는 유지.
+// "자막 스타일" = 원문/번역 텍스트 스타일(크기·색·굵기).
+const TEXT_STYLE_KEYS = [
+  'sourceStyle',
+  'targetStyle',
+] as const satisfies readonly (keyof Settings)[];
+// "자막 배치 · 배경" = 쇼츠 크기·배경 진하기·줄 간격·자막 위치.
+const LAYOUT_KEYS = [
+  'shortsFontScale',
+  'backgroundOpacity',
+  'lineHeight',
+  'subtitlePosition',
+] as const satisfies readonly (keyof Settings)[];
+
+function Section({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section style={{ marginBottom: 28 }}>
       <h2
@@ -48,12 +70,42 @@ function Section({ title, children }: { title: string; children: React.ReactNode
           borderBottom: '1px solid #2e2e2e',
           color: '#ffa200',
           fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
         }}
       >
-        {title}
+        <span>{title}</span>
+        {action}
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div>
     </section>
+  );
+}
+
+// 섹션 제목 옆 초기화 아이콘 — 해당 섹션의 값만 기본값으로 되돌린다. title 속성으로 무엇을
+// 되돌리는지 툴팁 안내. 노란 제목 옆에 두는 게 "이 섹션을 초기화"임이 직관적(전역 옵션
+// 초기화는 맨 아래 별도 버튼).
+function ResetIcon({ onClick, title }: { onClick: () => void; title: string }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      type="button"
+      style={{
+        fontSize: 13,
+        lineHeight: 1,
+        padding: '3px 8px',
+        color: '#bbb',
+        background: 'transparent',
+        border: '1px solid #3a3a3a',
+        borderRadius: 6,
+        cursor: 'pointer',
+        fontWeight: 400,
+      }}
+    >
+      ↻ 초기화
+    </button>
   );
 }
 
@@ -672,6 +724,22 @@ function Options() {
     savedFadeTimerRef.current = window.setTimeout(() => setSaveState('idle'), 2000);
   };
 
+  // 주어진 키들만 default 값으로 되돌리는 patch 생성 → 기존 update() 배선(디바운스 저장·즉시
+  // 반영)을 그대로 탄다. 키별 타입 좁히기 대신 Record 캐스트로 단순화.
+  const resetKeys = (keys: readonly (keyof Settings)[], message: string): void => {
+    if (!confirm(message)) return;
+    const patch: Partial<Settings> = {};
+    for (const k of keys) (patch as Record<string, unknown>)[k] = DEFAULT_SETTINGS[k];
+    update(patch);
+  };
+  const onResetTextStyle = (): void =>
+    resetKeys(TEXT_STYLE_KEYS, '원문·번역 자막 스타일(크기·색·굵기)을 기본값으로 되돌릴까요?');
+  const onResetLayout = (): void =>
+    resetKeys(
+      LAYOUT_KEYS,
+      '쇼츠 자막 크기·배경 진하기·줄 간격·자막 위치를 기본값으로 되돌릴까요?',
+    );
+
   const dangerButtonStyle: React.CSSProperties = {
     padding: '4px 10px',
     borderColor: '#6b2a2a',
@@ -1207,27 +1275,36 @@ function Options() {
         )}
       </Section>
 
-      <Section title="자막 스타일">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <StyleEditor
-              label="1. 원문 자막"
-              style={settings.sourceStyle}
-              onChange={(sourceStyle) => update({ sourceStyle })}
-            />
-            <StyleEditor
-              label="2. 번역 자막"
-              style={settings.targetStyle}
-              onChange={(targetStyle) => update({ targetStyle })}
-            />
-            {/* 위 두 StyleEditor와 아래 슬라이더 그룹을 시각적으로 분리.
-                슬라이더 값은 monospace + accent 색으로 표시해 폰트 크기(px)와 구분. */}
-            <div
-              style={{
-                height: 1,
-                background: '#2e2e2e',
-                margin: '6px 0 2px',
-              }}
-            />
+      <Section
+        title="자막 스타일"
+        action={
+          <ResetIcon
+            onClick={onResetTextStyle}
+            title="원문·번역 텍스트 스타일(크기·색·굵기)을 기본값으로"
+          />
+        }
+      >
+        <StyleEditor
+          label="1. 원문 자막"
+          style={settings.sourceStyle}
+          onChange={(sourceStyle) => update({ sourceStyle })}
+        />
+        <StyleEditor
+          label="2. 번역 자막"
+          style={settings.targetStyle}
+          onChange={(targetStyle) => update({ targetStyle })}
+        />
+      </Section>
+
+      <Section
+        title="자막 배치 · 배경"
+        action={
+          <ResetIcon
+            onClick={onResetLayout}
+            title="쇼츠 크기·배경·줄 간격·자막 위치를 기본값으로"
+          />
+        }
+      >
             <Row label="쇼츠 자막 크기" hint="100%면 일반 영상이랑 같음">
               <input
                 type="range"
@@ -1269,17 +1346,9 @@ function Options() {
               <span style={sliderValueStyle}>{settings.lineHeight.toFixed(2)}</span>
             </Row>
             {/* 자막 위치 — Row 컴포넌트 대신 수동 레이아웃.
-                라벨·Reset이 두 줄 설명의 세로 중앙(두 줄 사이)에 위치하도록 alignItems: center. */}
+                위치 초기화는 섹션 제목 옆 ↻(자막 배치·배경 그룹)에 통합. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <label style={{ minWidth: 140, fontSize: 13 }}>자막 위치</label>
-              <button
-                onClick={() =>
-                  update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })
-                }
-                style={{ padding: '4px 10px' }}
-              >
-                Reset
-              </button>
               <div
                 style={{
                   display: 'flex',
@@ -1293,7 +1362,6 @@ function Options() {
                 <div>· 마우스 휠 = 크기 조절</div>
               </div>
             </div>
-        </div>
       </Section>
 
       <Section title="관리">

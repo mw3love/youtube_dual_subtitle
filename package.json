@@ -1,7 +1,7 @@
 {
   "name": "youtube-dual-subtitle",
   "private": true,
-  "version": "0.12.0",
+  "version": "0.12.1",
   "type": "module",
   "description": "YouTube 듀얼 자막 (영어+한글) Chrome 확장 프로그램",
   "scripts": {
