@@ -245,7 +245,9 @@ export class ExplainUI {
     this.toolbar.style.display = 'flex';
   }
 
-  private hideToolbar(): void {
+  // public — 자막 cue가 바뀌면 content가 호출(렌더러 onCueChange). 드래그로 띄운 툴바는
+  // 그 선택이 가리키던 자막이 넘어가면 stale이므로 닫는다.
+  hideToolbar(): void {
     if (this.toolbar) this.toolbar.style.display = 'none';
   }
 
@@ -306,8 +308,9 @@ export class ExplainUI {
     this.copyBtn.addEventListener('click', () => void this.onCopy());
 
     // 📝 Notion 저장 — BYOK. notionEnabled일 때만 표시.
+    // 내용을 다 읽고 정리해 내보내는 "마지막" 액션이라 전용 클래스로 색을 분리(녹색).
     this.notionBtn = document.createElement('button');
-    this.notionBtn.className = 'ydt-explain-action';
+    this.notionBtn.className = 'ydt-explain-action ydt-explain-action-notion';
     this.notionBtn.type = 'button';
     this.notionBtn.textContent = '📝 Notion';
     this.notionBtn.disabled = true;
@@ -432,8 +435,11 @@ export class ExplainUI {
       notionTitle: null,
     };
     this.tabsContainer!.appendChild(contentEl);
-    this.tabs.push(tab);
-    this.activateTab(this.tabs.length - 1);
+    // 최신 탭을 맨 앞(왼쪽)에 — 새 탭은 곧 활성화되므로 활성 탭이 항상 같은 위치(맨 왼쪽)에
+    // 와 reachable. 계속 해설/질문해 탭이 쌓여도 최신이 오른쪽으로 밀려나지 않는다.
+    // contentEl은 display로 show/hide돼 tabsContainer 내 순서는 무관(탭 배열 순서만이 칩 순서).
+    this.tabs.unshift(tab);
+    this.activateTab(0);
     return tab;
   }
 

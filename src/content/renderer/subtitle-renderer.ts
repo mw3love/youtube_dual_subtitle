@@ -60,6 +60,10 @@ export class SubtitleRenderer {
   private targetFontSize = 18;
   private onFontSizeChange: ((source: number, target: number) => void) | null = null;
 
+  // 표시 cue가 바뀔 때(다음 cue 등장 또는 자막 사라짐) 호출 — 떠 있는 해설/질문 툴바를 닫는 데
+  // 쓴다. 드래그로 띄운 툴바는 그 선택이 가리키던 자막이 넘어가면 stale이므로.
+  private onCueChange: (() => void) | null = null;
+
   constructor() {
     injectStyles();
   }
@@ -249,6 +253,10 @@ export class SubtitleRenderer {
     this.onFontSizeChange = cb;
   }
 
+  setOnCueChange(cb: () => void): void {
+    this.onCueChange = cb;
+  }
+
   // 위치(%)의 기준 박스 = 컨테이너의 CSS offset parent(보통 #movie_player). CSS는
   // left/bottom %를 이 박스 기준으로 푼다. video 요소는 레터박스(상하 검은 띠) 영상에서
   // 콘텐츠 크기로 축소·중앙배치돼 player보다 작고 위치가 달라, 위치/드래그 계산에 video
@@ -369,6 +377,8 @@ export class SubtitleRenderer {
 
     if (idx !== this.lastIdx) {
       this.lastIdx = idx;
+      // 표시 자막이 바뀌었다 → 드래그로 떠 있던 해설/질문 툴바는 stale이므로 닫는다.
+      this.onCueChange?.();
       if (idx === -1) {
         this.container.style.visibility = 'hidden';
         this.sourceTextEl.textContent = '';

@@ -161,6 +161,9 @@ const explainUI = new ExplainUI(
   currentExplainModelLabel,
 );
 
+// 자막이 다음 cue로 넘어가면 드래그로 떠 있던 해설/질문 툴바를 닫는다(가리키던 선택이 사라짐).
+renderer.setOnCueChange(() => explainUI.hideToolbar());
+
 const currentVideoId = getVideoIdFromLocation;
 
 // 현재 renderer가 들고 있는 cue가 어느 video의 것인지. setCues 호출 시 갱신된다.

@@ -254,6 +254,13 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **Notion 저장 제목 알림** (`saveToNotion`이 `{url, title}` 반환 → `NOTION_SAVE` 응답·`NotionSaveResult`에 `title` 추가): 저장 성공 시 패널 헤더 아래 알림 줄(`.ydt-explain-notice`)에 **`📝 Notion 저장됨: 「제목」  열기 ↗`** — 실제로 어떤 제목으로 들어갔는지 바로 확인(특히 한 문장/예문 폴백이 무엇으로 됐는지). 탭별 `notionTitle` 보관해 탭 전환 시도 따라오고, 백틱 수정으로 stale되면(`markEdited`) 사라짐. ai-dictionary의 `showNoticeLink` 패턴 차용.
 - **검증 한계:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 드래그/저장/단축키는 Chrome 실사용 확인 대상.
 
+### 23. 해설 툴바 자막 전환 시 자동 닫힘 + Notion 버튼 색 구별 (A43, v0.12.2)
+
+- **자막 cue 전환 시 해설/질문 툴바 닫힘** (`subtitle-renderer.ts:onCueChange` → `content/index.ts` 배선 → `explain-ui.ts:hideToolbar`): 자막을 드래그해 `💡 해설`/`❓ 질문` 툴바를 띄운 채 두면 다음 cue로 넘어가도 툴바가 남아 있던 문제(가리키던 선택은 사라졌는데). 옛 hide 경로는 `selectionchange`(collapse 시)·바깥 `mousedown` 둘뿐이었는데, **렌더러의 프로그램적 DOM 텍스트 교체는 Chrome에서 `selectionchange`를 신뢰성 있게 발화하지 않아** 툴바가 lingering. 해결: 렌더러가 표시 cue 인덱스가 바뀌는 지점(`update()`의 `idx !== lastIdx` — 새 cue 등장·자막 사라짐 둘 다)에서 `onCueChange` 콜백 발화 → content가 `explainUI.hideToolbar()` 호출. 롤링 sticky 공백 구간은 인덱스 불변이라 발화 안 함(불필요 호출 없음). 콜백 배선은 `onFontSizeChange`/`onPositionChange`와 같은 패턴. **패널(이미 연 것)은 툴바와 별개라 영향 없음** — 계속 열려 있음. `hideToolbar`를 private→public 전환.
+- **📝 Notion 버튼 녹색 구별** (`styles.ts:.ydt-explain-action-notion` + `explain-ui.ts`에서 버튼에 클래스 부여): 해설을 다 읽고 정리해 내보내는 "마지막" 액션이라 복사(`📋`)·형광펜(`✏️`)의 중립 회색과 구별되게 녹색(`#244b34`, hover `#2d5d40`)으로 채움 — Notion 저장됨 알림 줄(`.ydt-explain-notice`)과 같은 팔레트라 일관. 저장 후 `✓ 저장됨`/`✗ 저장 실패` 상태는 textContent만 바뀌고 클래스는 유지돼 색 그대로(2-class selector specificity로 base `:hover`도 덮음).
+- **최신 탭이 맨 왼쪽** (`explain-ui.ts:openTab` — `tabs.push`+`activateTab(끝)` → `tabs.unshift`+`activateTab(0)`): 새 탭은 곧 활성화되므로 prepend하면 활성(최신) 탭이 **항상 같은 위치(맨 왼쪽)**에 와 reachable. append였을 땐 계속 해설/질문해 탭이 쌓이면 최신이 오른쪽으로 밀려 화면 밖으로 나갔음. 트레이드오프: 옛 탭이 한 칸씩 오른쪽으로 밀림(recency 우선이라 수용). `contentEl`은 display로 show/hide돼 `tabsContainer` 내 순서 무관(탭 배열 순서만 칩 순서) + `closeTab`·async 가드는 인덱스 재계산/객체 참조(`tabs.includes`) 기반이라 정렬 변경에 안 깨짐.
+- **검증 한계:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 툴바 자동 닫힘·버튼 색·탭 순서는 Chrome 실사용 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

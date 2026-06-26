@@ -187,6 +187,17 @@ const STYLES = `
   border-color: #4aa3c4;
   color: #fff;
 }
+/* 📝 Notion — 내용을 정리해 내보내는 마지막 액션이라 녹색으로 구별(복사·형광펜은 중립 회색).
+   저장 후 ✓/실패 ✗ 상태는 textContent만 바뀌고 클래스는 유지돼 색이 그대로 남는다. */
+.ydt-explain-action.ydt-explain-action-notion {
+  background: #244b34;
+  border-color: #3a6e4d;
+  color: #cdebd6;
+}
+.ydt-explain-action.ydt-explain-action-notion:hover:not(:disabled) {
+  background: #2d5d40;
+  color: #fff;
+}
 .ydt-explain-body.highlighting { cursor: text; }
 
 /* Notion 저장 결과 알림 줄 — 헤더 아래, 저장된 제목 표시. */
