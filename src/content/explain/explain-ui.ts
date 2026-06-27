@@ -332,8 +332,14 @@ export class ExplainUI {
     close.title = '패널 닫기 (모든 탭)';
     close.addEventListener('click', () => this.closePanel());
 
-    actions.append(this.highlightBtn, this.copyBtn, this.notionBtn, min, close);
-    header.append(title, actions);
+    // 헤더(제목바)엔 제목 + 우상단 구석의 – 최소화 · ✕ 닫기만. 백틱·복사·Notion은 아래 별도 툴바로.
+    const corner = document.createElement('div');
+    corner.className = 'ydt-explain-corner';
+    corner.append(min, close);
+
+    actions.append(this.highlightBtn, this.copyBtn, this.notionBtn);
+    // float(corner)을 제목보다 먼저 배치 — 제목 1줄째만 corner 옆으로 좁아지고 2·3줄은 전폭.
+    header.append(corner, title);
 
     // Notion 저장 결과 알림 줄 — 저장 후 실제 제목을 보여줌(어떤 제목으로 들어갔는지 바로 확인).
     const notice = document.createElement('div');
@@ -351,7 +357,8 @@ export class ExplainUI {
     tabsContainer.className = 'ydt-explain-tabsbody';
     this.tabsContainer = tabsContainer;
 
-    panel.append(header, notice, tabstrip, tabsContainer);
+    // actions(백틱·복사·Notion 툴바)를 헤더 바로 아래·본문 위에 — 읽다가 위로 올려 누르는 동선.
+    panel.append(header, actions, notice, tabstrip, tabsContainer);
     this.host().appendChild(panel);
     this.panel = panel;
   }
@@ -450,7 +457,7 @@ export class ExplainUI {
       t.contentEl.style.display = j === i ? 'flex' : 'none';
     });
     const tab = this.tabs[i];
-    if (this.titleEl) this.titleEl.textContent = tab.term;
+    this.setTitle(tab.term);
     // 형광펜 모드는 탭마다 독립 — 전환 시 off.
     this.highlightMode = false;
     this.highlightBtn?.classList.remove('active');
@@ -458,6 +465,38 @@ export class ExplainUI {
     this.refreshActions();
     this.renderTabstrip();
     tab.qInput?.focus();
+  }
+
+  // 제목을 넣되 3줄(max-height)을 넘치면 들어오는 최대 길이까지 줄이고 '…'을 붙인다.
+  // 멀티라인 + float 계단 래핑이라 -webkit-line-clamp(=display:-webkit-box로 래핑이 깨짐)를 못 써
+  // JS로 트림한다. 전체 term은 title 툴팁에 남겨 호버로 확인.
+  private setTitle(text: string): void {
+    const el = this.titleEl;
+    if (!el) return;
+    el.title = text;
+    el.textContent = text;
+    // 최소화 중(숨김)이면 측정 불가 → 트림 보류, restore에서 재적용.
+    if (el.clientHeight === 0) return;
+    // 안 넘치면 그대로(짧은 term엔 생략부호 안 붙임).
+    if (el.scrollHeight <= el.clientHeight + 1) return;
+    // 생략부호는 한 글자 '…'(U+2026) 대신 ASCII 마침표 세 개 — CJK 폰트(Noto Sans KR)가 '…'을
+    // 줄 세로 중앙에 찍어 떠 보이는 걸 피하고 baseline(아래)에 깔리게 한다.
+    const ELLIPSIS = '...';
+    // 이진 탐색: 생략부호를 붙여도 max-height 안에 들어오는 최대 prefix 길이.
+    let lo = 0;
+    let hi = text.length;
+    let best = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      el.textContent = text.slice(0, mid).trimEnd() + ELLIPSIS;
+      if (el.scrollHeight <= el.clientHeight + 1) {
+        best = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    el.textContent = text.slice(0, best).trimEnd() + ELLIPSIS;
   }
 
   // 닫은 탭이 마지막이면 패널 전체 닫기. 아니면 인덱스 보정 후 이웃 탭 활성화.
@@ -585,6 +624,9 @@ export class ExplainUI {
       this.panel.style.display = 'flex';
       if (this.panel.parentElement !== this.host()) this.host().appendChild(this.panel);
     }
+    // 최소화 중 열린 탭은 측정 불가로 트림이 보류됐을 수 있어, 보이게 된 지금 재적용.
+    const tab = this.tabs[this.active];
+    if (tab) this.setTitle(tab.term);
   }
 
   private closePanel(): void {

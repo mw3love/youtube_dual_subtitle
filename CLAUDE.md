@@ -272,6 +272,15 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **mindlogic.ts의 `%%` 구분자·few-shot·`MINDLOGIC_CHUNK_SIZE`(섹션 5)는 이제 입력이 항상 1문장이라 사실상 vestigial** — 코드는 그대로 두되(향후 배치 복원 시 재활용) 정렬 보장은 size 1이 담당.
 - **검증:** 사용자 실조건검증(실제 자막 시청으로 어긋남 해소 확인). probe 미실행.
 
+### 25. 해설 패널 헤더 레이아웃 — 제목 전폭 + 액션 툴바 분리 (A45, v0.12.4)
+
+**문제:** 긴 문장을 term으로 골라 해설하면(제목 = 드래그한 선택 그대로, 섹션 20의 `activateTab`) 헤더 제목이 여러 줄로 늘어나 본문을 가렸다. 처음엔 같은 헤더 한 줄에 제목 + 백틱·복사·Notion·`–`·`✕`가 다 있어 제목 폭이 극히 좁았다.
+
+- **메커니즘 교체 (계단형 float → 툴바 분리):** 중간 시도로 제목이 우측 버튼들을 피해 계단형으로 래핑하게 했으나, `–/✕`(26px)+버튼행(26px)을 세로로 쌓으면 ~52px라 **버튼 float이 3줄째(~42px 시작)까지 물려 내려와** 3줄째도 좁아지고 생략부호가 줄 중간에 박히는 구조적 한계가 있었다. 해결: **액션 버튼을 헤더에서 빼 본문 위 별도 툴바(`.ydt-explain-actions`)로** 내리고, 헤더(제목바)엔 제목 + 우상단 `–/✕`(`.ydt-explain-corner`, float right)만 남김. 그러면 제목은 1줄째만 작은 `–/✕` 옆으로 살짝 좁고 **2·3줄은 전폭** → 잘림 표시가 마지막 줄 끝(우하단)에 자연히 옴. 버튼이 본문 바로 위 고정 위치라 "읽다가 위로 올려 누르는" 동선과도 맞음(`explain-ui.ts:ensureShell`의 `panel.append(header, actions, notice, tabstrip, tabsContainer)`).
+- **제목 클램프 — `overflow: clip` + JS 트림:** `.ydt-explain-term`은 `max-height: 4.5em`(3줄) + `overflow: clip`. **`clip`은 BFC를 만들지 않아** float(corner) 래핑을 유지하면서 초과분만 자른다(`hidden`은 BFC라 래핑이 깨짐 — `-webkit-line-clamp`도 `display:-webkit-box`라 같은 이유로 불가). 순수 CSS 멀티라인 생략부호가 안 되므로 `explain-ui.ts:setTitle`이 `scrollHeight > clientHeight`면 **이진 탐색**으로 max-height에 들어오는 최대 prefix를 찾아 생략부호를 붙인다. 전체 term은 `title` 툴팁·탭 라벨·본문에 남아 정보 손실 없음. 최소화 중(숨김)이면 측정 불가라 트림 보류 후 `restore`에서 재적용.
+- **생략부호는 ASCII `...`(U+2026 `…` 아님):** 제목 폰트가 CJK(Noto Sans KR) 우선이라 `…` 한 글자를 **줄 세로 중앙**(CJK 관례)에 찍어 떠 보인다 → ASCII 마침표 3개로 baseline(아래)에 깔리게 함.
+- **검증:** 사용자 실조건검증(Chrome 실사용으로 제목 전폭 표시·생략부호 우하단·툴바 동선 확인). 빌드·타입체크 통과.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

@@ -146,26 +146,44 @@ const STYLES = `
   overflow: hidden;
 }
 .ydt-explain-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  /* 우측 float 2단(닫기 행 위 · 버튼 행 아래)을 포함하는 BFC. 제목은 그 옆을 계단형으로 래핑. */
+  display: flow-root;
   padding: 10px 14px;
   background: #232323;
   border-bottom: 1px solid #333;
   flex: 0 0 auto;
 }
+/* 우상단 구석: – 최소화 · ✕ 닫기. 좁은 float이라 제목 1줄째는 거의 전폭을 씀. */
+.ydt-explain-corner {
+  float: right;
+  display: flex;
+  gap: 2px;
+  margin-left: 10px;
+}
 .ydt-explain-term {
   font-weight: 700;
   color: #ffa200;
   font-size: 14px;
+  line-height: 1.5;
   word-break: break-word;
+  /* 3줄까지. 1줄만 우상단 닫기 float(–/✕) 옆이라 살짝 좁고, 2·3줄은 전폭(액션 버튼이 헤더 밖으로
+     빠져 제목바를 안 가림) → 잘림 표시 '…'이 마지막(3줄) 끝, 즉 우하단에 온다. 상한일 뿐이라 짧은
+     term은 그대로 짧게. overflow:clip은 BFC를 만들지 않아 float 래핑을 유지하면서 초과분만 클립한다
+     (hidden은 BFC라 래핑이 깨짐). 잘린 전체 term은 호버 title·탭 라벨·본문에 남으므로 정보 손실 없음. */
+  max-height: 4.5em;
+  overflow: clip;
 }
+/* 백틱·복사·Notion 액션 툴바 — 헤더(제목바) 아래 별도 행. 제목바를 침범하지 않아 제목이 전폭으로
+   2~3줄을 쓸 수 있고, 버튼은 본문 바로 위 고정 위치라 읽다가 위로 올려 빠르게 누르는 동선과 맞음. */
 .ydt-explain-actions {
-  flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+  padding: 6px 14px;
+  background: #232323;
+  border-bottom: 1px solid #333;
+  flex: 0 0 auto;
 }
 .ydt-explain-action {
   padding: 4px 9px;
