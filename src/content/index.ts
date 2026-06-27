@@ -449,6 +449,13 @@ const TRANSLATE_BATCH_SIZE = 25;
 // 첫 batch가 크면 첫 문장 번역까지 수십 초 → 첫 N개만 우선 처리.
 const FIRST_BATCH_SIZE = 4;
 
+// gemini·mindlogic은 배치 전체를 한 번의 모델 호출에 넣으면 모델이 인접 문장을 "유창하게"
+// 합쳐 N개 입력에 같은 개수를 반환하면서 내용은 2~3덩어리로 뭉치는 일이 있다(개수는 맞아
+// 길이검증으로 못 잡음). 그러면 번역[idx]가 원문[idx]과 어긋난다. 단일 문장은 합칠 이웃이
+// 없어 1-in-1-out이 보장되므로 API 백엔드는 문장당 1요청으로 보낸다(정렬 보장). google-free
+// (줄바꿈 보존)·chrome-builtin(원래 문장별)은 구조상 합침이 없어 기존 배치 그대로 둔다.
+const PER_SENTENCE_BACKENDS: ReadonlySet<BackendId> = new Set(['gemini', 'mindlogic']);
+
 async function translateCues(cues: Cue[], requestVideoId: string | null): Promise<void> {
   if (!requestVideoId) return;
 
@@ -476,9 +483,14 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
   // 2) miss — 배치로 fetch. 첫 batch만 작게, 이후는 표준 크기.
   const all: string[] = [];
   const usedSet = new Set<string>(); // 어떤 백엔드(들)로 처리됐는지 — 마지막에 한 줄로 요약.
+  let usedFallbackText = false; // 단일 문장도 번역 실패해 원문으로 채운 적 있나 — 그러면 캐시 금지.
   let i = 0;
   while (i < texts.length) {
-    const size = i === 0 ? FIRST_BATCH_SIZE : TRANSLATE_BATCH_SIZE;
+    const size = PER_SENTENCE_BACKENDS.has(backend)
+      ? 1
+      : i === 0
+        ? FIRST_BATCH_SIZE
+        : TRANSLATE_BATCH_SIZE;
     const batch = texts.slice(i, i + size);
     let res:
       | { ok: true; translations: string[]; used?: BackendId }
@@ -518,15 +530,63 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
       `batch ${i}-${i + batch.length - 1}: ${res.translations.length}/${batch.length} via ${res.used ?? '?'}` +
         (res.used && res.used !== backend ? ` ⚠ preferred ${backend} fell back` : ''),
     );
-    all.push(...res.translations);
+    // 줄 수가 맞으면 그대로, 안 맞으면 이 배치를 문장별로 재번역한다.
+    // 백엔드가 짧은 자막을 합쳐 N개 입력에 N-1개를 반환하는 경우가 있다(예: "...where the
+    // vast" + "majority of..."를 한 문장으로 번역). 그대로 이어붙이면 그 지점부터 끝까지
+    // 번역[idx]=다음 문장의 번역으로 어긋남이 밀린다. 합침이 배치 '어디서' 일어났는지는
+    // 알 수 없어(끝이 아닐 수 있음) 위치 보정/패딩은 못 한다 → 한 문장씩 따로 보낸다.
+    // 단일 문장은 합쳐질 이웃이 없어 1개를 반환하므로 1:1 정렬이 보장된다(불일치 때만 발동).
+    let aligned: string[];
+    if (res.translations.length === batch.length) {
+      aligned = res.translations;
+    } else {
+      console.warn(
+        TAG,
+        `batch ${i}: length mismatch ${res.translations.length}/${batch.length} — re-translating per sentence`,
+      );
+      aligned = [];
+      for (const one of batch) {
+        let r:
+          | { ok: true; translations: string[]; used?: BackendId }
+          | { ok: false; error: string }
+          | undefined;
+        try {
+          r = (await chrome.runtime.sendMessage({
+            type: 'TRANSLATE_BATCH',
+            texts: [one],
+            src,
+            tgt,
+            backend,
+            videoTitle: videoTitle(),
+          })) as typeof r;
+        } catch (e) {
+          console.error(TAG, 'per-sentence translate failed:', e);
+          r = undefined;
+        }
+        if (currentVideoId() !== requestVideoId) {
+          console.log(TAG, 'translate: video changed mid-flight, dropping');
+          return;
+        }
+        if (r && r.ok && r.translations.length === 1) {
+          aligned.push(r.translations[0]);
+          if (r.used) usedSet.add(r.used);
+        } else {
+          // 단일 문장도 실패하면 원문으로 채운다(빈칸/밀림보다 나음). 캐시는 막는다.
+          aligned.push(one);
+          usedFallbackText = true;
+        }
+      }
+    }
+    all.push(...aligned);
     renderer.setTargetTexts(all);
     i += batch.length;
   }
   const usedSummary = usedSet.size === 0 ? '?' : Array.from(usedSet).join('+');
   console.log(TAG, `translate complete: ${all.length}/${texts.length} via ${usedSummary}`);
 
-  // 3) 전체 길이 일치할 때만 캐시 (alignment 어긋난 결과 캐싱 방지)
-  if (all.length === texts.length) {
+  // 3) 길이 일치 + 원문 fallback 없었을 때만 캐시. 문장별 재번역은 정렬이 보장돼 캐싱 OK
+  // (다음 재생 때 N요청 반복 회피) — 단 번역 실패로 원문을 채운 경우만 제외.
+  if (all.length === texts.length && !usedFallbackText) {
     setCachedViaBg(cacheKey, all);
   }
 }
