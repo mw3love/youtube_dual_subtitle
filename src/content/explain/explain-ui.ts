@@ -49,6 +49,10 @@ export class ExplainUI {
   private panel: HTMLElement | null = null;
   // 최소화 시 뜨는 작은 핸들(💡 N) — 클릭하면 패널 복원. 탭은 메모리에 보존.
   private fab: HTMLElement | null = null;
+  // 패널·미니버튼이 공유하는 위치(뷰포트 기준 px, 좌상단 기준). 둘 중 어느 쪽을 끌든
+  // 갱신돼, 접으면 그 자리에 미니버튼·펼치면 그 자리에 패널이 뜬다. 메모리 only —
+  // 영상 전환·전체화면 가로질러 유지, F5/✕(닫기)로 초기화. null이면 CSS 기본값.
+  private panelPos: { left: number; top: number } | null = null;
   // 버튼 클릭 시점에 넘길 선택 텍스트/문맥 — 선택이 사라져도 유지.
   private pending: { text: string; context: string } | null = null;
 
@@ -208,6 +212,9 @@ export class ExplainUI {
     if (this.panel && this.panel.parentElement !== h) h.appendChild(this.panel);
     if (this.toolbar && this.toolbar.parentElement !== h) h.appendChild(this.toolbar);
     if (this.fab && this.fab.parentElement !== h) h.appendChild(this.fab);
+    // 뷰포트 크기가 바뀌므로 보이는 쪽 위치를 새 크기로 재클램프(화면 밖 이탈 방지).
+    if (this.fab && this.fab.style.display !== 'none') this.applyPos(this.fab);
+    else if (this.panel && this.panel.style.display !== 'none') this.applyPos(this.panel);
   };
 
   // ─── 트리거 툴바 ───
@@ -340,6 +347,10 @@ export class ExplainUI {
     actions.append(this.highlightBtn, this.copyBtn, this.notionBtn);
     // float(corner)을 제목보다 먼저 배치 — 제목 1줄째만 corner 옆으로 좁아지고 2·3줄은 전폭.
     header.append(corner, title);
+
+    // 헤더(제목바)를 드래그 핸들로 — 패널 전체를 옮긴다. 우상단 –/✕(corner) 클릭은
+    // 드래그 시작 안 함(버튼 동작 보존). 위치는 미니버튼과 공유(panelPos).
+    this.enableDrag(panel, header, (t) => !!t.closest('.ydt-explain-corner'), null);
 
     // Notion 저장 결과 알림 줄 — 저장 후 실제 제목을 보여줌(어떤 제목으로 들어갔는지 바로 확인).
     const notice = document.createElement('div');
@@ -602,20 +613,109 @@ export class ExplainUI {
     if (this.fab) {
       this.fab.style.display = 'flex';
       this.fab.textContent = `💡 ${this.tabs.length}`;
+      // 표시·텍스트로 실제 크기가 잡힌 뒤 위치 재적용(폭 0 상태 오클램프 방지).
+      this.applyPos(this.fab);
     }
   }
 
   private ensureFab(): void {
     if (this.fab) {
       if (this.fab.parentElement !== this.host()) this.host().appendChild(this.fab);
+      this.applyPos(this.fab);
       return;
     }
     const fab = document.createElement('div');
     fab.className = 'ydt-explain-fab';
-    fab.title = '해설 패널 펼치기';
-    fab.addEventListener('click', () => this.restore());
+    fab.title = '해설 패널 펼치기 (드래그로 이동)';
+    // 미니버튼은 전체가 드래그 핸들. 안 움직이고 떼면 클릭 = 펼치기.
+    this.enableDrag(fab, fab, null, () => this.restore());
     this.fab = fab;
     this.host().appendChild(fab);
+    this.applyPos(fab);
+  }
+
+  // 드래그(이동) vs 클릭(탭) 분기를 element에 부여. panel·fab가 공유하는 panelPos를 갱신.
+  //   el     : 실제로 움직일 요소(위치/클램프 기준)
+  //   handle : 드래그를 시작하는 요소(el과 같거나 그 일부, 예: 패널 헤더)
+  //   guard  : target이 이 조건이면 드래그 시작 안 함(버튼 등 — null이면 항상 시작)
+  //   onTap  : 임계값 미만 이동으로 끝나면 호출(클릭 동작 — fab의 펼치기)
+  private enableDrag(
+    el: HTMLElement,
+    handle: HTMLElement,
+    guard: ((t: HTMLElement) => boolean) | null,
+    onTap: (() => void) | null,
+  ): void {
+    const THRESHOLD = 4; // px — 이만큼 안 움직이면 클릭(탭)
+    let startX = 0;
+    let startY = 0;
+    let baseLeft = 0;
+    let baseTop = 0;
+    let dragging = false;
+
+    const onMove = (ev: PointerEvent): void => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) < THRESHOLD) return;
+      dragging = true;
+      this.panelPos = this.clampPos(baseLeft + dx, baseTop + dy, el);
+      this.applyPos(el);
+    };
+    const onUp = (ev: PointerEvent): void => {
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      try {
+        handle.releasePointerCapture(ev.pointerId);
+      } catch {
+        /* capture가 이미 풀렸으면 무시 */
+      }
+      el.classList.remove('ydt-dragging');
+      if (!dragging && onTap) onTap(); // 움직임 없었으면 클릭
+    };
+
+    handle.addEventListener('pointerdown', (ev: PointerEvent) => {
+      if (ev.button !== 0) return;
+      const t = ev.target as HTMLElement | null;
+      if (guard && t && guard(t)) return; // 버튼 등 — 드래그 시작 안 함(클릭 그대로)
+      const rect = el.getBoundingClientRect();
+      startX = ev.clientX;
+      startY = ev.clientY;
+      baseLeft = rect.left;
+      baseTop = rect.top;
+      dragging = false;
+      el.classList.add('ydt-dragging');
+      handle.setPointerCapture(ev.pointerId);
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+      ev.preventDefault();
+    });
+  }
+
+  // 뷰포트 안으로 클램프(8px 여백). el 크기는 렌더 후 offsetWidth/Height로 측정.
+  private clampPos(left: number, top: number, el: HTMLElement): { left: number; top: number } {
+    const M = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const maxLeft = Math.max(M, window.innerWidth - w - M);
+    const maxTop = Math.max(M, window.innerHeight - h - M);
+    return {
+      left: Math.min(Math.max(left, M), maxLeft),
+      top: Math.min(Math.max(top, M), maxTop),
+    };
+  }
+
+  // panelPos를 el에 적용(좌상단 px + 기본 right 무력화). null이면 CSS 기본값 사용.
+  // 패널·미니버튼은 크기가 달라 표시 시점에 각자 크기로 다시 클램프(화면 밖 방지).
+  private applyPos(el: HTMLElement): void {
+    if (!this.panelPos) {
+      el.style.left = '';
+      el.style.top = '';
+      el.style.right = '';
+      return;
+    }
+    const { left, top } = this.clampPos(this.panelPos.left, this.panelPos.top, el);
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    el.style.right = 'auto';
   }
 
   private restore(): void {
@@ -623,6 +723,7 @@ export class ExplainUI {
     if (this.panel) {
       this.panel.style.display = 'flex';
       if (this.panel.parentElement !== this.host()) this.host().appendChild(this.panel);
+      this.applyPos(this.panel); // 미니버튼을 끌어둔 자리에서 펼침(공유 위치)
     }
     // 최소화 중 열린 탭은 측정 불가로 트림이 보류됐을 수 있어, 보이게 된 지금 재적용.
     const tab = this.tabs[this.active];
@@ -634,6 +735,7 @@ export class ExplainUI {
     this.fab?.remove();
     this.panel = null;
     this.fab = null;
+    this.panelPos = null;
     this.tabs = [];
     this.active = -1;
     this.tabsContainer = null;

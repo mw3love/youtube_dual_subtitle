@@ -152,7 +152,10 @@ const STYLES = `
   background: #232323;
   border-bottom: 1px solid #333;
   flex: 0 0 auto;
+  cursor: grab;
+  user-select: none;
 }
+.ydt-explain-panel.ydt-dragging .ydt-explain-header { cursor: grabbing; }
 /* 우상단 구석: – 최소화 · ✕ 닫기. 좁은 float이라 제목 1줄째는 거의 전폭을 씀. */
 .ydt-explain-corner {
   float: right;
@@ -313,9 +316,12 @@ const STYLES = `
   font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
   font-size: 13px;
   font-weight: 700;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 .ydt-explain-fab:hover { background: #357f99; }
+.ydt-explain-fab.ydt-dragging { cursor: grabbing; }
 .ydt-explain-close {
   flex: 0 0 auto;
   width: 26px;

@@ -281,6 +281,19 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **생략부호는 ASCII `...`(U+2026 `…` 아님):** 제목 폰트가 CJK(Noto Sans KR) 우선이라 `…` 한 글자를 **줄 세로 중앙**(CJK 관례)에 찍어 떠 보인다 → ASCII 마침표 3개로 baseline(아래)에 깔리게 함.
 - **검증:** 사용자 실조건검증(Chrome 실사용으로 제목 전폭 표시·생략부호 우하단·툴바 동선 확인). 빌드·타입체크 통과.
 
+### 26. 해설 패널·미니버튼 드래그 이동 (A46, v0.13.0)
+
+**의도:** 해설 패널(`.ydt-explain-panel`)이 우상단 고정(`top:72 right:24`)이라 영상·자막을 가리면 비킬 방법이 없었다. 패널과 최소화 핸들(미니버튼 `.ydt-explain-fab`, 섹션 20) **양쪽 모두 드래그로 옮기고**, 위치를 둘이 **공유**해 접으면 그 자리에 미니버튼·펼치면 그 자리에 패널이 뜨게 한다.
+
+- **위치 1개 공유** (`explain-ui.ts:panelPos {left,top} | null`): 뷰포트 기준 좌상단 px, 패널·미니버튼이 같은 값을 본다. 어느 쪽을 끌든 갱신 → "접고→옮기고→펼치기" 우회 없이 한 자리 유지. **메모리 only**(탭 모델과 같은 휘발 정책, 섹션 20) — 영상 전환·전체화면 가로질러 유지, F5·`✕`(`closePanel`)로 초기화. `null`이면 CSS 기본값.
+- **범용 드래그 헬퍼** (`enableDrag(el, handle, guard, onTap)`): 미니버튼 전용이던 로직을 일반화. `el`=움직일 요소(위치·클램프 기준), `handle`=드래그 시작 요소(el 자신 또는 그 일부), `guard(t)`=true면 드래그 시작 안 함(버튼 보존용), `onTap`=임계값(4px) 미만 이동으로 끝나면 호출(클릭).
+  - **미니버튼**: `enableDrag(fab, fab, null, ()=>restore())` — 전체가 핸들, 안 움직이고 떼면 클릭=펼치기. (옛 `click→restore`를 대체 — 드래그/클릭 한 핸들러에서 분기.)
+  - **패널**: `enableDrag(panel, header, (t)=>!!t.closest('.ydt-explain-corner'), null)` — **헤더(제목바)가 핸들**, 우상단 `–/✕`(corner) 클릭은 guard로 드래그 시작 차단(버튼 동작 보존). 액션 툴바(`.ydt-explain-actions`)·본문은 헤더 밖이라 애초에 드래그 트리거 안 됨(본문은 재해설 선택 우선, 섹션 22). `setPointerCapture`로 포인터가 요소를 벗어나도 추적.
+- **클램프·적용** (`clampPos(left,top,el)` / `applyPos(el)`): 8px 여백으로 뷰포트 안에 가둠. 패널·미니버튼은 크기가 달라 **표시 시점에 각자 `offsetWidth/Height`로 다시 클램프** — 패널이 크니 우하단에서 살짝 위로 당겨질 수 있음(화면 밖 방지 우선, FAB와 약간 어긋남 감수). `applyPos`는 `left/top`(px)을 박고 CSS 기본 `right`를 `auto`로 무력화. `panelPos===null`이면 inline 비워 CSS 기본값 복귀.
+- **배선**: `restore()`가 패널 표시 후 `applyPos(panel)`, `minimize()`가 미니버튼 표시·텍스트 설정 후 `applyPos(fab)`(폭 0 상태 오클램프 방지 — 표시 뒤 재적용), `onFullscreenChange`가 re-home 후 보이는 쪽을 새 뷰포트 크기로 재클램프. `closePanel`이 `panelPos=null`로 리셋.
+- **CSS** (`styles.ts`): 헤더·미니버튼 `cursor: grab`(+드래그 중 `.ydt-dragging`이면 `grabbing`), `user-select:none`(헤더 텍스트 선택 방지), 미니버튼 `touch-action:none`.
+- **검증:** 사용자 실조건검증(미니버튼 드래그·패널 헤더 드래그·접힘/펼침 위치 공유 Chrome 실사용 확인). 빌드·타입체크 통과.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.
