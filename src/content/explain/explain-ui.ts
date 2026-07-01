@@ -369,7 +369,9 @@ export class ExplainUI {
     this.tabsContainer = tabsContainer;
 
     // actions(백틱·복사·Notion 툴바)를 헤더 바로 아래·본문 위에 — 읽다가 위로 올려 누르는 동선.
-    panel.append(header, actions, notice, tabstrip, tabsContainer);
+    // 탭스트립을 notice 위로 — notice는 탭별로 켜졌다 꺼져(refreshActions) 아래에 두면 탭 위치가
+    // 세로로 튀어 탭 전환이 불편했음. header+actions(둘 다 고정) 바로 아래라 탭 위치 불변.
+    panel.append(header, actions, tabstrip, notice, tabsContainer);
     this.host().appendChild(panel);
     this.panel = panel;
   }
@@ -537,7 +539,18 @@ export class ExplainUI {
     strip.replaceChildren();
     this.tabs.forEach((t, i) => {
       const chip = document.createElement('div');
-      chip.className = 'ydt-explain-tab' + (i === this.active ? ' active' : '');
+      chip.className =
+        'ydt-explain-tab' +
+        (i === this.active ? ' active' : '') +
+        (t.notionSaved ? ' saved' : '');
+      // Notion 저장된 탭엔 ✓ 표시 — 탭을 눌러 열어보지 않아도 저장 여부 확인.
+      if (t.notionSaved) {
+        const mark = document.createElement('span');
+        mark.className = 'ydt-explain-tab-saved';
+        mark.textContent = '✓';
+        mark.title = 'Notion 저장됨';
+        chip.appendChild(mark);
+      }
       const label = document.createElement('span');
       label.className = 'ydt-explain-tab-label';
       label.textContent = (t.isQuestion ? '❓ ' : '') + t.term;
@@ -921,6 +934,7 @@ export class ExplainUI {
       this.notionBtn.textContent = '📝 Notion';
       this.notionBtn.title = '';
     }
+    this.renderTabstrip(); // ✓ 저장 표시 제거(stale)
   }
 
   private async onCopy(): Promise<void> {
@@ -976,6 +990,7 @@ export class ExplainUI {
         btn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
         this.showNotice(tab.notionTitle, tab.notionPageUrl);
       }
+      this.renderTabstrip(); // 탭 칩에 ✓ 저장 표시 반영
     } else {
       console.warn(TAG, 'notion save error:', res.error);
       if (this.activeTab() === tab) {

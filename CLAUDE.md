@@ -276,7 +276,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 **문제:** 긴 문장을 term으로 골라 해설하면(제목 = 드래그한 선택 그대로, 섹션 20의 `activateTab`) 헤더 제목이 여러 줄로 늘어나 본문을 가렸다. 처음엔 같은 헤더 한 줄에 제목 + 백틱·복사·Notion·`–`·`✕`가 다 있어 제목 폭이 극히 좁았다.
 
-- **메커니즘 교체 (계단형 float → 툴바 분리):** 중간 시도로 제목이 우측 버튼들을 피해 계단형으로 래핑하게 했으나, `–/✕`(26px)+버튼행(26px)을 세로로 쌓으면 ~52px라 **버튼 float이 3줄째(~42px 시작)까지 물려 내려와** 3줄째도 좁아지고 생략부호가 줄 중간에 박히는 구조적 한계가 있었다. 해결: **액션 버튼을 헤더에서 빼 본문 위 별도 툴바(`.ydt-explain-actions`)로** 내리고, 헤더(제목바)엔 제목 + 우상단 `–/✕`(`.ydt-explain-corner`, float right)만 남김. 그러면 제목은 1줄째만 작은 `–/✕` 옆으로 살짝 좁고 **2·3줄은 전폭** → 잘림 표시가 마지막 줄 끝(우하단)에 자연히 옴. 버튼이 본문 바로 위 고정 위치라 "읽다가 위로 올려 누르는" 동선과도 맞음(`explain-ui.ts:ensureShell`의 `panel.append(header, actions, notice, tabstrip, tabsContainer)`).
+- **메커니즘 교체 (계단형 float → 툴바 분리):** 중간 시도로 제목이 우측 버튼들을 피해 계단형으로 래핑하게 했으나, `–/✕`(26px)+버튼행(26px)을 세로로 쌓으면 ~52px라 **버튼 float이 3줄째(~42px 시작)까지 물려 내려와** 3줄째도 좁아지고 생략부호가 줄 중간에 박히는 구조적 한계가 있었다. 해결: **액션 버튼을 헤더에서 빼 본문 위 별도 툴바(`.ydt-explain-actions`)로** 내리고, 헤더(제목바)엔 제목 + 우상단 `–/✕`(`.ydt-explain-corner`, float right)만 남김. 그러면 제목은 1줄째만 작은 `–/✕` 옆으로 살짝 좁고 **2·3줄은 전폭** → 잘림 표시가 마지막 줄 끝(우하단)에 자연히 옴. 버튼이 본문 바로 위 고정 위치라 "읽다가 위로 올려 누르는" 동선과도 맞음(`explain-ui.ts:ensureShell`의 `panel.append`; 순서는 A47에서 `header, actions, tabstrip, notice, tabsContainer`로 조정 — 섹션 27).
 - **제목 클램프 — `overflow: clip` + JS 트림:** `.ydt-explain-term`은 `max-height: 4.5em`(3줄) + `overflow: clip`. **`clip`은 BFC를 만들지 않아** float(corner) 래핑을 유지하면서 초과분만 자른다(`hidden`은 BFC라 래핑이 깨짐 — `-webkit-line-clamp`도 `display:-webkit-box`라 같은 이유로 불가). 순수 CSS 멀티라인 생략부호가 안 되므로 `explain-ui.ts:setTitle`이 `scrollHeight > clientHeight`면 **이진 탐색**으로 max-height에 들어오는 최대 prefix를 찾아 생략부호를 붙인다. 전체 term은 `title` 툴팁·탭 라벨·본문에 남아 정보 손실 없음. 최소화 중(숨김)이면 측정 불가라 트림 보류 후 `restore`에서 재적용.
 - **생략부호는 ASCII `...`(U+2026 `…` 아님):** 제목 폰트가 CJK(Noto Sans KR) 우선이라 `…` 한 글자를 **줄 세로 중앙**(CJK 관례)에 찍어 떠 보인다 → ASCII 마침표 3개로 baseline(아래)에 깔리게 함.
 - **검증:** 사용자 실조건검증(Chrome 실사용으로 제목 전폭 표시·생략부호 우하단·툴바 동선 확인). 빌드·타입체크 통과.
@@ -293,6 +293,14 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **배선**: `restore()`가 패널 표시 후 `applyPos(panel)`, `minimize()`가 미니버튼 표시·텍스트 설정 후 `applyPos(fab)`(폭 0 상태 오클램프 방지 — 표시 뒤 재적용), `onFullscreenChange`가 re-home 후 보이는 쪽을 새 뷰포트 크기로 재클램프. `closePanel`이 `panelPos=null`로 리셋.
 - **CSS** (`styles.ts`): 헤더·미니버튼 `cursor: grab`(+드래그 중 `.ydt-dragging`이면 `grabbing`), `user-select:none`(헤더 텍스트 선택 방지), 미니버튼 `touch-action:none`.
 - **검증:** 사용자 실조건검증(미니버튼 드래그·패널 헤더 드래그·접힘/펼침 위치 공유 Chrome 실사용 확인). 빌드·타입체크 통과.
+
+### 27. 탭 세로 위치 고정 + Notion 저장 탭 ✓ 표시 (A47, v0.13.1)
+
+해설 패널의 **탭 전환 편의** 두 가지 개선. 모두 `explain-ui.ts`의 탭스트립 중심.
+
+- **탭 세로 위치 고정 (notice/tabstrip 순서 뒤집기)** (`ensureShell`의 `panel.append`): 옛 순서 `header, actions, notice, tabstrip, tabsContainer`에서 `notice`(「Notion 저장됨」 알림 줄, `.ydt-explain-notice`)가 **탭스트립보다 위**에 있었다. 이 알림은 **탭별**로 켜지고 꺼져(`refreshActions` — `tab.notionSaved`일 때만) 저장된 탭 ↔ 안 된 탭을 오갈 때 그 아래 탭스트립 전체가 세로로 밀렸다 → 탭을 번갈아 누르려면 마우스를 좌우뿐 아니라 위아래로도 제어해야 하는 불편. 해결: **탭스트립을 notice 위로** (`header, actions, tabstrip, notice, tabsContainer`). 탭스트립이 `header + actions`(둘 다 고정 높이) 바로 아래라 **세로 위치 불변** — 좌우로만 움직여 전환. notice는 탭스트립과 본문 사이로 내려가 저장 여부에 따라 **본문**만 밀리는데, 본문은 클릭 타겟이 아니라 무해. CSS 위험 없음(`.ydt-explain-notice`·`.ydt-explain-tabs` 둘 다 `flex:0 0 auto` + 각자 border-bottom, 인접 선택자·순서 의존 없음).
+- **Notion 저장된 탭 칩에 ✓ 표시** (`renderTabstrip`): 탭을 열어보지 않아도 저장 여부를 확인하도록 저장된 탭 칩 왼쪽에 녹색 `✓`(`.ydt-explain-tab-saved`) + `saved` 클래스(테두리 색 구별, Notion 액션/알림과 같은 팔레트). 저장 성공(`onNotionClick`)·백틱 수정으로 stale(`markEdited`) 시점에 각각 `renderTabstrip()` 호출로 즉시 반영. **탭스트립은 탭 2개 이상일 때만** 표시되므로(`renderTabstrip` 게이트) 탭 1개면 `✓`가 안 보이나, 그땐 헤더 버튼(`✓ 저장됨 ↗`)·알림 줄로 이미 확인됨.
+- **검증:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 탭 위치 고정·✓ 표시·저장 후 즉시 반영은 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 

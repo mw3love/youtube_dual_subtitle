@@ -268,6 +268,15 @@ const STYLES = `
   max-width: 116px;
 }
 .ydt-explain-tab.active .ydt-explain-tab-label { color: #fff; }
+/* Notion 저장된 탭 — 왼쪽 ✓ 표시(녹색, Notion 액션/알림과 같은 팔레트). */
+.ydt-explain-tab.saved { border-color: #2c4a36; }
+.ydt-explain-tab.saved.active { border-color: #4aa3c4; }
+.ydt-explain-tab-saved {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: #6fdc95;
+}
 .ydt-explain-tab-close {
   flex: 0 0 auto;
   width: 16px;
