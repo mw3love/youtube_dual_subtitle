@@ -315,6 +315,15 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **기호·라벨**: 형광펜 버튼 라벨 `✏️ 백틱`→`🖍 형광펜`(AI Dictionary와 통일, 누구나 이해). 보내기 버튼·후속 탭 마커를 `⏎`(return)로 통일(옛 `↑`/`↳`는 비율 어색). **§17·§22의 "✏️ 백틱" 서술은 버튼 라벨만 바뀐 것 — 백틱(코드) 감싸기 메커니즘 자체는 동일.**
 - **한계·검증:** 후속 새 탭의 복사/Notion은 그 탭 Q/A만(원문맥은 부모 탭에). 후속 탭 상한 없음(AID는 10). 빌드·타입체크 통과(프록시검증) — 멀티턴 기억·새 탭 생성·`⏎` 폰트 렌더는 Chrome 실사용 확인 대상.
 
+### 29. 직접 질문 버튼(패널·팝업) + 팝업 크기/위치 하단 재배치 (A49, v0.15.0)
+
+§28의 Alt+Q(직접 질문)는 단축키 하나뿐이라 발견성이 0이었다(안내 없는 제스처). 형광펜/복사처럼 **버튼으로도** 노출해 몰라도 쓸 수 있게 함. Alt+Q 경로(`openAsk`)는 그대로 재사용 — 새 트리거만 추가.
+
+- **패널 액션 툴바 `➕ 새 질문` 버튼** (`explain-ui.ts:ensureShell`): 형광펜/복사/Notion과 같은 `.ydt-explain-actions` 행에 추가하되, "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 **범주가 달라** CSS `.ydt-explain-action-newq { margin-right: auto }`로 **왼쪽에 분리** 배치(`styles.ts`). 클릭 → `this.openAsk()`(§28과 동일 경로). 결과 유무 무관 **항상 활성**(export 버튼들은 결과 도착 전 비활성인 것과 대비 — 로컬 `const` 버튼이라 `refreshActions` 참조 불필요). 패널은 `setEnabled(false)` 시 `closePanel()`로 파괴되므로 이 버튼은 `enabled===true`일 때만 존재 → `openAsk`의 `if(!enabled)return` 가드에 걸릴 데드 엣지 없음.
+- **팝업 `➕ 새 질문` 버튼** (`popup/main.tsx`): StatusLine 바로 아래 전폭 버튼. 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `settings.explainEnabled && pageReachable`일 때만 노출. `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
+- **팝업 크기/위치 컨트롤 최하단 이동** (`popup/main.tsx`): `원문 크기`/`번역 크기`(SizeRow) + `자막 위치`(위치 초기화) 3행을 표시 모드 아래 → **`자세히 설정하기` 버튼 바로 위**(최근 번역 줄 아래)로 이동. IA 근거: 자주 바꾸는 언어·백엔드(영상자막/바꿀언어/번역방식)를 위로, **한 번 맞춰두는 미세조정**을 아래로. 순수 순서 변경(스키마·배선·메시지 변화 0). 새 순서: `상태 → [새 질문] → 자막켜기 → 노래방 → 표시모드 → 영상자막 → 바꿀언어 → 번역방식 → 최근번역 → 원문크기 → 번역크기 → 자막위치 → 자세히 설정하기`.
+- **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 패널/팝업 버튼 클릭 → 새 질문 탭, 팝업 하단 배치는 Chrome 실사용 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

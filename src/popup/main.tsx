@@ -203,6 +203,23 @@ function Popup() {
     window.close();
   };
 
+  // ➕ 새 질문 — 활성 YouTube 탭 콘텐츠에 OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다
+  // (content/index.ts가 explainUI.openAsk() 호출). 패널 안 버튼과 동일 경로이자 단축키 Alt+Q의
+  // cold-start 발견성 보완(단축키를 몰라도 됨). 콘텐츠 스크립트가 없거나 거부하면 무시.
+  const openAskOnPage = async (): Promise<void> => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_ASK' });
+    } catch {
+      // 콘텐츠 스크립트 미도달 — 무시.
+    }
+    window.close();
+  };
+
+  // 콘텐츠 스크립트가 응답한 상태(=YouTube 탭 + 스크립트 도달)일 때만 "새 질문" 노출.
+  const pageReachable =
+    status.kind === 'active' || status.kind === 'no-cues' || status.kind === 'subtitles-off';
+
   // 폰트 크기 ± — 렌더러 휠 조절과 같은 범위(8~72), settings 스키마와도 동일.
   // update()가 storage.sync 저장 → content가 onChanged로 즉시 반영(setFontSizes).
   const FONT_MIN = 8;
@@ -278,6 +295,17 @@ function Popup() {
 
       <StatusLine status={status} />
 
+      {settings.explainEnabled && pageReachable && (
+        <button
+          onClick={() => void openAskOnPage()}
+          disabled={!loaded}
+          style={{ width: '100%', marginBottom: 10, padding: '6px', fontSize: 12, cursor: 'pointer' }}
+          title="자막 선택 없이 AI에게 바로 질문 (단축키 Alt+Q)"
+        >
+          ➕ 새 질문
+        </button>
+      )}
+
       <label style={rowStyle}>
         <span>
           자막 켜기
@@ -316,23 +344,6 @@ function Popup() {
           ))}
         </select>
       </label>
-
-      <SizeRow label="원문 크기" value={settings.sourceStyle.fontSize} bump={bumpSource} />
-      <SizeRow label="번역 크기" value={settings.targetStyle.fontSize} bump={bumpTarget} />
-
-      <div style={rowStyle}>
-        <span title="Shorts 하단 제목 등으로 자막이 흐려져 드래그/휠이 막힐 때 위치를 기본값으로 되돌림">
-          자막 위치
-        </span>
-        <button
-          style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}
-          disabled={!loaded}
-          onClick={resetPosition}
-          title="일반 영상/Shorts 위치를 모두 기본값으로 초기화"
-        >
-          위치 초기화
-        </button>
-      </div>
 
       <label style={rowStyle} title="영상 자막에서 우선 고를 언어">
         <span>영상 자막</span>
@@ -415,6 +426,25 @@ function Popup() {
       )}
 
       {lastBackend && <LastBackendLine info={lastBackend} preferred={settings.backend} />}
+
+      {/* 크기/위치 미세조정 — 한 번 맞춰두는 값이라 자주 바꾸는 언어·백엔드 아래(맨 하단)로.
+          "자세히 설정하기" 바로 위 배치. */}
+      <SizeRow label="원문 크기" value={settings.sourceStyle.fontSize} bump={bumpSource} />
+      <SizeRow label="번역 크기" value={settings.targetStyle.fontSize} bump={bumpTarget} />
+
+      <div style={rowStyle}>
+        <span title="Shorts 하단 제목 등으로 자막이 흐려져 드래그/휠이 막힐 때 위치를 기본값으로 되돌림">
+          자막 위치
+        </span>
+        <button
+          style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}
+          disabled={!loaded}
+          onClick={resetPosition}
+          title="일반 영상/Shorts 위치를 모두 기본값으로 초기화"
+        >
+          위치 초기화
+        </button>
+      </div>
 
       <button
         onClick={openOptions}

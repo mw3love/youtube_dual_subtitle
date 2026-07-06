@@ -202,6 +202,8 @@ const STYLES = `
 }
 .ydt-explain-action:hover:not(:disabled) { background: #3f3f3f; color: #fff; }
 .ydt-explain-action:disabled { opacity: 0.45; cursor: default; }
+/* ➕ 새 질문 — "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 다른 범주 → 왼쪽으로 밀어 분리. */
+.ydt-explain-action-newq { margin-right: auto; }
 /* 형광펜 모드 ON — 켜진 상태를 또렷이. 켜진 동안 패널 본문 커서도 text로. */
 .ydt-explain-action.active {
   background: #2e6f86;

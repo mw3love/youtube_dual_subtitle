@@ -313,6 +313,15 @@ export class ExplainUI {
     const actions = document.createElement('div');
     actions.className = 'ydt-explain-actions';
 
+    // ➕ 새 질문 — 자막 선택 없이 빈 질문 탭 열기(Alt+Q와 동일 경로). 항상 활성(결과 유무 무관).
+    // 형광펜/복사/Notion과 달리 "새 탭 생성" 액션이라 왼쪽으로 분리(margin-right:auto).
+    const newQBtn = document.createElement('button');
+    newQBtn.className = 'ydt-explain-action ydt-explain-action-newq';
+    newQBtn.type = 'button';
+    newQBtn.textContent = '➕ 새 질문';
+    newQBtn.title = '자막 선택 없이 새 질문 탭 열기 (단축키 Alt+Q)';
+    newQBtn.addEventListener('click', () => this.openAsk());
+
     // ✏️ 형광펜(백틱) — 모드 토글. 결과 도착 전엔 비활성.
     this.highlightBtn = document.createElement('button');
     this.highlightBtn.className = 'ydt-explain-action';
@@ -363,7 +372,7 @@ export class ExplainUI {
     corner.className = 'ydt-explain-corner';
     corner.append(min, close);
 
-    actions.append(this.highlightBtn, this.copyBtn, this.notionBtn);
+    actions.append(newQBtn, this.highlightBtn, this.copyBtn, this.notionBtn);
     // float(corner)을 제목보다 먼저 배치 — 제목 1줄째만 corner 옆으로 좁아지고 2·3줄은 전폭.
     header.append(corner, title);
 
