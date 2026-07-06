@@ -2,7 +2,7 @@
 // MAIN world script가 가로챈 timedtext 응답을 받아서 parseJson3 → cue 배열로 만든다.
 // 트랙 목록도 받아 어떤 트랙이 선택될지 로깅 (소스 언어 결정용).
 
-import type { CaptionTrackInfo, Cue, MainToContentMessage, Sentence } from '../shared/types';
+import type { CaptionTrackInfo, ChatTurn, Cue, MainToContentMessage, Sentence } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
 import { segmentCues } from '../shared/segment';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
@@ -100,6 +100,7 @@ async function requestQuestion(
   text: string,
   context: string,
   question: string,
+  history: ChatTurn[],
 ): Promise<ExplainResult> {
   const s = currentSettings;
   if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
@@ -110,6 +111,7 @@ async function requestQuestion(
       text,
       context,
       question,
+      history,
       backend: s.explainBackend,
       model,
       prompt: s.explainPrompt,
@@ -234,6 +236,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       sourceLang: currentSettings?.sourceLang ?? 'en',
       targetLang: currentSettings?.targetLang ?? 'ko',
     });
+  }
+  // 단축키(chrome.commands 'open-ask')를 background가 활성 탭으로 전달 → 자막 선택 없이
+  // "직접 질문" 패널을 연다(별도 AI 사전 대체: 자막에 안 뜨는 표현 따로 묻기).
+  if (m?.type === 'OPEN_ASK') {
+    explainUI.openAsk();
   }
   return false;
 });

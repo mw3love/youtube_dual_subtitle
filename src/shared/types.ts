@@ -21,6 +21,13 @@ export interface Sentence extends Cue {
   cueEnd: number; // 구성 cue 끝 인덱스 (inclusive)
 }
 
+// 해설 패널 멀티턴 대화의 한 턴. 후속 질문 시 이전 대화를 문맥으로 background에 전달한다.
+// role은 gemini 규약과 동일('user'/'model') — mindlogic 호출부에서 'model'→'assistant'로 매핑.
+export interface ChatTurn {
+  role: 'user' | 'model';
+  text: string;
+}
+
 export interface CaptionTrackInfo {
   baseUrl: string;
   languageCode: string;

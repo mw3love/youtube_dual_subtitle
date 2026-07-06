@@ -302,6 +302,19 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **Notion 저장된 탭 칩에 ✓ 표시** (`renderTabstrip`): 탭을 열어보지 않아도 저장 여부를 확인하도록 저장된 탭 칩 왼쪽에 녹색 `✓`(`.ydt-explain-tab-saved`) + `saved` 클래스(테두리 색 구별, Notion 액션/알림과 같은 팔레트). 저장 성공(`onNotionClick`)·백틱 수정으로 stale(`markEdited`) 시점에 각각 `renderTabstrip()` 호출로 즉시 반영. **탭스트립은 탭 2개 이상일 때만** 표시되므로(`renderTabstrip` 게이트) 탭 1개면 `✓`가 안 보이나, 그땐 헤더 버튼(`✓ 저장됨 ↗`)·알림 줄로 이미 확인됨.
 - **검증:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 탭 위치 고정·✓ 표시·저장 후 즉시 반영은 Chrome 실사용 확인 대상.
 
+### 28. Alt+Q 직접 질문 + 멀티턴 "이어서 질문" (A48, v0.14.0)
+
+자막 선택 없이 곧장 AI에 묻는 단축키 + 답을 받은 뒤 이어서 파고드는 멀티턴 대화를 해설 패널에 추가. 별도 확장 `AI Dictionary`(C:\Users\7make\Dev\260622_AI_Dictionary, [[project_ai_dictionary]])의 "따로 검색" 용도를 듀얼자막 안으로 흡수 — 그쪽 Alt+Q는 반납(아이콘 클릭/사용자 재지정). 유튜브 밖 페이지가 필요할 때만 AI Dictionary를 씀.
+
+- **Alt+Q 직접 질문** (`manifest.ts:commands['open-ask']` → `background/index.ts:commands.onCommand` → `content/index.ts:onMessage 'OPEN_ASK'` → `explainUI.openAsk()`): 자막 선택 없이 빈 질문 탭을 열어 맨 아래 입력창에 포커스. `_execute_action`(팝업)과 겹치지 않게 **커스텀 커맨드**로 둬 `chrome://extensions/shortcuts`에 노출·사용자 재지정 가능(기본 Alt+Q). content script는 SW로 단축키를 직접 못 받아 background가 활성 탭으로 메시지 왕복(유튜브 아닌 탭이면 sendMessage 거부→무시). 페이지 키다운 방식은 shortcuts 페이지에 안 떠서 기각. `openAsk`는 빈 term('직접 질문' 라벨)·`isAsk=true`로 열어 백엔드엔 선택 텍스트 미전송(`explain.ts:buildUserMessage`가 text 비면 "고른 부분" 줄 생략 → 순수 질문).
+- **멀티턴 "이어서 질문"** (`explain-ui.ts` + `background/explain.ts`): 답을 받은 상황에서 "더 쉽게", "예문 더" 등 후속 질문. **직전 답변을 문맥으로 기억해야** 말이 되므로 단발 호출을 대화 누적으로 확장.
+  - **후속 = 새 탭(부모 대화 상속)**: 답 있는 탭에서 제출하면 `openTab(q,'',true,false,true)`로 **새 탭** 생성(§23대로 최신=맨 왼쪽, 라벨 `⏎` 마커). 화면엔 새 Q/A만 짧게 보이지만, 부모의 `turns`를 상속해 모델은 이전 대화 전체를 문맥으로 봄. 길이 폭주 방지 + 이전 질문과 분리라는 사용자 요구를 동시 충족.
+  - **대화 기록** `Tab.turns: ChatTurn[]`(`shared/types.ts`, `{role:'user'|'model', text}`, 메모리 only — 기존 탭 모델과 정합). `runExplain`/`runQuestion` 성공 시 `[...history, {user: userMessage}, {model: markdown}]`로 누적. user 턴은 **background가 실제 보낸 메시지**(`explain()`이 `userMessage`를 함께 반환 — content가 재구성 drift 없이 정확히 저장), model 턴은 `**질문:**` 접두어 없는 순수 답(markdown).
+  - **background 멀티턴 relay** (`explain.ts:explain(params.history)`): gemini는 `contents[]`(role `user`/`model` 그대로), mindlogic은 `messages[]`(system + history의 `model`→`assistant` 매핑 + 이번 user). 후속은 항상 `question` 있음 → 가벼운 튜터 프롬프트(`QUESTION_SYSTEM_PROMPT`) + 전체 기록(초기 해설이 rigid 표 프롬프트로 생성됐어도 후속은 대화체). 비용: 후속마다 누적 대화 재전송(토큰↑, BYOK·간헐이라 무방).
+- **입력창 하나로 통일** (`ensureShell`의 `.ydt-explain-chatbar`, `styles.ts`): §19의 상단 per-탭 qform 제거 → **패널 하단 고정 공용 입력창**(활성 탭 대상). `submitChat` 분기: 답 있는 탭이면 후속(새 탭), 답 없는 빈 질문/직접질문 탭이면 그 탭을 첫 답으로 채움, 해설 로딩 중 탭이면 무시. 입력창은 본문(`bodyEl`) **밖** 형제라 복사/Notion(`domToMarkdown(bodyEl)`)·형광펜(§17)이 안 건드림 — §19의 "입력칸을 본문 밖에" 원칙 유지. placeholder는 `refreshActions`가 답 유무로 갱신("이어서 질문…" ↔ "질문을 입력하고 Enter…").
+- **기호·라벨**: 형광펜 버튼 라벨 `✏️ 백틱`→`🖍 형광펜`(AI Dictionary와 통일, 누구나 이해). 보내기 버튼·후속 탭 마커를 `⏎`(return)로 통일(옛 `↑`/`↳`는 비율 어색). **§17·§22의 "✏️ 백틱" 서술은 버튼 라벨만 바뀐 것 — 백틱(코드) 감싸기 메커니즘 자체는 동일.**
+- **한계·검증:** 후속 새 탭의 복사/Notion은 그 탭 Q/A만(원문맥은 부모 탭에). 후속 탭 상한 없음(AID는 10). 빌드·타입체크 통과(프록시검증) — 멀티턴 기억·새 탭 생성·`⏎` 폰트 렌더는 Chrome 실사용 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

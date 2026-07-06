@@ -9,11 +9,26 @@ import { explain } from './explain';
 import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
+import type { ChatTurn } from '../shared/types';
 import { setLastBackend } from '../shared/secrets';
 import { getCached, setCached } from '../shared/cache/idb-cache';
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
+
+// 단축키(chrome://extensions/shortcuts에서 재지정 가능한 'open-ask', 기본 Alt+Q) → 활성 탭 콘텐츠로
+// OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다. 활성 탭이 YouTube가 아니면(콘텐츠 스크립트
+// 없음) sendMessage가 거부되므로 조용히 무시. content script는 SW로 직접 단축키를 못 받아 이 왕복이 필요.
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== 'open-ask') return;
+  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+    const tabId = tabs[0]?.id;
+    if (tabId === undefined) return;
+    chrome.tabs.sendMessage(tabId, { type: 'OPEN_ASK' }).catch(() => {
+      /* YouTube 탭이 아니거나 콘텐츠 스크립트 미주입 — 무시 */
+    });
+  });
+});
 
 interface TranslateBatchMsg {
   type: 'TRANSLATE_BATCH';
@@ -60,6 +75,7 @@ interface ExplainMsg {
   model: GeminiModel | MindlogicModel;
   prompt: string;
   question?: string; // 있으면 해설이 아니라 사용자 자유 질문 경로
+  history?: ChatTurn[]; // 있으면 후속 질문 — 이전 대화를 문맥으로 함께 전달
 }
 
 // 해설을 Notion DB에 페이지로 저장. content가 영상 메타까지 동봉, 토큰은 secrets.ts.
@@ -193,13 +209,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     m.model &&
     (m.prompt || m.question) // 질문 경로는 prompt가 비어도 됨(질문 전용 프롬프트 사용)
   ) {
-    const { text, context, backend, model, prompt, question } = m;
+    const { text, context, backend, model, prompt, question, history } = m;
     (async (): Promise<void> => {
       try {
         // prompt는 해설 경로에서만 쓰임(질문 경로는 explain()이 질문 전용 프롬프트 사용).
         // 가드가 (prompt || question)이라 prompt는 string|undefined → 빈 문자열 폴백.
-        const markdown = await explain({ text, context, backend, model, prompt: prompt ?? '', question });
-        sendResponse({ ok: true, markdown });
+        const { markdown, userMessage } = await explain({
+          text,
+          context,
+          backend,
+          model,
+          prompt: prompt ?? '',
+          question,
+          history,
+        });
+        sendResponse({ ok: true, markdown, userMessage });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'explain failed:', error);

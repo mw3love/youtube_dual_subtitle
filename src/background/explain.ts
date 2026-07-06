@@ -11,6 +11,7 @@
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
 import { QUESTION_SYSTEM_PROMPT } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
+import type { ChatTurn } from '../shared/types';
 import { resolveGeminiModelId } from './translators/gemini';
 
 const TAG = '[YDT/explain]';
@@ -28,17 +29,27 @@ export interface ExplainParams {
   model: GeminiModel | MindlogicModel;
   prompt: string; // system 프롬프트 (옵션 explainPrompt)
   question?: string; // 사용자 자유 질문 — 있으면 해설이 아니라 "질문" 경로(질문 전용 프롬프트)
+  history?: ChatTurn[]; // 이전 대화(user/model 교대). 있으면 후속 질문 — 문맥으로 함께 전달.
 }
 
-export async function explain(params: ExplainParams): Promise<string> {
+// markdown뿐 아니라 이번에 실제로 보낸 user 메시지도 돌려준다 — content가 대화 기록(turns)에
+// 정확히 그 문자열을 넣어 다음 후속 질문의 history로 재전송할 수 있게(재구성 drift 방지).
+export interface ExplainOutput {
+  markdown: string;
+  userMessage: string;
+}
+
+export async function explain(params: ExplainParams): Promise<ExplainOutput> {
   const q = params.question?.trim();
-  // 질문이 있으면 고정 표 형식의 해설 프롬프트 대신 가벼운 질문 프롬프트를 system으로 쓴다.
+  // 질문이 있으면(=후속 포함) 고정 표 형식의 해설 프롬프트 대신 가벼운 질문 프롬프트를 system으로 쓴다.
   const systemPrompt = q ? QUESTION_SYSTEM_PROMPT : params.prompt;
   const userMsg = buildUserMessage(params.text, params.context, q);
-  if (params.backend === 'mindlogic') {
-    return explainMindlogic(systemPrompt, userMsg, params.model as MindlogicModel);
-  }
-  return explainGemini(systemPrompt, userMsg, params.model as GeminiModel);
+  const history = params.history ?? [];
+  const markdown =
+    params.backend === 'mindlogic'
+      ? await explainMindlogic(systemPrompt, history, userMsg, params.model as MindlogicModel)
+      : await explainGemini(systemPrompt, history, userMsg, params.model as GeminiModel);
+  return { markdown, userMessage: userMsg };
 }
 
 function buildUserMessage(text: string, context?: string, question?: string): string {
@@ -46,7 +57,9 @@ function buildUserMessage(text: string, context?: string, question?: string): st
   const ctx = context?.trim();
   const q = question?.trim();
   if (q) {
-    const lines = [`자막에서 고른 부분: "${t}"`];
+    const lines: string[] = [];
+    // 자막 선택 없이 연 "직접 질문"(Alt+Q)이면 t가 비어 "고른 부분" 줄은 생략 → 순수 질문만.
+    if (t) lines.push(`자막에서 고른 부분: "${t}"`);
     if (ctx && ctx !== t) lines.push(`자막 문장: ${ctx}`);
     lines.push(`질문: ${q}`);
     return lines.join('\n');
@@ -59,15 +72,21 @@ function buildUserMessage(text: string, context?: string, question?: string): st
 
 async function explainGemini(
   prompt: string,
+  history: ChatTurn[],
   userMsg: string,
   model: GeminiModel,
 ): Promise<string> {
   const apiKey = await getGeminiApiKey();
   if (!apiKey) throw new Error('Gemini API 키가 없음 (옵션 페이지에서 입력 필요)');
   const url = `${GEMINI_ENDPOINT_BASE}/${resolveGeminiModelId(model)}:generateContent`;
+  // history의 role('user'/'model')은 gemini 규약과 동일 → 그대로 매핑, 끝에 이번 user 메시지.
+  const contents = [
+    ...history.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    { role: 'user', parts: [{ text: userMsg }] },
+  ];
   const body = {
     systemInstruction: { parts: [{ text: prompt }] },
-    contents: [{ role: 'user', parts: [{ text: userMsg }] }],
+    contents,
     generationConfig: { temperature: 0.3, maxOutputTokens: MAX_TOKENS },
   };
 
@@ -94,17 +113,21 @@ async function explainGemini(
 
 async function explainMindlogic(
   prompt: string,
+  history: ChatTurn[],
   userMsg: string,
   model: MindlogicModel,
 ): Promise<string> {
   const apiKey = await getMindlogicApiKey();
   if (!apiKey) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  // OpenAI 호환: system 다음에 history(model→assistant 매핑), 끝에 이번 user 메시지.
+  const messages = [
+    { role: 'system', content: prompt },
+    ...history.map((t) => ({ role: t.role === 'model' ? 'assistant' : 'user', content: t.text })),
+    { role: 'user', content: userMsg },
+  ];
   const body = {
     model,
-    messages: [
-      { role: 'system', content: prompt },
-      { role: 'user', content: userMsg },
-    ],
+    messages,
     temperature: 0.3,
     max_tokens: MAX_TOKENS,
   };

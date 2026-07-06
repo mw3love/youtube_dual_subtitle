@@ -39,6 +39,15 @@ export default defineManifest({
       run_at: 'document_start',
     },
   ],
+  // 자막 선택 없이 "직접 질문" 패널을 여는 단축키. _execute_action(팝업 열기)과 겹치지 않게
+  // 커스텀 커맨드로 둬 chrome://extensions/shortcuts 에 노출 → 사용자가 자유 재지정 가능.
+  // background가 onCommand로 받아 활성 탭 콘텐츠에 OPEN_ASK 전달.
+  commands: {
+    'open-ask': {
+      suggested_key: { default: 'Alt+Q', mac: 'Alt+Q' },
+      description: '자막 직접 질문 패널 열기 (AI에게 물어보기)',
+    },
+  },
   permissions: ['storage', 'scripting', 'offscreen'],
   host_permissions: [
     'https://www.youtube.com/*',

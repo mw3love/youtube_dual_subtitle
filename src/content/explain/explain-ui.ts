@@ -18,10 +18,14 @@
 // 패널을 없애지 않고 최소화(💡 핸들)해 탭을 보존하고, 핸들 클릭으로 복원한다.
 
 import { renderMarkdown, domToMarkdown } from './markdown';
+import type { ChatTurn } from '../../shared/types';
 
 const TAG = '[YDT/explain]';
 
-export type ExplainResult = { ok: true; markdown: string } | { ok: false; error: string };
+// userMessage: background가 실제로 보낸 user 메시지 — 대화 기록(turns)에 넣어 후속 질문의 history로 재전송.
+export type ExplainResult =
+  | { ok: true; markdown: string; userMessage?: string }
+  | { ok: false; error: string };
 export type NotionSaveResult =
   | { ok: true; url?: string; title?: string }
   | { ok: false; error: string };
@@ -30,10 +34,12 @@ export type NotionSaveResult =
 interface Tab {
   term: string; // 선택 표현 — 탭 라벨·헤더 제목·복사/Notion 제목
   context: string; // 자막 문맥(원문 줄) — 백엔드 disambiguation + 복사/저장 인용
-  isQuestion: boolean; // ❓ 질문 탭이면 입력칸(qform)을 가짐
-  contentEl: HTMLElement; // 탭 콘텐츠 wrapper([qform?] + body) — 활성 탭만 display
+  isQuestion: boolean; // ❓ 질문/직접질문 탭이면 답이 오기 전 안내 문구를 본문에 둔다
+  isAsk: boolean; // 자막 선택 없이 Alt+Q로 연 "직접 질문" 탭 — 백엔드에 선택 텍스트 미전송
+  isFollowup: boolean; // 다른 탭의 답에서 "이어서 질문"으로 파생된 탭 — 라벨에 ↳ 표시
+  contentEl: HTMLElement; // 탭 콘텐츠 wrapper(= body) — 활성 탭만 display
   bodyEl: HTMLElement; // .ydt-explain-body — 렌더된 답변 DOM(형광펜이 라이브로 보존됨)
-  qInput: HTMLTextAreaElement | null; // 질문 탭의 입력칸(재질문 가능)
+  turns: ChatTurn[]; // 이 탭의 누적 대화(멀티턴). 후속 질문 시 새 탭이 복사해 상속 → 문맥 유지.
   result: { term: string; markdown: string; context: string } | null; // 도착한 답변(복사/Notion 참조)
   notionSaved: boolean;
   notionPageUrl: string | null;
@@ -65,6 +71,7 @@ export class ExplainUI {
   private titleEl: HTMLElement | null = null;
   private noticeEl: HTMLElement | null = null; // Notion 저장 결과 알림 줄(헤더 아래)
   private tabstripEl: HTMLElement | null = null;
+  private chatInput: HTMLTextAreaElement | null = null; // 맨 아래 "이어서 질문" 입력창(패널 공용, 활성 탭 대상)
   private copyBtn: HTMLButtonElement | null = null;
   private notionBtn: HTMLButtonElement | null = null;
   private highlightBtn: HTMLButtonElement | null = null;
@@ -77,6 +84,7 @@ export class ExplainUI {
       text: string,
       context: string,
       question: string,
+      history: ChatTurn[],
     ) => Promise<ExplainResult>,
     private readonly requestNotionSave: (
       term: string,
@@ -258,6 +266,15 @@ export class ExplainUI {
     if (this.toolbar) this.toolbar.style.display = 'none';
   }
 
+  // public — Alt+Q(content/index.ts)가 호출. 자막 선택 없이 빈 질문 탭을 열어 곧장 입력칸에
+  // 포커스(자막에 안 뜨는 표현을 따로 물어보기 — 별도 AI 사전 대체). 해설 꺼져 있으면 무시.
+  // term='직접 질문'은 표시 라벨일 뿐, isAsk=true라 백엔드엔 선택 텍스트를 안 보낸다(제출 시 라벨은 질문으로 교체).
+  openAsk(): void {
+    if (!this.enabled) return;
+    this.openTab('직접 질문', '', true, true);
+    this.chatInput?.focus();
+  }
+
   private onExplainClick = (ev: MouseEvent): void => {
     ev.preventDefault();
     ev.stopPropagation();
@@ -275,7 +292,9 @@ export class ExplainUI {
     if (!this.pending) return;
     const { text, context } = this.pending;
     this.hideToolbar();
+    // 선택 텍스트를 문맥으로 든 빈 질문 탭 → 맨 아래 입력창에 포커스(첫 질문 입력).
     this.openTab(text, context, true);
+    this.chatInput?.focus();
   };
 
   // ─── 패널 셸 ───
@@ -298,10 +317,10 @@ export class ExplainUI {
     this.highlightBtn = document.createElement('button');
     this.highlightBtn.className = 'ydt-explain-action';
     this.highlightBtn.type = 'button';
-    this.highlightBtn.textContent = '✏️ 백틱';
+    this.highlightBtn.textContent = '🖍 형광펜';
     this.highlightBtn.disabled = true;
     this.highlightBtn.title =
-      '드래그 후 누르면 그 부분을 백틱 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`';
+      '드래그 후 누르면 그 부분을 형광펜 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`';
     // mousedown 기본 동작(본문 선택 collapse)을 막아야 "드래그 후 버튼 클릭"에서 선택이 살아있음.
     this.highlightBtn.addEventListener('mousedown', (e) => e.preventDefault());
     this.highlightBtn.addEventListener('click', () => this.onHighlightClick());
@@ -368,10 +387,35 @@ export class ExplainUI {
     tabsContainer.className = 'ydt-explain-tabsbody';
     this.tabsContainer = tabsContainer;
 
+    // 맨 아래 "이어서 질문" 입력창 — 패널 공용(활성 탭 대상). 답 있는 탭에서 제출하면 후속 질문이
+    // 새 탭으로 뜨고(부모 대화 상속), 답이 아직 없는 빈 질문/직접질문 탭이면 그 탭을 첫 답으로 채움.
+    const chatbar = document.createElement('div');
+    chatbar.className = 'ydt-explain-chatbar';
+    const cinput = document.createElement('textarea');
+    cinput.className = 'ydt-explain-qinput';
+    cinput.rows = 1;
+    cinput.placeholder = '이어서 질문… (예: 더 쉽게, 예문 보여줘)';
+    cinput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        this.submitChat();
+      }
+    });
+    const csend = document.createElement('button');
+    csend.className = 'ydt-explain-qsend';
+    csend.type = 'button';
+    // 후속 탭 앞 마커와 같은 ⏎(return) 기호로 통일.
+    csend.textContent = '⏎';
+    csend.title = '보내기 (Enter)';
+    csend.addEventListener('click', () => this.submitChat());
+    chatbar.append(cinput, csend);
+    this.chatInput = cinput;
+
     // actions(백틱·복사·Notion 툴바)를 헤더 바로 아래·본문 위에 — 읽다가 위로 올려 누르는 동선.
     // 탭스트립을 notice 위로 — notice는 탭별로 켜졌다 꺼져(refreshActions) 아래에 두면 탭 위치가
     // 세로로 튀어 탭 전환이 불편했음. header+actions(둘 다 고정) 바로 아래라 탭 위치 불변.
-    panel.append(header, actions, tabstrip, notice, tabsContainer);
+    // chatbar는 맨 아래 고정(본문 스크롤과 무관하게 항상 보임).
+    panel.append(header, actions, tabstrip, notice, tabsContainer, chatbar);
     this.host().appendChild(panel);
     this.panel = panel;
   }
@@ -394,7 +438,13 @@ export class ExplainUI {
 
   // ─── 탭 ───
   // 새 탭을 만들어 활성화. question=true면 입력칸(qform)을 본문 위에 둔다(섹션 19).
-  private openTab(term: string, context: string, question: boolean): Tab {
+  private openTab(
+    term: string,
+    context: string,
+    question: boolean,
+    isAsk = false,
+    isFollowup = false,
+  ): Tab {
     this.ensureShell();
     this.restore(); // 최소화돼 있었으면 펼침
 
@@ -404,38 +454,16 @@ export class ExplainUI {
     contentEl.addEventListener('mouseup', () => window.setTimeout(() => this.applyHighlight(), 0));
     contentEl.addEventListener('click', (e) => this.onPanelClick(e));
 
-    let qInput: HTMLTextAreaElement | null = null;
-    if (question) {
-      const qform = document.createElement('div');
-      qform.className = 'ydt-explain-qform';
-      const input = document.createElement('textarea');
-      input.className = 'ydt-explain-qinput';
-      input.rows = 2;
-      input.placeholder = '이 표현에 대해 물어보기… (예: 반대말 알려줘 / who 빼면 이상해?)';
-      // Enter 전송, Shift+Enter 줄바꿈.
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-          e.preventDefault();
-          this.submitQuestion();
-        }
-      });
-      const send = document.createElement('button');
-      send.className = 'ydt-explain-qsend';
-      send.type = 'button';
-      send.textContent = '질문';
-      send.addEventListener('click', () => this.submitQuestion());
-      qform.appendChild(input);
-      qform.appendChild(send);
-      contentEl.appendChild(qform);
-      qInput = input;
-    }
-
     const body = document.createElement('div');
     body.className = 'ydt-explain-body';
-    if (question) {
+    if (isFollowup) {
+      // 후속 질문 탭 — 곧바로 실행되므로 로딩 표시.
+      body.appendChild(this.loadingEl('답변 생성 중…'));
+    } else if (question) {
+      // 빈 질문/직접질문 탭 — 맨 아래 입력창에 첫 질문을 기다린다.
       const hint = document.createElement('div');
       hint.className = 'ydt-explain-loading';
-      hint.append('질문을 입력하고 Enter(또는 "질문") 누르기.');
+      hint.append('맨 아래 입력창에 질문을 입력하고 Enter.');
       body.appendChild(hint);
     } else {
       body.appendChild(this.loadingEl('해설 생성 중…'));
@@ -446,9 +474,11 @@ export class ExplainUI {
       term,
       context,
       isQuestion: question,
+      isAsk,
+      isFollowup,
       contentEl,
       bodyEl: body,
-      qInput,
+      turns: [],
       result: null,
       notionSaved: false,
       notionPageUrl: null,
@@ -477,7 +507,6 @@ export class ExplainUI {
     this.tabs.forEach((t) => t.bodyEl.classList.remove('highlighting'));
     this.refreshActions();
     this.renderTabstrip();
-    tab.qInput?.focus();
   }
 
   // 제목을 넣되 3줄(max-height)을 넘치면 들어오는 최대 길이까지 줄이고 '…'을 붙인다.
@@ -553,7 +582,8 @@ export class ExplainUI {
       }
       const label = document.createElement('span');
       label.className = 'ydt-explain-tab-label';
-      label.textContent = (t.isQuestion ? '❓ ' : '') + t.term;
+      // 후속(파생) 탭은 ⏎, 첫 질문 탭은 ❓, 해설 탭은 아이콘 없음.
+      label.textContent = (t.isFollowup ? '⏎ ' : t.isQuestion ? '❓ ' : '') + t.term;
       label.addEventListener('click', () => this.activateTab(i));
       const close = document.createElement('button');
       close.className = 'ydt-explain-tab-close';
@@ -572,6 +602,12 @@ export class ExplainUI {
   private refreshActions(): void {
     const tab = this.activeTab();
     const has = !!tab?.result;
+    // 맨 아래 입력창 안내 — 답이 있으면 "이어서 질문", 아직 없으면(빈 질문 탭) 첫 질문 안내.
+    if (this.chatInput) {
+      this.chatInput.placeholder = has
+        ? '이어서 질문… (예: 더 쉽게, 예문 보여줘)'
+        : '질문을 입력하고 Enter…';
+    }
     if (this.copyBtn) this.copyBtn.disabled = !has;
     if (this.highlightBtn) this.highlightBtn.disabled = !has;
     if (this.notionBtn) {
@@ -755,6 +791,7 @@ export class ExplainUI {
     this.titleEl = null;
     this.noticeEl = null;
     this.tabstripEl = null;
+    this.chatInput = null;
     this.copyBtn = null;
     this.notionBtn = null;
     this.highlightBtn = null;
@@ -776,6 +813,11 @@ export class ExplainUI {
     if (res.ok) {
       body.appendChild(renderMarkdown(res.markdown));
       tab.result = { term: text, markdown: res.markdown, context };
+      // 대화 기록 시드 — 이 해설 탭에서 "이어서 질문"하면 이 해설을 문맥으로 갖게 한다.
+      tab.turns = [
+        { role: 'user', text: res.userMessage ?? text },
+        { role: 'model', text: res.markdown },
+      ];
       if (this.activeTab() === tab) this.refreshActions();
     } else {
       const err = document.createElement('div');
@@ -786,16 +828,33 @@ export class ExplainUI {
     }
   }
 
-  // 활성 탭의 질문을 제출 — 답은 본문에 렌더(입력칸은 그대로 남아 재질문 가능).
-  private submitQuestion(): void {
+  // 맨 아래 "이어서 질문" 입력창 제출. 활성 탭에 답이 있으면 후속 질문을 새 탭으로(부모 대화 상속),
+  // 아직 답이 없는 빈 질문/직접질문 탭이면 그 탭을 첫 답으로 채운다. 해설 로딩 중 탭은 무시.
+  private submitChat(): void {
+    const input = this.chatInput;
     const tab = this.activeTab();
-    if (!tab || !tab.qInput) return;
-    const q = tab.qInput.value.trim();
-    if (!q) {
-      tab.qInput.focus();
-      return;
+    if (!input || !tab) return;
+    const q = input.value.trim();
+    if (!q) return;
+
+    if (tab.result) {
+      // 후속 질문 → 새 탭. 부모 turns를 상속해 "더 쉽게" 등이 직전 답을 문맥으로 갖는다(§24 멀티턴).
+      input.value = '';
+      const parentTurns = tab.turns;
+      const child = this.openTab(q, '', true, false, true);
+      // 후속 user 메시지는 질문만(text/context 비움) — 이전 대화가 history로 문맥을 준다.
+      void this.runQuestion(child, '', '', q, parentTurns);
+    } else if (tab.isQuestion) {
+      // 빈 질문/직접질문 탭의 첫 질문 → 현재 탭 채움. 직접질문(isAsk)은 선택 텍스트 없이 질문만,
+      // 선택에서 연 ❓탭은 term(선택 텍스트)을 문맥으로 보냄. 라벨(제목·탭칩)은 질문으로 교체.
+      input.value = '';
+      const text = tab.isAsk ? '' : tab.term;
+      tab.term = q;
+      this.setTitle(q);
+      this.renderTabstrip();
+      void this.runQuestion(tab, text, tab.context, q, []);
     }
-    void this.runQuestion(tab, tab.term, tab.context, q);
+    // 해설 로딩 중(!result && !isQuestion) 탭에선 무시.
   }
 
   private async runQuestion(
@@ -803,6 +862,7 @@ export class ExplainUI {
     text: string,
     context: string,
     question: string,
+    history: ChatTurn[],
   ): Promise<void> {
     const body = tab.bodyEl;
     body.textContent = '';
@@ -811,7 +871,7 @@ export class ExplainUI {
 
     let res: ExplainResult;
     try {
-      res = await this.requestQuestion(text, context, question);
+      res = await this.requestQuestion(text, context, question, history);
     } catch (e) {
       res = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -821,7 +881,15 @@ export class ExplainUI {
       // 질문을 답 위에 함께 렌더 → 패널에 Q/A가 같이 보이고, 복사/Notion에도 질문이 포함됨.
       const md = `**질문:** ${question}\n\n${res.markdown}`;
       body.appendChild(renderMarkdown(md));
-      tab.result = { term: text, markdown: md, context };
+      // 복사/Notion 제목엔 표시 라벨(tab.term)을 쓴다 — 선택 탭은 text와 동일, 직접 질문 탭은 질문 텍스트.
+      tab.result = { term: tab.term, markdown: md, context };
+      // 대화 기록 누적 — user 턴은 background가 실제 보낸 메시지(userMessage), model 턴은 원문 답(markdown,
+      // "질문:" 접두어 없는 순수 답). 후속 탭이 이 turns를 상속해 다음 질문이 대화 전체를 문맥으로 갖는다.
+      tab.turns = [
+        ...history,
+        { role: 'user', text: res.userMessage ?? question },
+        { role: 'model', text: res.markdown },
+      ];
       if (this.activeTab() === tab) this.refreshActions();
     } else {
       const err = document.createElement('div');

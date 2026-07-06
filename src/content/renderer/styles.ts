@@ -355,13 +355,13 @@ const STYLES = `
 .ydt-explain-model { color: #9ee7ff; font-weight: 600; }
 .ydt-explain-error { color: #ff8a8a; font-size: 13px; }
 
-/* 질문 입력칸 — 헤더와 본문 사이. 답이 와도 남아 재질문 가능. */
-.ydt-explain-qform {
+/* 맨 아래 "이어서 질문" 입력창 — 패널 하단 고정(본문 스크롤과 무관하게 항상 보임). */
+.ydt-explain-chatbar {
   display: flex;
   gap: 8px;
   padding: 10px 14px;
   background: #1f1f1f;
-  border-bottom: 1px solid #333;
+  border-top: 1px solid #333;
   flex: 0 0 auto;
 }
 .ydt-explain-qinput {
