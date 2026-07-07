@@ -163,16 +163,16 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **트리거·표시** (`content/explain/explain-ui.ts`, `ExplainUI`): `mouseup` → `window.getSelection()`이 `.ydt-container` 안의 비어있지 않은 선택이면 선택 rect 위에 `.ydt-explain-btn`("💡 해설")을 띄움. native 텍스트 선택은 이미 동작(렌더러 pointerdown이 `.ydt-cue-text`에서 양보, 섹션 8) — UI는 그 결과만 읽는다. 클릭 시 우상단 사이드 패널(`.ydt-explain-panel`)에 로딩→markdown 렌더. 문맥은 같은 박스의 원문 줄(`.ydt-source .ydt-cue-text`) 전체를 같이 보내 단어 뜻 disambiguation. 버튼/패널은 `document.fullscreenElement ?? document.body`에 append하고 `fullscreenchange`에 re-home(전체화면에서도 보이게). Esc로 패널 닫기.
 - **백엔드** (`background/explain.ts`, `explain()`): 자유서술이 가능한 BYOK 둘만 — `ExplainBackendSchema = enum('gemini','mindlogic')`. `google-free`/`chrome-builtin`은 해설 불가라 제외. gemini는 `generateContent`(systemInstruction=프롬프트, JSON schema 없음), mindlogic은 `chat/completions`(system+user). `temperature 0.3`, `maxOutputTokens/max_tokens 4096`(A32, 표 여러 개 잘림 방지). 429/5xx 1회 백오프, 401/403 즉시 throw. 키는 번역과 동일하게 `secrets.ts`(storage.local) 재사용 — 새 키 입력 UI 불필요. 모델은 번역과 분리된 `explainGeminiModel`/`explainMindlogicModel`(섹션 17).
 - **프롬프트는 사용자 편집 가능**: `settings.explainPrompt`(storage.sync), 기본값 `DEFAULT_EXPLAIN_PROMPT`(=사용자 Gem 프롬프트, `settings.ts`). 옵션 페이지 textarea + "기본값으로" 버튼. system 메시지로 그대로 전달돼 답변 형식을 정함.
-- **배선**: content `requestExplain(text, context)` → `EXPLAIN` 메시지(backend/model/prompt 동봉, 모델은 explainBackend에 따라 `explainGeminiModel`/`explainMindlogicModel` — 번역 모델과 분리, 섹션 17) → background 핸들러 → `explain()` → `{ok, markdown}`. `applySettings`가 `explainUI.setEnabled(explainEnabled)`. 로딩 패널에 현재 모델명 표시(섹션 17).
+- **배선**: content `requestExplain(text, context)` → `EXPLAIN` 메시지(backend/model/prompt 동봉, 모델은 explainBackend에 따라 `explainGeminiModel`/`explainMindlogicModel` — 번역 모델과 분리, 섹션 17) → background 핸들러 → `explain()` → `{ok, markdown}`. `applySettings`가 `explainUI.setEnabled(true)`(A51: 해설/질문 버튼 상시 표시, `explainEnabled` UI 토글 제거 — 섹션 31). 로딩 패널에 현재 모델명 표시(섹션 17).
 - **markdown 렌더는 자체 구현** (`content/explain/markdown.ts`, `renderMarkdown`): 신뢰 불가한 LLM 출력이라 **innerHTML 미사용** — 모든 텍스트를 `textContent`로만 넣고 element를 직접 생성해 XSS를 원천 차단(sanitizer 의존성 불필요). 지원 문법은 해설에 실제 쓰이는 것만: 헤딩·GFM 표·순서/비순서 목록·코드펜스·가로줄(`---`/`***`/`___`→`<hr>`/divider)·인라인(`` `code` ``/`**bold**`/`*italic*`). 스타일은 `styles.ts`의 `.ydt-explain-*`(패널 하위로 스코프).
-- **옵션 키 노출 조건**: Gemini/Mindlogic 설정 섹션이 예전엔 번역 backend === 그 백엔드일 때만 보였으나, explain이 그 백엔드를 쓰면(`explainEnabled && explainBackend === ...`)도 보이도록 조건 확장 — 번역=google-free + 해설=gemini 조합에서 키 입력 가능.
+- **옵션 키 노출 조건** (A51 갱신, 섹션 31): Gemini/Mindlogic 설정 섹션은 **제공자별** `showGemini`/`showMindlogic` = `backend === 그 백엔드 || explainBackend === 그 백엔드`로 표시. 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 펼침. (옛 `explainEnabled && explainBackend === ...` 조건을 대체 — explainEnabled 게이트 제거. 해설 백엔드는 이제 번역 방식을 자동 추종해 별도 라디오 없음.)
 - **비용·한계:** 사용자가 누를 때만 1회 호출이라 비용 통제됨(자막 전체 번역과 다름). 페이지의 다른 사전 확장과 선택 팝업이 겹칠 수 있으나 우리 버튼은 `.ydt-container` 안 선택에만 발화. 후속 대화(follow-up Q)는 v1 미지원 — 단발 해설만.
 
 ### 15. 해설 → Notion/클립보드 정리 (A30, v0.6.0)
 
 **의도:** 해설 패널 내용을 모아 복습할 수 있게 외부로 내보낸다. 두 경로를 제공 — **무설정 클립보드 복사**와 **BYOK Notion API 직접 저장**.
 
-- **패널 액션 버튼** (`explain-ui.ts`): 해설 도착 시 헤더의 `📋 복사`/`📝 Notion` 활성화. `lastResult{term,markdown,context}` 보관해 두 버튼이 참조. Notion 버튼은 `notionEnabled`일 때만 표시(`setNotionEnabled`).
+- **패널 액션 버튼** (`explain-ui.ts`): 해설 도착 시 헤더의 `📋 복사`/`📝 Notion` 활성화. `lastResult{term,markdown,context}` 보관해 두 버튼이 참조. Notion 버튼은 상시 표시(A51: `setNotionEnabled(true)` — 옛 `notionEnabled` 게이트 제거, 섹션 31).
   - **📋 복사**: `navigator.clipboard.writeText`로 `## term` + markdown(+ 자막 인용)을 복사. **Notion은 markdown 붙여넣기를 자동으로 리치 블록 변환**하므로 무설정으로도 표·예문이 살아 들어감. 가장 빠른 효용.
   - **📝 Notion**: `requestNotionSave` → `NOTION_SAVE` 메시지(영상 제목/URL 동봉) → background. 저장중→`✓ 저장됨 ↗`(클릭 시 생성된 페이지 열기)/`✗ 저장 실패`(2.5s 후 원복).
 - **백엔드** (`background/notion.ts`, `saveToNotion`): 호출 경로는 gemini/mindlogic와 동일 — SW가 `host_permissions`의 `api.notion.com`으로 fetch(CORS 우회). 토큰은 `secrets.ts`(storage.local), DB ID는 settings(storage.sync). `Notion-Version: 2022-06-28`.
@@ -331,6 +331,18 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **다음 프레임 재포커스** (`requestAnimationFrame`): §28은 "빈 질문 탭을 열어 맨 아래 입력창에 포커스"라 적었지만, Alt+Q(`chrome.commands`)/팝업 버튼 경로는 패널을 **방금 표시·재배치한 같은 틱**에 `focus()`를 불러 씹혔다(새로 display된 요소는 레이아웃 전이라 focus 무시 — §10·§22의 "표시 직후 조작" 계열 문제). 동기 `focus()` 뒤 `requestAnimationFrame(()=>input?.focus())`로 다음 프레임에 한 번 더 포커스해 마우스 클릭 없이 곧장 타이핑되게 함. (팝업 버튼은 `window.close()` 후 페이지가 포커스를 되찾는 타이밍이라 rAF 한 프레임으로 부족할 여지 남음 — 실사용에서 재확인 대상.)
 - **새 질문은 빈 입력창으로** (`if (this.chatInput) this.chatInput.value = ''`): 입력창은 §28에서 탭별→**패널 공용** 하나로 합쳤는데(`ydt-explain-chatbar`), 그 부작용으로 이전 탭에 제출 없이 타이핑만 해둔 초안이 새 탭에도 남았다. `openAsk`가 새 탭을 연 뒤 입력창을 비워 "새로 물으려고 연 탭"엔 잔여 텍스트가 안 남게 함. **탭 전환 시 draft 공유는 유지**(그건 유용) — 비우는 건 새 질문 진입점에서만.
 - **검증:** 사용자 실조건검증(Alt+Q·새 질문 버튼으로 커서 즉시 진입·입력창 비움 Chrome 실사용 확인). 빌드·타입체크 통과.
+
+### 31. 옵션 페이지 IA 개편 — 섹션 재배치·불릿 계층·API 제공자별 표시·해설/Notion 상시화 (A51, v0.16.0)
+
+옵션 페이지(`options/main.tsx`)의 정보구조·시각 계층 정리 + 해설/Notion 상시화. 대부분 옵션 UI 한 파일이지만 상시화 3건은 런타임(`content/index.ts`)에도 영향.
+
+- **섹션 순서**: 자막 관련을 위, AI/API를 아래로 — `자막 표시 → Single Subtitle → 자막 스타일 → 자막 배치·배경 → 번역 방식 → Gemini 설정 → Mindlogic 설정 → 단어·표현 해설 → Notion 저장 → 관리`. "번역 방식"(백엔드 라디오)은 옛 "자막 표시" 안에서 **독립 섹션으로 분리**해 Gemini/Mindlogic 설정 바로 위에 배치(AI 블록 응집).
+- **시각 계층 — 들여쓰기 + 불릿**: `Section` 컴포넌트가 하위 항목 컨테이너에 `paddingLeft`만 준다(세로선 `borderLeft` 시안은 폐기 — 사용자 선택). 일반 설정 행(`Row`)은 라벨 앞에 `·` 불릿(빈 라벨 힌트 행은 생략). 라디오(`○`)·자막 스타일 그룹 칩(`1./2.`)은 자체 마커라 불릿 안 붙임(이중 마커 방지). 자막 스타일의 크기·색·굵기는 그룹 칩 아래 한 단계 더 들여쓰기.
+- **API 설정 섹션 = 제공자별 표시** (`showGemini`/`showMindlogic`): `backend === 'gemini' || explainBackend === 'gemini'`이면 Gemini 설정 펼침(Mindlogic 동형). 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 노출 — 옛 통합 조건·`explainEnabled` 게이트(섹션 14)를 대체.
+- **해설 백엔드 라디오 제거 → 번역 방식(AI) 자동 추종**: "AI는 보통 하나만 쓴다" 전제로 해설 백엔드 선택 UI 제거. 번역 방식에서 Gemini/Mindlogic 선택 시 `explainBackend`도 함께 set(라디오 onChange), 로드 시 저장값이 어긋나면 정규화(`loadSettings().then`의 `aiBackend`). 번역이 google/chrome이면 마지막 AI 선택(기본 gemini) 유지. **해설 모델 선택칸은 유지**(같은 제공자라도 번역=저렴/해설=고품질 분리, 섹션 17). 트레이드오프: 번역≠해설 AI 조합은 UI로 못 고름(기본 gemini).
+- **해설 켜기 / Notion 저장 켜기 체크박스 제거 → 상시 노출**: 두 체크박스를 없애고 섹션 내용·패널 버튼(💡 해설·❓ 질문·📝 Notion)을 상시 표시. content가 `setEnabled(true)`/`setNotionEnabled(true)`(popup의 "➕ 새 질문"도 `explainEnabled` 게이트 제거, `pageReachable`만). `explainEnabled`/`notionEnabled`는 스키마에 **미래 결제 게이트용 예약 필드**로 남김(주석 명시) — 유료화 시 버튼은 무료도 노출해 구매 유도하고 "호출/저장" 단계에서 이 값을 검사할 자리.
+- **문구 평이화**: 해설 안내의 개발자 은어 "BYOK" → "내 AI 키가 필요해요"("무료 발급"은 Mindlogic엔 안 맞아 제거, Gemini 라디오 선택 시 아래 AI Studio 링크가 이미 뜸).
+- **검증:** 빌드·타입체크 통과(프록시검증) — 섹션 펼침/접힘·번역↔해설 AI 추종·Notion 상시·불릿 정렬은 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 

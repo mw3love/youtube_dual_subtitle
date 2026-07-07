@@ -119,6 +119,8 @@ export const SettingsSchema = z.object({
     shorts: PositionSchema,
   }),
   // 단어/표현 해설 — 자막 텍스트를 드래그 선택하면 작은 버튼으로 AI 해설 패널 호출.
+  // explainEnabled: 현재는 항상 true(옵션 UI 토글 제거, 해설/질문 버튼 상시 표시). 미래 결제
+  // 게이트용 예약 필드 — 유료화 시 "해설 호출" 단계에서 이 값을 검사(버튼은 무료도 계속 노출).
   explainEnabled: z.boolean(),
   explainBackend: ExplainBackendSchema,
   // 해설 모델 — 번역 모델(geminiModel/mindlogicModel)과 별개로 선택. 번역은 자막 수백 줄 ×N이라
@@ -127,6 +129,8 @@ export const SettingsSchema = z.object({
   explainMindlogicModel: MindlogicModelSchema,
   explainPrompt: z.string(),
   // 해설 패널을 Notion DB에 저장 (BYOK — 토큰은 secrets.ts, DB ID는 여기).
+  // notionEnabled: 현재는 항상 표시(옵션 UI 토글 제거, 📝 버튼 상시 노출). explainEnabled와 같은
+  // 미래 결제 게이트용 예약 필드 — 유료화 시 "저장 호출" 단계에서 검사(버튼은 무료도 계속 노출).
   notionEnabled: z.boolean(),
   notionDatabaseId: z.string(),
 });

@@ -676,8 +676,10 @@ function applySettings(s: Settings): void {
     lineHeight: s.lineHeight,
   });
   renderer.setPositions(s.subtitlePosition);
-  explainUI.setEnabled(s.explainEnabled);
-  explainUI.setNotionEnabled(s.notionEnabled);
+  // 해설/질문 버튼은 상시 표시(무료 사용자도 노출 — 결제 게이트는 미래에 호출 단계에서).
+  explainUI.setEnabled(true);
+  // 📝 Notion 버튼도 상시 표시(무료도 노출 — 결제 게이트는 미래에 저장 단계에서).
+  explainUI.setNotionEnabled(true);
   // MAIN world에도 전달 — inject-main의 자동 CC 토글이 사용자 설정에 맞춰 동작하도록.
   window.postMessage(
     { source: 'YDT_CONTENT', type: 'SUBTITLES_ENABLED', enabled: s.subtitlesEnabled },

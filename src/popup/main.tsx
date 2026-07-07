@@ -295,7 +295,7 @@ function Popup() {
 
       <StatusLine status={status} />
 
-      {settings.explainEnabled && pageReachable && (
+      {pageReachable && (
         <button
           onClick={() => void openAskOnPage()}
           disabled={!loaded}
