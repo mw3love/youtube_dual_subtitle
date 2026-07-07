@@ -272,7 +272,15 @@ export class ExplainUI {
   openAsk(): void {
     if (!this.enabled) return;
     this.openTab('직접 질문', '', true, true);
-    this.chatInput?.focus();
+    // 새 질문은 빈 입력창으로 시작 — 입력창은 패널 공용(§28)이라 이전 탭의 미제출 초안이
+    // 남는데, 새로 물으려고 연 탭엔 잔여 텍스트가 혼란스러워 비운다(탭 전환 시 draft 공유는 유지).
+    if (this.chatInput) this.chatInput.value = '';
+    // Alt+Q(chrome.commands)/팝업 버튼으로 열릴 땐 패널을 방금 표시·재배치한 직후라
+    // 동기 focus()가 씹힌다(레이아웃 전·문서 포커스 복귀 전). 다음 프레임에 다시 포커스해
+    // 마우스 클릭 없이 곧장 타이핑되게 한다.
+    const input = this.chatInput;
+    input?.focus();
+    requestAnimationFrame(() => input?.focus());
   }
 
   private onExplainClick = (ev: MouseEvent): void => {
