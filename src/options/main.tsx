@@ -36,6 +36,11 @@ const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
   { value: 700, label: '굵게' },
 ];
 
+// 하위 항목 계층 마커. 옛 `·`(middle dot)는 13px 텍스트에 껴서 안 보여 `•`(bullet)로 키움.
+function Bullet() {
+  return <span style={{ color: '#9a9a9a', marginRight: 6, fontSize: 15 }}>•</span>;
+}
+
 // 섹션별 초기화 대상 키 — 해당 섹션 값만 default로 되돌리고 나머지(언어/백엔드/해설 등)는 유지.
 // "자막 스타일" = 원문/번역 텍스트 스타일(크기·색·굵기).
 const TEXT_STYLE_KEYS = [
@@ -116,7 +121,7 @@ function Row({ label, children, hint }: { label: string; children: React.ReactNo
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
       {/* 라벨 앞 불릿(·)으로 "제목의 하위 항목"임을 표시. 빈 라벨(힌트 전용 행)은 불릿 생략. */}
       <label style={{ minWidth: 140, fontSize: 13 }}>
-        {label && <span style={{ color: '#777', marginRight: 6 }}>·</span>}
+        {label && <Bullet />}
         {label}
       </label>
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -598,6 +603,83 @@ function Options() {
     );
   };
 
+  // 해설 모델 + 해설 프롬프트 블록 — 활성 provider(Gemini/Mindlogic) 섹션 하단에 붙여
+  // "번역 모델 바로 아래 해설 모델"로 연계. 프롬프트(공용 explainPrompt)도 여기서 편집.
+  // provider마다 렌더되지만 화면엔 활성 섹션 하나만 떠서 중복 노출 없음.
+  const renderExplainBlock = (provider: 'gemini' | 'mindlogic'): React.ReactNode => (
+    <>
+      <div
+        style={{
+          marginTop: 6,
+          paddingTop: 12,
+          borderTop: '1px dashed #333',
+          fontSize: 13,
+          fontWeight: 700,
+          color: '#ffca7a',
+          marginBottom: 2,
+        }}
+      >
+        단어·표현 해설 (드래그)
+      </div>
+      <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
+        영상에서 자막을 드래그하면 <b style={{ color: '#3ea6ff' }}>💡 해설</b> ·{' '}
+        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 아래는 그 답변에 쓸 모델·말투를 정합니다.
+      </p>
+      <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
+        {provider === 'gemini'
+          ? renderGeminiSelect(
+              settings.explainGeminiModel,
+              (v) => update({ explainGeminiModel: v }),
+              true,
+            )
+          : renderMindlogicSelect(
+              settings.explainMindlogicModel,
+              (v) => update({ explainMindlogicModel: v }),
+              true,
+            )}
+      </Row>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
+          <Bullet />해설 프롬프트
+        </label>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <textarea
+            value={settings.explainPrompt}
+            onChange={(e) => update({ explainPrompt: e.target.value })}
+            rows={9}
+            spellCheck={false}
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              fontFamily: 'inherit',
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: '#e8e8e8',
+              background: '#1c1c1c',
+              border: '1px solid #333',
+              borderRadius: 6,
+              padding: 8,
+              resize: 'vertical',
+            }}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              onClick={() => update({ explainPrompt: DEFAULT_EXPLAIN_PROMPT })}
+              disabled={settings.explainPrompt === DEFAULT_EXPLAIN_PROMPT}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+            >
+              기본값으로
+            </button>
+            <span style={{ fontSize: 11, color: '#999' }}>
+              이 프롬프트가 AI에게 그대로 전달돼 답변 형식을 정합니다
+            </span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   // API 키 입력은 settings와 다른 storage area라 별도 디바운스 저장.
   // 300ms — 빠른 paste/타이핑 도중 부분 키 저장 방지.
   const onApiKeyChange = (v: string): void => {
@@ -984,7 +1066,7 @@ function Options() {
                 위치 초기화는 섹션 제목 옆 ↻(자막 배치·배경 그룹)에 통합. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <label style={{ minWidth: 140, fontSize: 13 }}>
-                <span style={{ color: '#777', marginRight: 6 }}>·</span>자막 위치
+                <Bullet />자막 위치
               </label>
               <div
                 style={{
@@ -995,8 +1077,8 @@ function Options() {
                   color: '#999',
                 }}
               >
-                <div>· 자막 드래그 = 이동</div>
-                <div>· 마우스 휠 = 크기 조절</div>
+                <div>• 자막 드래그 = 이동</div>
+                <div>• 마우스 휠 = 크기 조절</div>
               </div>
             </div>
       </Section>
@@ -1102,6 +1184,22 @@ function Options() {
             >
               {showKey ? '숨김' : '보기'}
             </button>
+            <button
+              onClick={() => void onTestGemini()}
+              disabled={!apiKey.trim() || testState.kind === 'pending'}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+            >
+              {testState.kind === 'pending' ? '테스트 중…' : '테스트'}
+            </button>
+            {testState.kind === 'ok' && (
+              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+                ✓ 동작함 (예: "Hello, world." → "{testState.translation}")
+              </span>
+            )}
+            {testState.kind === 'err' && (
+              <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
+            )}
             {!apiKey.trim() && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
                 키 없으면 Google 무료로 자동 fallback
@@ -1120,24 +1218,7 @@ function Options() {
               새 모델 출시·구 모델 폐기 시 코드 수정 없이 갱신
             </span>
           </Row>
-          <Row label="키 확인">
-            <button
-              onClick={() => void onTestGemini()}
-              disabled={!apiKey.trim() || testState.kind === 'pending'}
-              style={{ padding: '4px 10px' }}
-              type="button"
-            >
-              {testState.kind === 'pending' ? '테스트 중…' : '테스트'}
-            </button>
-            {testState.kind === 'ok' && (
-              <span style={{ fontSize: 12, color: '#9eff9e' }}>
-                ✓ 동작함 (예: "Hello, world." → "{testState.translation}")
-              </span>
-            )}
-            {testState.kind === 'err' && (
-              <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
-            )}
-          </Row>
+          {renderExplainBlock('gemini')}
         </Section>
       )}
 
@@ -1164,6 +1245,24 @@ function Options() {
             >
               {showMindlogicKey ? '숨김' : '보기'}
             </button>
+            <button
+              onClick={() => void onTestMindlogic()}
+              disabled={!mindlogicApiKey.trim() || mindlogicTestState.kind === 'pending'}
+              style={{ padding: '4px 10px', fontSize: 12 }}
+              type="button"
+            >
+              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '테스트'}
+            </button>
+            {mindlogicTestState.kind === 'ok' && (
+              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+                ✓ 동작함 (예: "Hello, world." → "{mindlogicTestState.translation}")
+              </span>
+            )}
+            {mindlogicTestState.kind === 'err' && (
+              <span style={{ fontSize: 12, color: '#ff7777' }}>
+                ✗ {mindlogicTestState.error}
+              </span>
+            )}
             {!mindlogicApiKey.trim() && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
                 키 없으면 Google 무료로 자동 fallback
@@ -1182,101 +1281,9 @@ function Options() {
               계정에 권한 없는 모델은 인증 실패 → 번역은 Google 무료로 fallback
             </span>
           </Row>
-          <Row label="키 확인">
-            <button
-              onClick={() => void onTestMindlogic()}
-              disabled={!mindlogicApiKey.trim() || mindlogicTestState.kind === 'pending'}
-              style={{ padding: '4px 10px' }}
-              type="button"
-            >
-              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '테스트'}
-            </button>
-            {mindlogicTestState.kind === 'ok' && (
-              <span style={{ fontSize: 12, color: '#9eff9e' }}>
-                ✓ 동작함 (예: "Hello, world." → "{mindlogicTestState.translation}")
-              </span>
-            )}
-            {mindlogicTestState.kind === 'err' && (
-              <span style={{ fontSize: 12, color: '#ff7777' }}>
-                ✗ {mindlogicTestState.error}
-              </span>
-            )}
-          </Row>
+          {renderExplainBlock('mindlogic')}
         </Section>
       )}
-
-      <Section title="단어·표현 해설 (드래그)">
-        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-          영상에서 자막 텍스트를 드래그하면 작은 <b style={{ color: '#3ea6ff' }}>💡 해설</b> 버튼이 떠요.
-          누르면 AI 영어 선생님이 예문·어원·표로 설명해줍니다. (내 AI 키가 필요해요)
-        </p>
-        <Row label="해설 AI">
-          <span style={{ fontSize: 12, color: '#e8e8e8' }}>
-            {settings.explainBackend === 'gemini' ? 'Gemini' : 'Mindlogic Gateway'}
-          </span>
-          <span style={{ fontSize: 11, color: '#999' }}>
-            번역 방식에서 고른 AI를 따라감 · 키는 위 "
-            {settings.explainBackend === 'gemini' ? 'Gemini' : 'Mindlogic Gateway'} 설정"에서
-          </span>
-        </Row>
-        <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
-          {settings.explainBackend === 'gemini' ? (
-            <>
-              {renderGeminiSelect(
-                settings.explainGeminiModel,
-                (v) => update({ explainGeminiModel: v }),
-                true,
-              )}
-              {modelRefreshControls('gemini')}
-            </>
-          ) : (
-            renderMindlogicSelect(
-              settings.explainMindlogicModel,
-              (v) => update({ explainMindlogicModel: v }),
-              true,
-            )
-          )}
-        </Row>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
-            <span style={{ color: '#777', marginRight: 6 }}>·</span>해설 프롬프트
-          </label>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <textarea
-              value={settings.explainPrompt}
-              onChange={(e) => update({ explainPrompt: e.target.value })}
-              rows={9}
-              spellCheck={false}
-              style={{
-                width: '100%',
-                boxSizing: 'border-box',
-                fontFamily: 'inherit',
-                fontSize: 12,
-                lineHeight: 1.5,
-                color: '#e8e8e8',
-                background: '#1c1c1c',
-                border: '1px solid #333',
-                borderRadius: 6,
-                padding: 8,
-                resize: 'vertical',
-              }}
-            />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                onClick={() => update({ explainPrompt: DEFAULT_EXPLAIN_PROMPT })}
-                disabled={settings.explainPrompt === DEFAULT_EXPLAIN_PROMPT}
-                style={{ padding: '4px 10px', fontSize: 12 }}
-                type="button"
-              >
-                기본값으로
-              </button>
-              <span style={{ fontSize: 11, color: '#999' }}>
-                이 프롬프트가 AI에게 그대로 전달돼 답변 형식을 정합니다
-              </span>
-            </div>
-          </div>
-        </div>
-      </Section>
 
       <Section title="Notion 저장 (해설 패널)">
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
