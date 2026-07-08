@@ -158,7 +158,7 @@ function StyleEditor({
         {label}
       </div>
       {/* 크기·색·굵기는 위 그룹 라벨(1.원문/2.번역)의 하위 — 한 단계 더 들여쓰기(각 행 앞 불릿). */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
         <Row label="크기">
           <input
             type="number"
@@ -608,23 +608,6 @@ function Options() {
   // provider마다 렌더되지만 화면엔 활성 섹션 하나만 떠서 중복 노출 없음.
   const renderExplainBlock = (provider: 'gemini' | 'mindlogic'): React.ReactNode => (
     <>
-      <div
-        style={{
-          marginTop: 6,
-          paddingTop: 12,
-          borderTop: '1px dashed #333',
-          fontSize: 13,
-          fontWeight: 700,
-          color: '#ffca7a',
-          marginBottom: 2,
-        }}
-      >
-        단어·표현 해설 (드래그)
-      </div>
-      <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
-        영상에서 자막을 드래그하면 <b style={{ color: '#3ea6ff' }}>💡 해설</b> ·{' '}
-        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 아래는 그 답변에 쓸 모델·말투를 정합니다.
-      </p>
       <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
         {provider === 'gemini'
           ? renderGeminiSelect(
@@ -638,6 +621,10 @@ function Options() {
               true,
             )}
       </Row>
+      <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
+        영상에서 자막을 드래그하면 <b style={{ color: '#3ea6ff' }}>💡 해설</b> ·{' '}
+        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 그 답변에 쓸 모델·말투를 여기서 정합니다.
+      </p>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
           <Bullet />해설 프롬프트
@@ -671,9 +658,6 @@ function Options() {
             >
               기본값으로
             </button>
-            <span style={{ fontSize: 11, color: '#999' }}>
-              이 프롬프트가 AI에게 그대로 전달돼 답변 형식을 정합니다
-            </span>
           </div>
         </div>
       </div>
@@ -1210,14 +1194,6 @@ function Options() {
             {renderGeminiSelect(settings.geminiModel, (v) => update({ geminiModel: v }), false)}
             {modelRefreshControls('gemini')}
           </Row>
-          <Row label="">
-            <span style={{ fontSize: 11, color: '#999' }}>
-              {geminiModels
-                ? `Gemini 모델 ${geminiModels.length}개 (새로고침으로 갱신). `
-                : '새로고침 누르면 키로 사용 가능한 전체 모델이 뜸. '}
-              새 모델 출시·구 모델 폐기 시 코드 수정 없이 갱신
-            </span>
-          </Row>
           {renderExplainBlock('gemini')}
         </Section>
       )}
@@ -1272,14 +1248,6 @@ function Options() {
           <Row label="번역 모델">
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
             {modelRefreshControls('mindlogic')}
-          </Row>
-          <Row label="">
-            <span style={{ fontSize: 11, color: '#999' }}>
-              {mindlogicModels
-                ? `게이트웨이 모델 ${mindlogicModels.length}개 (새로고침으로 갱신). `
-                : '새로고침 누르면 게이트웨이의 전체 모델이 뜸. '}
-              계정에 권한 없는 모델은 인증 실패 → 번역은 Google 무료로 fallback
-            </span>
           </Row>
           {renderExplainBlock('mindlogic')}
         </Section>
