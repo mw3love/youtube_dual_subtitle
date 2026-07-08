@@ -384,31 +384,15 @@ function Preview({ settings }: { settings: Settings }) {
     marginBottom: 4,
     letterSpacing: '0.3px',
   };
-  const hintStyle: React.CSSProperties = {
-    fontSize: 10,
-    color: '#666',
-    marginLeft: 6,
-    fontWeight: 400,
-    letterSpacing: 0,
-  };
   return (
     <>
-      <div style={{ fontSize: 10, color: '#666', marginBottom: 8, letterSpacing: '0.3px' }}>
-        실제 옵션이 적용된 모습
-      </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <div style={labelStyle}>
-            외국어 콘텐츠
-            <span style={hintStyle}>원문 + 번역 (표시 모드 반영)</span>
-          </div>
+          <div style={labelStyle}>이중 자막</div>
           <PreviewBox settings={settings} displayMode={settings.displayMode} />
         </div>
         <div>
-          <div style={labelStyle}>
-            모국어 콘텐츠
-            <span style={hintStyle}>한 줄만 — 누적/줄 수/스타일 반영</span>
-          </div>
+          <div style={labelStyle}>이중 자막이 아닐때</div>
           <PreviewBox settings={settings} displayMode="source-only" />
         </div>
       </div>
@@ -874,8 +858,11 @@ function Options() {
         color: '#e8e8e8',
       }}
     >
-      <h1 style={{ fontSize: 22, margin: '0 0 4px', display: 'flex', alignItems: 'baseline', gap: 10 }}>
+      <h1 style={{ fontSize: 22, margin: '0 0 24px', display: 'flex', alignItems: 'baseline', gap: 10 }}>
         <span>YouTube Dual Subtitle</span>
+        <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>
+          v{chrome.runtime.getManifest().version}
+        </span>
         {saveState === 'pending' && (
           <span style={{ fontSize: 11, color: '#888', fontWeight: 400 }}>저장 중…</span>
         )}
@@ -883,9 +870,6 @@ function Options() {
           <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>● 저장됨</span>
         )}
       </h1>
-      <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>
-        v{chrome.runtime.getManifest().version}
-      </p>
 
       <div
         style={{
@@ -949,7 +933,7 @@ function Options() {
         </Row>
       </Section>
 
-      <Section title="이중 자막이 아닐때 설정">
+      <Section title="이중 자막이 아닐때">
         <Row label="표시 자막 수">
           <select
             value={settings.singleContextLines}
@@ -1124,7 +1108,6 @@ function Options() {
                 <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                자연스러운 AI 번역.{' '}
                 <a
                   href="https://aistudio.google.com/apikey"
                   target="_blank"
@@ -1151,7 +1134,7 @@ function Options() {
                 <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                자연스러운 AI 번역. 학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델 사용 가능
+                학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델 사용 가능
               </div>
             </span>
           </label>
@@ -1268,9 +1251,7 @@ function Options() {
 
       <Section title="Notion 저장 (해설 패널)">
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-          해설 패널의 <b style={{ color: '#3ea6ff' }}>📋 복사</b>는 설정 없이 바로 됩니다(Notion에
-          붙여넣으면 표·예문이 자동 변환). <b style={{ color: '#3ea6ff' }}>📝 Notion</b> 버튼으로
-          DB에 바로 저장하려면 아래를 설정하세요.
+          <b style={{ color: '#3ea6ff' }}>📝 Notion</b> 버튼으로 DB에 바로 저장하려면 아래를 설정하세요.
         </p>
         <ol style={{ fontSize: 11, color: '#999', margin: '2px 0 6px', paddingLeft: 18, lineHeight: 1.7 }}>
           <li>
@@ -1349,7 +1330,7 @@ function Options() {
       <Section title="관리">
         <Row label="저장된 번역">
           <button onClick={onClearCache} style={{ padding: '4px 10px' }}>
-            비우기
+            캐시 비우기
           </button>
           <span style={{ fontSize: 12, color: '#999' }}>
             현재 {cacheCount ?? '…'}개 영상 저장
@@ -1371,7 +1352,9 @@ function Options() {
       </Section>
         </div>
         <div style={{ position: 'sticky', top: 24 }}>
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>미리보기</div>
+          <div style={{ fontSize: 18, color: '#ffa200', fontWeight: 700, marginBottom: 10 }}>
+            미리보기
+          </div>
           <Preview settings={settings} />
         </div>
       </div>
