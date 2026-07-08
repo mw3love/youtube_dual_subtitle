@@ -85,6 +85,7 @@ export class ExplainUI {
       context: string,
       question: string,
       history: ChatTurn[],
+      isAsk: boolean,
     ) => Promise<ExplainResult>,
     private readonly requestNotionSave: (
       term: string,
@@ -888,7 +889,9 @@ export class ExplainUI {
 
     let res: ExplainResult;
     try {
-      res = await this.requestQuestion(text, context, question, history);
+      // 직접 질문(Alt+Q) 탭의 첫 질문만 isAsk=true → background가 해설 프롬프트로 풍부하게 답한다.
+      // 후속(child 탭, isAsk=false)·선택 ❓질문 탭(isAsk=false)은 가벼운 질문 프롬프트 유지.
+      res = await this.requestQuestion(text, context, question, history, tab.isAsk);
     } catch (e) {
       res = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }

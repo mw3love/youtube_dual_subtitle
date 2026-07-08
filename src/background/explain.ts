@@ -29,6 +29,8 @@ export interface ExplainParams {
   model: GeminiModel | MindlogicModel;
   prompt: string; // system 프롬프트 (옵션 explainPrompt)
   question?: string; // 사용자 자유 질문 — 있으면 해설이 아니라 "질문" 경로(질문 전용 프롬프트)
+  isAsk?: boolean; // Alt+Q "직접 질문"(자막 선택·문맥 없음) — 문맥이 얇아 질문 프롬프트론 답이 짧아지므로
+  // 해설 프롬프트(params.prompt)로 풍부하게 답하게 한다. 후속(history 있음)·선택 ❓질문엔 안 붙는다.
   history?: ChatTurn[]; // 이전 대화(user/model 교대). 있으면 후속 질문 — 문맥으로 함께 전달.
 }
 
@@ -41,8 +43,10 @@ export interface ExplainOutput {
 
 export async function explain(params: ExplainParams): Promise<ExplainOutput> {
   const q = params.question?.trim();
-  // 질문이 있으면(=후속 포함) 고정 표 형식의 해설 프롬프트 대신 가벼운 질문 프롬프트를 system으로 쓴다.
-  const systemPrompt = q ? QUESTION_SYSTEM_PROMPT : params.prompt;
+  // 질문이 있으면(=후속 포함) 기본은 가벼운 질문 프롬프트. 단 Alt+Q "직접 질문"(isAsk)은 자막 문맥이
+  // 없어 답이 얇아지므로 해설 프롬프트(params.prompt)로 풍부하게 — 프롬프트가 비면 질문 프롬프트로 폴백.
+  const useExplainForAsk = params.isAsk === true && !!params.prompt?.trim();
+  const systemPrompt = q ? (useExplainForAsk ? params.prompt : QUESTION_SYSTEM_PROMPT) : params.prompt;
   const userMsg = buildUserMessage(params.text, params.context, q);
   const history = params.history ?? [];
   const markdown =

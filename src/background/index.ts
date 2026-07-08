@@ -75,6 +75,7 @@ interface ExplainMsg {
   model: GeminiModel | MindlogicModel;
   prompt: string;
   question?: string; // 있으면 해설이 아니라 사용자 자유 질문 경로
+  isAsk?: boolean; // Alt+Q 직접 질문 — 해설 프롬프트로 풍부하게 답하게(explain.ts)
   history?: ChatTurn[]; // 있으면 후속 질문 — 이전 대화를 문맥으로 함께 전달
 }
 
@@ -209,7 +210,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     m.model &&
     (m.prompt || m.question) // 질문 경로는 prompt가 비어도 됨(질문 전용 프롬프트 사용)
   ) {
-    const { text, context, backend, model, prompt, question, history } = m;
+    const { text, context, backend, model, prompt, question, isAsk, history } = m;
     (async (): Promise<void> => {
       try {
         // prompt는 해설 경로에서만 쓰임(질문 경로는 explain()이 질문 전용 프롬프트 사용).
@@ -221,6 +222,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
           model,
           prompt: prompt ?? '',
           question,
+          isAsk,
           history,
         });
         sendResponse({ ok: true, markdown, userMessage });

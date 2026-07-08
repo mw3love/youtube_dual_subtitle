@@ -101,6 +101,7 @@ async function requestQuestion(
   context: string,
   question: string,
   history: ChatTurn[],
+  isAsk: boolean,
 ): Promise<ExplainResult> {
   const s = currentSettings;
   if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
@@ -111,6 +112,7 @@ async function requestQuestion(
       text,
       context,
       question,
+      isAsk,
       history,
       backend: s.explainBackend,
       model,

@@ -344,6 +344,16 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **문구 평이화**: 해설 안내의 개발자 은어 "BYOK" → "내 AI 키가 필요해요"("무료 발급"은 Mindlogic엔 안 맞아 제거, Gemini 라디오 선택 시 아래 AI Studio 링크가 이미 뜸).
 - **검증:** 빌드·타입체크 통과(프록시검증) — 섹션 펼침/접힘·번역↔해설 AI 추종·Notion 상시·불릿 정렬은 Chrome 실사용 확인 대상.
 
+### 32. Alt+Q 직접 질문은 해설 프롬프트로 답변 (A56, v0.16.5)
+
+**문제:** §28의 Alt+Q "직접 질문"(자막 선택·문맥 없이 곧장 묻기)은 답이 ❓질문·💡해설보다 눈에 띄게 짧았다. 원인 둘이 겹침 — ⓐ 질문 경로(§19)는 `QUESTION_SYSTEM_PROMPT`("핵심만 간결하게")를 쓰고, ⓑ 직접 질문은 자막 문맥이 없어 `buildUserMessage`가 `질문: {q}` 한 줄만 보내(§28) 모델이 확장할 재료가 얇음. 두 요인이 곱해져 답이 부실.
+
+- **해결 — 직접 질문 첫 턴만 해설 프롬프트로** (`explain.ts:explain`): `ExplainParams.isAsk`(신설)가 true이고 `prompt`(=`explainPrompt`)가 비어있지 않으면, 질문이어도 `QUESTION_SYSTEM_PROMPT` 대신 **해설 프롬프트**(`params.prompt`, 표·예문·어원)를 system으로 쓴다(`useExplainForAsk`). 문맥이 없는 대신 모델이 예문을 스스로 만들어 채워 풍부해짐. `explainPrompt`가 비면 질문 프롬프트로 폴백(크래시 없음).
+- **isAsk 신호는 탭에서** (`explain-ui.ts:runQuestion`): `tab.isAsk`(§28에서 이미 존재)를 그대로 `requestQuestion`에 실어 보냄. 그래서 **직접 질문 탭의 첫 질문만** isAsk=true — 그 탭에서 파생된 **후속(⏎ child 탭)은 `openTab(...,false,...)`이라 isAsk=false**, **선택 ❓질문 탭도 isAsk=false**라 둘 다 기존 대화체(`QUESTION_SYSTEM_PROMPT`) 유지. 직접 질문 탭은 runQuestion을 첫 질문 때 한 번만 타므로(후속은 새 탭) 분기가 깔끔.
+- **배선**: `content/index.ts:requestQuestion(...,isAsk)` → `EXPLAIN` 메시지에 `isAsk` 동봉 → `background/index.ts`가 `explain({isAsk})`로 전달. §28 line 309의 "순수 질문"·line 313의 "후속은 항상 `QUESTION_SYSTEM_PROMPT`"는 여전히 맞고(직접 질문 **첫 턴만** 예외), 그 예외가 이 섹션.
+- **트레이드오프:** 해설 프롬프트는 "답변 최상단에 영어예문"을 강제해, "who 빼면 이상해?" 같은 순수 문법 질문을 Alt+Q로 물으면 형식이 다소 끼어들 수 있음(§19에서 질문 프롬프트를 분리한 이유). 실사용은 대개 "이 표현 알려줘"류라 수용 — 거슬리면 해설/질문 중간 프롬프트(방식 B)로 조정 여지. `explainPrompt`는 사용자 편집 가능이라 스스로 완화도 가능.
+- **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — Alt+Q 답변이 풍부해지는지·문법 질문 형식 어색함은 Chrome 실사용 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.
