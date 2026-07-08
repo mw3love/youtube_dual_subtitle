@@ -603,12 +603,20 @@ function Options() {
     );
   };
 
+  // 번역 모델 설명 — 해설 모델 설명(renderExplainBlock 내 <p>)과 짝을 이루는 안내.
+  // 자막 전체를 번역하는 용도라 "많은 문장 = 가성비" 관점을 강조. Gemini/Mindlogic 공용.
+  const transModelHint = (
+    <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
+      영상 자막 전체를 번역할 때 쓰는 모델이에요. 문장이 많으니 빠르고 저렴한 모델이 잘 맞아요.
+    </p>
+  );
+
   // 해설 모델 + 해설 프롬프트 블록 — 활성 provider(Gemini/Mindlogic) 섹션 하단에 붙여
   // "번역 모델 바로 아래 해설 모델"로 연계. 프롬프트(공용 explainPrompt)도 여기서 편집.
   // provider마다 렌더되지만 화면엔 활성 섹션 하나만 떠서 중복 노출 없음.
   const renderExplainBlock = (provider: 'gemini' | 'mindlogic'): React.ReactNode => (
     <>
-      <Row label="해설 모델" hint="번역 모델과 별개 — 해설은 1회 호출이라 품질 우선">
+      <Row label="해설 모델">
         {provider === 'gemini'
           ? renderGeminiSelect(
               settings.explainGeminiModel,
@@ -623,7 +631,7 @@ function Options() {
       </Row>
       <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
         영상에서 자막을 드래그하면 <b style={{ color: '#3ea6ff' }}>💡 해설</b> ·{' '}
-        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 그 답변에 쓸 모델·말투를 여기서 정합니다.
+        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 가끔 한 번씩만 부르니 조금 느려도 똑똑한 모델이 잘 맞아요.
       </p>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
@@ -826,6 +834,15 @@ function Options() {
     color: '#ffb3b3',
   };
 
+  // 테스트 버튼 — 바로 옆 '보기/숨김'(중립 회색)과 헷갈리지 않게 파란 accent 테두리·글자 +
+  // 🧪 기호로 "동작 확인" 액션임을 구분. 세 곳(Gemini·Mindlogic·Notion) 공용.
+  const testButtonStyle: React.CSSProperties = {
+    padding: '4px 10px',
+    fontSize: 12,
+    borderColor: '#2a4a6b',
+    color: '#8fc7ff',
+  };
+
   // 슬라이더 값(퍼센트/배수)을 폰트 크기 'px' 값과 시각적으로 구분.
   // accent 색 + monospace로 "조절된 값"임을 한눈에 인식.
   const sliderValueStyle: React.CSSProperties = {
@@ -867,7 +884,7 @@ function Options() {
         )}
       </h1>
       <p style={{ color: '#999', fontSize: 12, margin: '0 0 24px' }}>
-        v{chrome.runtime.getManifest().version} · 여기서 바꾸면 YouTube 화면에 바로 적용됨
+        v{chrome.runtime.getManifest().version}
       </p>
 
       <div
@@ -880,7 +897,7 @@ function Options() {
       >
         <div>
 
-      <Section title="자막 표시">
+      <Section title="이중 자막 설정">
         <Row label="자막 켜기" hint="단축키 'C'">
           <input
             type="checkbox"
@@ -888,7 +905,7 @@ function Options() {
             onChange={(e) => update({ subtitlesEnabled: e.target.checked })}
           />
         </Row>
-        <Row label="언어" hint="원문 → 번역문">
+        <Row label="원문 → 번역문">
           <select
             value={settings.sourceLang}
             onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
@@ -923,23 +940,17 @@ function Options() {
             ))}
           </select>
         </Row>
-        <Row label="노래방 모드 (원문 줄에 적용)">
+        <Row label="노래방 모드">
           <input
             type="checkbox"
             checked={settings.wordRevealEnabled}
             onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
           />
-          <span style={{ fontSize: 12, color: '#999' }}>
-            노래방처럼 실시간 자막 표시
-          </span>
         </Row>
       </Section>
 
-      <Section title="Single Subtitle (한 줄만 보일 때 적용)">
-        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-          모국어 영상이나 '번역만' / '원문만' 모드에서 — 직전 자막도 계속 보여줘서 흐름이 끊기지 않음
-        </p>
-        <Row label="이전 자막 포함한 전체줄 수">
+      <Section title="이중 자막이 아닐때 설정">
+        <Row label="표시 자막 수">
           <select
             value={settings.singleContextLines}
             onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
@@ -1113,7 +1124,17 @@ function Options() {
                 <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                자연스러운 AI 번역. 본인 키 필요 (무료 한도 있음)
+                자연스러운 AI 번역.{' '}
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ color: '#3ea6ff' }}
+                >
+                  Google AI Studio
+                </a>
+                에서 무료 발급 가능
               </div>
             </span>
           </label>
@@ -1130,7 +1151,7 @@ function Options() {
                 <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                한 키로 Claude/GPT/Gemini 등 모델 선택 가능. 학교/조직 발급 키 필요
+                자연스러운 AI 번역. 학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델 사용 가능
               </div>
             </span>
           </label>
@@ -1139,18 +1160,6 @@ function Options() {
 
       {showGemini && (
         <Section title="Gemini 설정">
-          <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-            본인 API 키로 동작.{' '}
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noreferrer"
-              style={{ color: '#3ea6ff' }}
-            >
-              Google AI Studio
-            </a>
-            에서 무료 발급 (가입만 하면 됨, 신용카드 불필요). 키는 이 PC에만 저장됨.
-          </p>
           <Row label="API 키">
             <input
               type={showKey ? 'text' : 'password'}
@@ -1166,15 +1175,15 @@ function Options() {
               style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
-              {showKey ? '숨김' : '보기'}
+              {showKey ? '🙈 숨김' : '👁 보기'}
             </button>
             <button
               onClick={() => void onTestGemini()}
               disabled={!apiKey.trim() || testState.kind === 'pending'}
-              style={{ padding: '4px 10px', fontSize: 12 }}
+              style={testButtonStyle}
               type="button"
             >
-              {testState.kind === 'pending' ? '테스트 중…' : '테스트'}
+              {testState.kind === 'pending' ? '테스트 중…' : '🧪 테스트'}
             </button>
             {testState.kind === 'ok' && (
               <span style={{ fontSize: 12, color: '#9eff9e' }}>
@@ -1190,20 +1199,20 @@ function Options() {
               </span>
             )}
           </Row>
+          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+            가입만 하면 무료로 발급되고 신용카드도 필요 없어요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
+          </p>
           <Row label="번역 모델">
             {renderGeminiSelect(settings.geminiModel, (v) => update({ geminiModel: v }), false)}
             {modelRefreshControls('gemini')}
           </Row>
+          {transModelHint}
           {renderExplainBlock('gemini')}
         </Section>
       )}
 
       {showMindlogic && (
         <Section title="Mindlogic Gateway 설정">
-          <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-            학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델을 쓸 수 있는
-            게이트웨이. 키는 이 PC에만 저장됨.
-          </p>
           <Row label="API 키">
             <input
               type={showMindlogicKey ? 'text' : 'password'}
@@ -1219,15 +1228,15 @@ function Options() {
               style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
-              {showMindlogicKey ? '숨김' : '보기'}
+              {showMindlogicKey ? '🙈 숨김' : '👁 보기'}
             </button>
             <button
               onClick={() => void onTestMindlogic()}
               disabled={!mindlogicApiKey.trim() || mindlogicTestState.kind === 'pending'}
-              style={{ padding: '4px 10px', fontSize: 12 }}
+              style={testButtonStyle}
               type="button"
             >
-              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '테스트'}
+              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '🧪 테스트'}
             </button>
             {mindlogicTestState.kind === 'ok' && (
               <span style={{ fontSize: 12, color: '#9eff9e' }}>
@@ -1245,10 +1254,14 @@ function Options() {
               </span>
             )}
           </Row>
+          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+            학교/조직에서 발급받은 키를 붙여넣으세요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
+          </p>
           <Row label="번역 모델">
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
             {modelRefreshControls('mindlogic')}
           </Row>
+          {transModelHint}
           {renderExplainBlock('mindlogic')}
         </Section>
       )}
@@ -1289,9 +1302,12 @@ function Options() {
             style={{ padding: '4px 10px', fontSize: 12 }}
             type="button"
           >
-            {showNotionToken ? '숨김' : '보기'}
+            {showNotionToken ? '🙈 숨김' : '👁 보기'}
           </button>
         </Row>
+        <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+          위 1번에서 복사한 Internal Integration Secret을 붙여넣으세요. 토큰은 이 PC에만 저장돼요.
+        </p>
         <Row label="DB ID/URL">
           <input
             type="text"
@@ -1303,6 +1319,9 @@ function Options() {
             spellCheck={false}
           />
         </Row>
+        <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+          저장할 데이터베이스 페이지의 주소(URL)를 통째로 붙여넣어도 자동으로 ID를 인식해요.
+        </p>
         <Row label="연결 확인">
           <button
             onClick={() => void onTestNotion()}
@@ -1311,10 +1330,10 @@ function Options() {
               !settings.notionDatabaseId.trim() ||
               notionTestState.kind === 'pending'
             }
-            style={{ padding: '4px 10px' }}
+            style={testButtonStyle}
             type="button"
           >
-            {notionTestState.kind === 'pending' ? '확인 중…' : '테스트'}
+            {notionTestState.kind === 'pending' ? '확인 중…' : '🧪 테스트'}
           </button>
           {notionTestState.kind === 'ok' && (
             <span style={{ fontSize: 12, color: '#9eff9e' }}>
