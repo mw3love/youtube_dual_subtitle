@@ -49,8 +49,12 @@ interface Tab {
 export class ExplainUI {
   private enabled = true;
   private notionEnabled = false;
-  // 선택 위에 뜨는 툴바(💡 해설 + ❓ 질문).
+  // 선택 위에 뜨는 툴바(🖍 형광펜 + 💡 해설 + ❓ 질문). 형광펜은 해설 본문 선택일 때만 표시.
   private toolbar: HTMLElement | null = null;
+  private hlToolbarBtn: HTMLButtonElement | null = null; // 툴바의 🖍 형광펜(본문 선택 시에만 표시)
+  // mousedown 시작 좌표 — mouseup에서 이동거리로 "드래그 선택 vs 제자리 클릭"을 구분(툴바 재표시 판단).
+  private downX = 0;
+  private downY = 0;
   // 패널 셸(헤더 + 탭스트립 + 탭 콘텐츠 컨테이너) — 탭이 있는 동안 1개 유지·재사용.
   private panel: HTMLElement | null = null;
   // 최소화 시 뜨는 작은 핸들(💡 N) — 클릭하면 패널 복원. 탭은 메모리에 보존.
@@ -136,6 +140,14 @@ export class ExplainUI {
     if (t && t.closest('.ydt-explain-panel') && !inBody) return;
     // 형광펜 모드면 본문 드래그는 마킹용 mouseup이라 툴바 평가 skip(applyHighlight가 처리).
     if (inBody && this.highlightMode) return;
+    // 제자리 클릭(드래그 아님·더블클릭 아님)이면 툴바를 띄우지 않고 닫는다 — 드래그로 남은 선택이
+    // 클릭으로 collapse되지 않을 때(어떤 핸들러가 mousedown 기본동작을 막은 경우) stale 선택의 rect로
+    // 툴바가 엉뚱한 위치에 다시 뜨는 것 방지. 더블클릭(detail≥2) 단어선택은 이동 없어도 허용.
+    const moved = Math.hypot(ev.clientX - this.downX, ev.clientY - this.downY);
+    if (moved < 4 && ev.detail < 2) {
+      this.hideToolbar();
+      return;
+    }
     // 선택 평가는 다음 tick에 — mouseup 직후 selection이 확정됨.
     window.setTimeout(() => this.evaluateSelection(), 0);
   };
@@ -159,7 +171,8 @@ export class ExplainUI {
       const sourceText = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
       const context = sourceText || container.textContent?.trim() || text;
       this.pending = { text, context };
-      this.showToolbar(range.getBoundingClientRect());
+      // 자막 선택 — 형광펜 대상 아님(마킹은 해설 답변 본문에만). 해설/질문만.
+      this.showToolbar(range.getBoundingClientRect(), false);
       return;
     }
     // 2) 해설 본문 안 선택 — 그 표현을 새 탭에서 다시 해설/질문. 문맥 = 선택이 든 블록 텍스트.
@@ -168,7 +181,8 @@ export class ExplainUI {
       const block = closestBlock(node, body);
       const context = (block?.textContent || body.textContent || text).trim();
       this.pending = { text, context };
-      this.showToolbar(range.getBoundingClientRect());
+      // 답변이 도착한 탭이면 형광펜도 노출(로딩/에러 텍스트엔 마킹 무의미 — 헤더 버튼 게이트와 동일).
+      this.showToolbar(range.getBoundingClientRect(), !!this.activeTab()?.result);
       return;
     }
     this.hideToolbar();
@@ -180,6 +194,9 @@ export class ExplainUI {
   };
 
   private onMouseDown = (ev: MouseEvent): void => {
+    // 이동거리 측정 기준점 — mouseup에서 드래그/클릭 판별에 사용.
+    this.downX = ev.clientX;
+    this.downY = ev.clientY;
     const t = ev.target as HTMLElement | null;
     if (
       t &&
@@ -227,13 +244,23 @@ export class ExplainUI {
   };
 
   // ─── 트리거 툴바 ───
-  private showToolbar(rect: DOMRect): void {
+  // canHighlight=true(해설 답변 본문 선택)면 맨 앞에 🖍 형광펜을 노출. 위치는 선택(드래그) 위
+  // 중앙 정렬(형광펜 유무와 무관 — 버튼 수에 따라 폭이 달라 실측 후 중앙 배치).
+  private showToolbar(rect: DOMRect, canHighlight: boolean): void {
     if (!this.toolbar) {
       this.toolbar = document.createElement('div');
       this.toolbar.className = 'ydt-explain-toolbar';
       // mousedown 기본 동작(선택 collapse·포커스 이동)을 막아 click 직전에 선택이 사라지며
       // 버튼이 hide→click 미발화되는 것을 방지. 툴바-오버-선택의 표준 패턴.
       this.toolbar.addEventListener('mousedown', (e) => e.preventDefault());
+      // 🖍 형광펜 — 맨 앞(형광펜·해설·질문 순). 클릭 시 그 선택을 마킹하고 형광펜 모드 ON(유지).
+      // 본문 선택일 때만 display로 노출. 이모지 뒤 U+FE0F는 컬러 표현 강제(크레용 기본 흑백 회피).
+      const hlBtn = document.createElement('button');
+      hlBtn.className = 'ydt-explain-btn';
+      hlBtn.type = 'button';
+      hlBtn.textContent = '🖍️ 형광펜';
+      hlBtn.addEventListener('click', this.onToolbarHighlightClick);
+      this.hlToolbarBtn = hlBtn;
       const explainBtn = document.createElement('button');
       explainBtn.className = 'ydt-explain-btn';
       explainBtn.type = 'button';
@@ -244,21 +271,24 @@ export class ExplainUI {
       questionBtn.type = 'button';
       questionBtn.textContent = '❓ 질문';
       questionBtn.addEventListener('click', this.onQuestionClick);
-      this.toolbar.appendChild(explainBtn);
-      this.toolbar.appendChild(questionBtn);
+      this.toolbar.append(hlBtn, explainBtn, questionBtn);
     }
+    if (this.hlToolbarBtn) this.hlToolbarBtn.style.display = canHighlight ? '' : 'none';
     const host = this.host();
     if (this.toolbar.parentElement !== host) host.appendChild(this.toolbar);
-    // 선택 위에 배치, 화면 밖이면 아래로. 좌우는 뷰포트 안으로 clamp.
-    const TB_W = 150; // 두 버튼 합 대략치 (clamp용)
-    const TB_H = 30;
+    // 먼저 표시해 실제 폭을 측정(버튼 수에 따라 폭이 달라 중앙 정렬에 필요). 계산 중엔 안 보이게.
+    this.toolbar.style.visibility = 'hidden';
+    this.toolbar.style.display = 'flex';
+    const TB_W = this.toolbar.offsetWidth || 150;
+    const TB_H = this.toolbar.offsetHeight || 30;
+    // 선택(드래그) 위에 중앙 정렬. 위 여백이 없으면 아래로. 좌우는 뷰포트 안으로 clamp.
     let top = rect.top - TB_H - 6;
     if (top < 4) top = rect.bottom + 6;
     let left = rect.left + rect.width / 2 - TB_W / 2;
     left = Math.max(4, Math.min(window.innerWidth - TB_W - 4, left));
     this.toolbar.style.top = `${Math.round(top)}px`;
     this.toolbar.style.left = `${Math.round(left)}px`;
-    this.toolbar.style.display = 'flex';
+    this.toolbar.style.visibility = 'visible';
   }
 
   // public — 자막 cue가 바뀌면 content가 호출(렌더러 onCueChange). 드래그로 띄운 툴바는
@@ -283,6 +313,16 @@ export class ExplainUI {
     input?.focus();
     requestAnimationFrame(() => input?.focus());
   }
+
+  // 툴바 🖍 형광펜: 헤더 버튼과 동일(onHighlightClick) — 현재 본문 선택을 백틱 마킹하고
+  // 형광펜 모드 ON(유지). 이후 드래그는 자동 마킹(모드 중엔 툴바 안 뜸), 헤더 🖍 버튼도 active로.
+  // 툴바 mousedown preventDefault로 선택이 살아있어 그 선택을 그대로 감싼다.
+  private onToolbarHighlightClick = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    this.hideToolbar();
+    this.onHighlightClick();
+  };
 
   private onExplainClick = (ev: MouseEvent): void => {
     ev.preventDefault();
@@ -335,7 +375,7 @@ export class ExplainUI {
     this.highlightBtn = document.createElement('button');
     this.highlightBtn.className = 'ydt-explain-action';
     this.highlightBtn.type = 'button';
-    this.highlightBtn.textContent = '🖍 형광펜';
+    this.highlightBtn.textContent = '🖍️ 형광펜';
     this.highlightBtn.disabled = true;
     this.highlightBtn.title =
       '드래그 후 누르면 그 부분을 형광펜 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`';
