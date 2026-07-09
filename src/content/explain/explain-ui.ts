@@ -26,8 +26,10 @@ const TAG = '[YDT/explain]';
 export type ExplainResult =
   | { ok: true; markdown: string; userMessage?: string }
   | { ok: false; error: string };
+// pageId/dbId는 다음 재저장 때 옛 페이지를 휴지통으로 보내기 위해 탭에 보관한다.
+// oldKept = 재저장인데 옛 페이지를 못 치웠음(권한 부족·수동 삭제·DB 변경) → 알림 줄에 표기.
 export type NotionSaveResult =
-  | { ok: true; url?: string; title?: string }
+  | { ok: true; url?: string; title?: string; pageId?: string; dbId?: string; oldKept?: boolean }
   | { ok: false; error: string };
 
 // 한 해설/질문 = 한 탭. 탭별 상태는 여기에 보관(전환은 contentEl 표시/숨김).
@@ -41,9 +43,13 @@ interface Tab {
   bodyEl: HTMLElement; // .ydt-explain-body — 렌더된 답변 DOM(형광펜이 라이브로 보존됨)
   turns: ChatTurn[]; // 이 탭의 누적 대화(멀티턴). 후속 질문 시 새 탭이 복사해 상속 → 문맥 유지.
   result: { term: string; markdown: string; context: string } | null; // 도착한 답변(복사/Notion 참조)
-  notionSaved: boolean;
+  notionSaved: boolean; // 지금 본문 그대로 저장돼 있나 (형광펜을 고치면 false — markEdited)
   notionPageUrl: string | null;
-  notionTitle: string | null; // Notion에 실제 저장된 제목 — 저장 후 알림 줄에 표시
+  notionTitle: string | null; // Notion에 실제 저장된 제목 — 저장 후 알림 줄에 표시 + 재저장 시 재사용
+  // 아래 둘은 markEdited가 지우지 않는다 — 재저장 시 옛 페이지를 휴지통으로 보낼 실마리.
+  notionPageId: string | null;
+  notionDbId: string | null; // 저장 당시 DB id. 지금 DB와 다르면 옛 페이지를 안 건드린다.
+  notionOldKept: boolean; // 마지막 재저장에서 옛 페이지가 남았나 — 알림 줄 표기용
 }
 
 export class ExplainUI {
@@ -95,6 +101,8 @@ export class ExplainUI {
       term: string,
       markdown: string,
       context: string,
+      // 이미 저장한 탭을 다시 저장할 때 — 새 페이지를 만든 뒤 이 페이지를 휴지통으로.
+      prev?: { pageId: string; dbId: string; title: string },
     ) => Promise<NotionSaveResult>,
     // 로딩 메시지에 띄울 현재 해설 모델 이름 (content가 settings에서 계산해 넘김).
     private readonly modelLabel: () => string,
@@ -541,6 +549,9 @@ export class ExplainUI {
       notionSaved: false,
       notionPageUrl: null,
       notionTitle: null,
+      notionPageId: null,
+      notionDbId: null,
+      notionOldKept: false,
     };
     this.tabsContainer!.appendChild(contentEl);
     // 최신 탭을 맨 앞(왼쪽)에 — 새 탭은 곧 활성화되므로 활성 탭이 항상 같은 위치(맨 왼쪽)에
@@ -674,21 +685,28 @@ export class ExplainUI {
       if (tab?.notionSaved) {
         this.notionBtn.textContent = tab.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
         this.notionBtn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
+      } else if (tab?.notionPageId) {
+        // 저장했다가 형광펜을 고친 탭 — 누르면 새 페이지로 갈아끼운다(옛 페이지는 휴지통).
+        this.notionBtn.textContent = '♻ 업데이트';
+        this.notionBtn.title = 'Notion 페이지를 지금 내용으로 갈아끼우기';
       } else {
         this.notionBtn.textContent = '📝 Notion';
         this.notionBtn.title = '';
       }
     }
     // 알림 줄은 저장된 탭에서만 표시(탭 전환 시에도 그 탭 기준으로 따라옴).
-    if (tab?.notionSaved && tab.notionTitle) this.showNotice(tab.notionTitle, tab.notionPageUrl);
-    else this.hideNotice();
+    if (tab?.notionSaved && tab.notionTitle) {
+      this.showNotice(tab.notionTitle, tab.notionPageUrl, tab.notionOldKept);
+    } else this.hideNotice();
   }
 
   // Notion 저장 결과를 헤더 아래 한 줄로 — 어떤 제목으로 저장됐는지 바로 확인.
-  private showNotice(title: string, url: string | null): void {
+  // oldKept면 옛 페이지가 안 지워졌다는 뜻 — 조용히 중복이 쌓이지 않게 그 사실을 표기한다.
+  private showNotice(title: string, url: string | null, oldKept = false): void {
     const el = this.noticeEl;
     if (!el) return;
-    el.replaceChildren(document.createTextNode(`📝 Notion 저장됨: 「${title}」`));
+    const suffix = oldKept ? ' · ⚠ 옛 페이지 남음' : '';
+    el.replaceChildren(document.createTextNode(`📝 Notion 저장됨: 「${title}」${suffix}`));
     if (url) {
       el.append('  ');
       const a = document.createElement('a');
@@ -1051,17 +1069,14 @@ export class ExplainUI {
   }
 
   // 본문이 수정되면(백틱 추가/해제) 이미 한 Notion 저장은 stale — 다시 저장할 수 있게 상태 원복.
+  // notionPageId/notionDbId/notionTitle은 **남긴다**: 다음 저장이 그 페이지를 휴지통으로 보내고
+  // 같은 제목을 재사용해야 하므로. 버튼은 refreshActions가 '♻ 업데이트'로 바꾼다.
   private markEdited(): void {
     const tab = this.activeTab();
     if (!tab || !tab.notionSaved) return;
     tab.notionSaved = false;
     tab.notionPageUrl = null;
-    tab.notionTitle = null;
-    this.hideNotice();
-    if (this.notionBtn) {
-      this.notionBtn.textContent = '📝 Notion';
-      this.notionBtn.title = '';
-    }
+    this.refreshActions(); // 알림 줄 숨김 + 버튼 라벨 갱신
     this.renderTabstrip(); // ✓ 저장 표시 제거(stale)
   }
 
@@ -1098,11 +1113,16 @@ export class ExplainUI {
     const { term, context } = tab.result;
     const markdown = this.currentMarkdown();
     const btn = this.notionBtn;
+    // 이 탭을 전에 저장한 적 있으면(형광펜 수정 후 재저장) 옛 페이지를 갈아끼운다.
+    const prev =
+      tab.notionPageId && tab.notionDbId
+        ? { pageId: tab.notionPageId, dbId: tab.notionDbId, title: tab.notionTitle ?? '' }
+        : undefined;
     btn.disabled = true;
-    btn.textContent = '저장 중…';
+    btn.textContent = prev ? '업데이트 중…' : '저장 중…';
     let res: NotionSaveResult;
     try {
-      res = await this.requestNotionSave(term, markdown, context);
+      res = await this.requestNotionSave(term, markdown, context, prev);
     } catch (e) {
       res = { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -1112,11 +1132,16 @@ export class ExplainUI {
       tab.notionSaved = true;
       tab.notionPageUrl = res.url ?? null;
       tab.notionTitle = res.title?.trim() || term;
+      // 새 페이지 id로 교체(재저장이면 옛 페이지는 이미 휴지통). id가 안 오면 옛 값을 유지하지
+      // 않는다 — 그 페이지는 방금 archive됐으므로 다음 저장이 또 지우려 들면 404가 난다.
+      tab.notionPageId = res.pageId ?? null;
+      tab.notionDbId = res.dbId ?? null;
+      tab.notionOldKept = res.oldKept ?? false;
       if (this.activeTab() === tab) {
         btn.textContent = tab.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
         btn.disabled = false;
         btn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
-        this.showNotice(tab.notionTitle, tab.notionPageUrl);
+        this.showNotice(tab.notionTitle, tab.notionPageUrl, tab.notionOldKept);
       }
       this.renderTabstrip(); // 탭 칩에 ✓ 저장 표시 반영
     } else {
@@ -1125,12 +1150,9 @@ export class ExplainUI {
         btn.textContent = '✗ 저장 실패';
         btn.disabled = false;
         btn.title = res.error;
-        // 잠시 후 다시 시도할 수 있게 원복.
+        // 잠시 후 다시 시도할 수 있게 원복(재저장 대기 중이면 '♻ 업데이트'로).
         window.setTimeout(() => {
-          if (this.activeTab() === tab && !tab.notionSaved) {
-            btn.textContent = '📝 Notion';
-            btn.title = '';
-          }
+          if (this.activeTab() === tab && !tab.notionSaved) this.refreshActions();
         }, 2500);
       }
     }

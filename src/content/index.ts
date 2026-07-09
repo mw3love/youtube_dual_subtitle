@@ -126,10 +126,13 @@ async function requestQuestion(
 }
 // 해설을 Notion DB에 페이지로 저장 — background가 Notion API 호출(토큰은 secrets.ts).
 // 영상 제목·URL은 content가 알고 있으니 같이 보내 페이지 본문/속성에 넣게 한다.
+// prev가 오면 재저장 — background가 새 페이지를 만든 뒤 옛 페이지를 휴지통으로 보낸다.
+// 저장에 쓴 DB id를 결과에 실어 보내 UI가 탭에 보관하게 한다(다음 재저장 때 DB 일치 확인용).
 async function requestNotionSave(
   term: string,
   markdown: string,
   context: string,
+  prev?: { pageId: string; dbId: string; title: string },
 ): Promise<NotionSaveResult> {
   const s = currentSettings;
   if (!s) return { ok: false, error: '설정 로드 전입니다.' };
@@ -145,9 +148,12 @@ async function requestNotionSave(
       databaseId: s.notionDatabaseId,
       videoTitle: videoTitle(),
       videoUrl: location.href,
+      prevPageId: prev?.pageId,
+      prevDatabaseId: prev?.dbId,
+      prevTitle: prev?.title,
     })) as NotionSaveResult | undefined;
     if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
-    return res;
+    return res.ok ? { ...res, dbId: s.notionDatabaseId } : res;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

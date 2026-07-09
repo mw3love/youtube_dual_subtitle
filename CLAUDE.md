@@ -174,7 +174,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 
 - **패널 액션 버튼** (`explain-ui.ts`): 해설 도착 시 헤더의 `📋 복사`/`📝 Notion` 활성화. `lastResult{term,markdown,context}` 보관해 두 버튼이 참조. Notion 버튼은 상시 표시(A51: `setNotionEnabled(true)` — 옛 `notionEnabled` 게이트 제거, 섹션 31).
   - **📋 복사**: `navigator.clipboard.writeText`로 `## term` + markdown(+ 자막 인용)을 복사. **Notion은 markdown 붙여넣기를 자동으로 리치 블록 변환**하므로 무설정으로도 표·예문이 살아 들어감. 가장 빠른 효용.
-  - **📝 Notion**: `requestNotionSave` → `NOTION_SAVE` 메시지(영상 제목/URL 동봉) → background. 저장중→`✓ 저장됨 ↗`(클릭 시 생성된 페이지 열기)/`✗ 저장 실패`(2.5s 후 원복).
+  - **📝 Notion**: `requestNotionSave` → `NOTION_SAVE` 메시지(영상 제목/URL 동봉) → background. 저장중→`✓ 저장됨 ↗`(클릭 시 생성된 페이지 열기)/`✗ 저장 실패`(2.5s 후 원복). 저장 후 형광펜을 고치면 `♻ 업데이트`로 바뀌어 재저장이 **덮어쓰기**가 된다(A58, 섹션 34).
 - **백엔드** (`background/notion.ts`, `saveToNotion`): 호출 경로는 gemini/mindlogic와 동일 — SW가 `host_permissions`의 `api.notion.com`으로 fetch(CORS 우회). 토큰은 `secrets.ts`(storage.local), DB ID는 settings(storage.sync). `Notion-Version: 2022-06-28`.
   - **DB 스키마 적응**: `GET /v1/databases/{id}`로 **title 속성 "이름"**(DB마다 Name/이름/… 다름)을 찾아 거기에 제목 매핑. URL/Date 타입 속성이 있으면 best-effort로 영상 링크/오늘 날짜 채움(없으면 건너뜀 — 어떤 DB에도 안 깨짐). 그 외 속성은 안 건드림.
   - **제목 = "예문" (A40, v0.11.2 → 한 문장+길이 캡 A41, v0.12.0)**: 단어보다 예문이 복습에 유용해(ai-dictionary 차용) 제목을 단어 대신 **그 단어가 쓰인 자막 문장**으로 한다(`notion.ts:pickNotionTitle`). 우선순위 ① 자막 문맥(`context`) 중 **선택 단어가 든 한 문장**(`pickContextSentence` — 종결부호 `.?!…。！？` + 닫는 따옴표/괄호로 split)이 `TITLE_MAX_LEN`(100자) 이하면 그것(실제 용례 우선) → ② ①이 degenerate(빈/단어와 동일)거나 **한 문장이 100자 초과면**(구두점 없는 ASR 런온은 한 문장으로 안 쪼개져 통째로 길어짐 — 섹션 13) 해설 markdown의 **첫 인라인 백틱 예문**(`` /`([^`\n]+)`/ ``, AI가 만든 깔끔한 한 문장. 코드펜스 ```` ``` ````는 안 걸림) → ③ 단어. **A40은 ①을 자막 문장 통째로 썼으나**, 런온 자막에서 제목이 과도하게 길어져 A41에서 한 문장 추출 + 길이 캡 폴백을 추가. 같은 로직을 **📋 복사 헤딩**(`explain-ui.ts:pickTitle`, content/background 분리로 평행 구현 — `TITLE_MAX_LEN`도 양쪽 동일)에도 적용. 제목이 전체 자막과 다르면(=한 문장·예문) 본문 인용 quote는 전체 문맥을 그대로 보존(내용으론 유용), 같으면 중복이라 생략.
@@ -365,6 +365,22 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **클릭 오표시 버그 수정** (`onMouseUp`): 드래그로 선택이 남은 상태에서 화면을 **제자리 클릭**하면, 어떤 핸들러가 mousedown 기본동작(선택 collapse)을 막아 선택이 안 지워지는 경우 `evaluateSelection`이 그 stale 선택의 rect로 툴바를 **엉뚱한 위치에 다시 그렸다**. 해결: `onMouseDown`이 시작 좌표(`downX/downY`)를 기록 → `onMouseUp`에서 이동거리 `< 4px && ev.detail < 2`(더블클릭 아님)면 **제자리 클릭**으로 보고 `hideToolbar()` 후 return(재평가 안 함). 실제 드래그(이동 ≥4px)·더블클릭 단어선택(`detail≥2`)만 툴바를 띄운다. 트레이드오프: 4px 미만 미세 드래그 선택은 툴바가 안 뜰 수 있으나 더블클릭 경로가 커버.
 - **아이콘 컬러화** (`🖍` → `🖍️`, 툴바·헤더 둘 다): 크레용 U+1F58D는 기본이 **흑백(text) 표현**이라 💡·❓과 달리 색이 없어 어색 — 이모지 변형 선택자 U+FE0F를 붙여 **컬러 emoji 표현 강제**(Windows Segoe UI Emoji 기준 컬러 렌더). 컬러 emoji엔 CSS `color`가 안 먹으므로 FE0F가 정석.
 - **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 툴바 형광펜 노출·중앙 정렬·모드 유지·클릭 시 툴바 닫힘·아이콘 컬러는 Chrome 실사용 확인 대상.
+
+### 34. Notion 재저장 = 덮어쓰기 (create → 옛 페이지 휴지통, A58, v0.18.0)
+
+**문제:** Notion에 저장한 뒤 형광펜을 더 칠하면 `markEdited()`가 탭의 Notion 상태를 **전부 null로** 지워(옛 `notionSaved`/`notionPageUrl`/`notionTitle`) 버튼이 `📝 Notion`으로 되돌아갔다. 사용자 눈엔 "저장 안 됨"이라 다시 누르는 게 자연스러운데 그 결과는 **중복 페이지**. 기능 누락이 아니라 **버튼이 중복 생성을 예고 없이 유도**하는 잘못된 어포던스였고, 복습용 DB에 형광펜만 다른 두 줄이 남아 나중에 읽을 때 비용이 붙었다.
+
+- **메커니즘 선택 — create→archive** (`notion.ts:saveToNotion`): Notion API엔 페이지 본문을 통째로 교체하는 엔드포인트가 **없다**. `PATCH /v1/pages`는 속성만, `PATCH /v1/blocks/{id}/children`은 **append 전용**, 블록 삭제는 `DELETE /v1/blocks/{id}`로 **1개씩**(벌크 없음, 평균 3 req/s). 그래서 세 후보 중:
+  - (A) 옛 블록 전부 지우고 재추가 — 20~40블록이면 7~15초, 중간 실패 시 페이지가 반쯤 망가짐(먼저 지우면 빈 페이지, 먼저 붙이면 중복).
+  - (B) 바뀐 블록만 제자리 `PATCH` — 형광펜만 바뀌면 블록 구조가 불변이라 이론상 가장 빠르고 page/block id도 보존. 대신 표는 `table_row` children 재귀가 필요하고 코드가 제일 큼.
+  - (C) **채택** — 새 페이지 생성 후 `PATCH /v1/pages/{old} {archived:true}`로 옛 페이지를 휴지통으로. **요청 2번, 부분 실패 상태 없음.** archive가 실패해도 결과는 "지금까지처럼 페이지 두 개"라 더 나빠지지 않는다. 대가는 페이지 id/URL이 매번 바뀌는 것 — 방금 만든 단어장 페이지에 백링크를 거는 일은 사실상 없어 실질 대가 0.
+- **상태 전이** (`explain-ui.ts:Tab`): `notionPageId`/`notionDbId`/`notionTitle`은 `markEdited`가 **안 지운다**(옛 페이지를 치울 실마리 + 제목 재사용). `notionSaved`만 false로 내리고 `refreshActions()`가 버튼을 `♻ 업데이트`로 바꾼다(`notionPageId`가 있을 때). 저장 성공 시 `pageId`는 응답의 새 id로 **교체**하고, id가 안 오면 옛 값을 유지하지 않는다 — 그 페이지는 방금 archive됐으므로 다음 저장이 또 지우려 들면 404.
+- **제목 고정**: 재저장은 `prevTitle`(첫 저장 때 쓴 제목)을 그대로 재사용한다. `pickNotionTitle`의 ② 경로(첫 인라인 백틱 예문, 섹션 15)는 사용자가 AI의 첫 백틱보다 앞을 형광펜으로 칠하면 제목이 튀기 때문.
+- **archive 대상 오판 방지**: `prevDatabaseId`와 현재 `databaseId`를 **둘 다 `normalizeId`로 정규화해 비교** — 옵션에서 DB를 바꿨으면 옛 페이지는 남의 DB 소속이라 안 건드린다. 방금 만든 페이지를 지우는 사고는 `prevPageId !== data.id` 가드로 차단. `archivePage`의 **404는 성공으로 처리**(사용자가 노션에서 이미 지움 = 치울 게 없음. 실패로 치면 거짓 경고가 뜨고, `notionError`의 404 문구는 DB 전용이라 부적합).
+- **정직한 표기 `oldKept`**: archive 실패(403 — integration에 "update content" 권한 없음) 또는 DB 변경으로 옛 페이지가 남으면 결과에 `oldKept:true` → 알림 줄이 `📝 Notion 저장됨: 「…」 · ⚠ 옛 페이지 남음`. 조용히 중복이 쌓이지 않게. 새 페이지 저장 자체는 성공이므로 throw하지 않는다.
+- **알려진 레이스**(A58 이전부터): 저장 진행 중(`저장 중…`) 형광펜을 칠하면 `markEdited`가 `notionSaved===false`에 걸려 early-return → 그 마크가 빠진 내용으로 `✓ 저장됨`이 된다. 고치려면 성공 처리 직전에 `activeTab()===tab && currentMarkdown()!==markdown`이면 stale로 되돌리면 됨(미적용).
+- **필드명 주의**: 우리는 `Notion-Version: 2022-06-28` 고정이라 휴지통 필드가 `archived`. 최신 버전 문서는 `in_trash`로 안내하니 버전을 올릴 땐 함께 바꿔야 한다.
+- **검증:** 사용자 실조건검증(저장→형광펜→`♻ 업데이트`→노션 DB에 한 줄만 남고 갱신됨 확인). `archived` 필드는 실호출로만 확정되며, 틀려도 400 → `oldKept`로 안전하게 실패한다.
 
 ## 비명백한 주의사항
 

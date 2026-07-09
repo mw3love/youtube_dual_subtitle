@@ -80,6 +80,7 @@ interface ExplainMsg {
 }
 
 // 해설을 Notion DB에 페이지로 저장. content가 영상 메타까지 동봉, 토큰은 secrets.ts.
+// prev*는 재저장(형광펜 수정 후 다시 저장) — 새 페이지를 만들고 옛 페이지를 휴지통으로.
 interface NotionSaveMsg {
   type: 'NOTION_SAVE';
   term: string;
@@ -88,6 +89,9 @@ interface NotionSaveMsg {
   databaseId: string;
   videoTitle?: string;
   videoUrl?: string;
+  prevPageId?: string;
+  prevDatabaseId?: string;
+  prevTitle?: string;
 }
 
 // 옵션 "테스트" 버튼 — 토큰+DB 공유+ID 검증.
@@ -242,17 +246,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     typeof m.databaseId === 'string'
   ) {
     const { term, markdown, context, databaseId, videoTitle, videoUrl } = m;
+    const { prevPageId, prevDatabaseId, prevTitle } = m;
     (async (): Promise<void> => {
       try {
-        const { url, title } = await saveToNotion({
+        const { url, title, pageId, oldKept } = await saveToNotion({
           term,
           markdown,
           context,
           databaseId,
           videoTitle,
           videoUrl,
+          prevPageId,
+          prevDatabaseId,
+          prevTitle,
         });
-        sendResponse({ ok: true, url, title });
+        sendResponse({ ok: true, url, title, pageId, oldKept });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'notion save failed:', error);

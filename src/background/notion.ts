@@ -9,6 +9,12 @@
 // - URL/Date 타입 속성이 DB에 있으면 best-effort로 영상 링크/오늘 날짜를 채움(없으면 건너뜀 —
 //   어떤 DB에도 안 깨지게). 그 외 속성은 건드리지 않음.
 // - 본문 = (URL 속성 없을 때만 영상 링크) + 자막 문맥(quote) + 구분선 + 해설(markdown→블록).
+//
+// 재저장(형광펜을 더 칠하고 다시 저장) = "새 페이지 생성 + 옛 페이지 휴지통으로". Notion API엔
+// 본문을 통째로 교체하는 엔드포인트가 없다 — append 전용이고 블록 삭제는 1개씩(벌크 없음). 옛
+// 페이지의 블록을 하나씩 지우면 느린 데다(평균 3 req/s) 중간에 실패하면 페이지가 반쯤 망가진다.
+// 반면 create→archive는 요청 2번이고, archive가 실패해도 결과는 "지금까지처럼 페이지 두 개"라
+// 더 나빠지지 않는다. 대가는 페이지 id/URL이 매번 바뀌는 것(단어장 페이지엔 사실상 무해).
 
 import { getNotionToken } from '../shared/secrets';
 import { markdownToBlocks, type NotionBlock, type RichText } from './notion-blocks';
@@ -23,6 +29,21 @@ export interface NotionSaveParams {
   databaseId: string;
   videoTitle?: string;
   videoUrl?: string;
+  // 같은 탭을 이미 저장한 적이 있으면 그 페이지 id — 새로 만든 뒤 이 페이지를 휴지통으로 보낸다.
+  prevPageId?: string;
+  // 그때 쓴 DB id. 지금 DB와 다르면(옵션에서 DB를 바꿈) 남의 DB 페이지라 건드리지 않는다.
+  prevDatabaseId?: string;
+  // 그때 쓴 제목. 재저장 시 그대로 재사용 — 형광펜이 pickNotionTitle의 "첫 백틱 예문" 경로를
+  // 흔들어 제목이 튀는 걸 막는다(자막 문장 경로면 어차피 같은 값).
+  prevTitle?: string;
+}
+
+export interface NotionSaveOutcome {
+  url?: string;
+  title: string;
+  pageId?: string;
+  // 재저장인데 옛 페이지를 못 치웠음(권한 부족·수동 삭제·DB 변경). UI가 "옛 페이지 남음"으로 알림.
+  oldKept?: boolean;
 }
 
 // 제목으로 적당한 한 문장 길이 상한. 넘으면(구두점 없는 ASR 런온 등 — 한 문장으로 안 쪼개짐) AI 예문으로.
@@ -64,8 +85,9 @@ function splitSentences(text: string): string[] {
   return parts.map((s) => s.trim()).filter(Boolean);
 }
 
-// 해설을 DB에 페이지로 저장. 생성된 페이지 URL + 실제 사용된 제목 반환(팝업/패널에 표시용).
-export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: string; title: string }> {
+// 해설을 DB에 페이지로 저장. 생성된 페이지 URL/id + 실제 사용된 제목 반환(팝업/패널에 표시용).
+// prevPageId가 오면 재저장 — 새 페이지를 만든 뒤 옛 페이지를 휴지통으로 보낸다(위 주석 참조).
+export async function saveToNotion(params: NotionSaveParams): Promise<NotionSaveOutcome> {
   const token = await getNotionToken();
   if (!token) throw new Error('Notion 토큰이 없음 (옵션 페이지에서 입력 필요)');
   const dbId = normalizeId(params.databaseId);
@@ -74,8 +96,10 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
   // 1) DB 스키마 조회 — title 속성 이름 + (있으면) url/date 속성 이름.
   const schema = await getDatabaseSchema(token, dbId);
 
-  // 2) 속성 구성 — 제목은 "예문"(자막 문장) 우선, degenerate면 AI 첫 백틱 예문 → 단어.
-  const title = pickNotionTitle(params.term, params.context, params.markdown);
+  // 2) 속성 구성 — 제목은 재저장이면 옛 제목 그대로, 아니면 "예문"(자막 문장) 우선,
+  //    degenerate면 AI 첫 백틱 예문 → 단어.
+  const title =
+    params.prevTitle?.trim() || pickNotionTitle(params.term, params.context, params.markdown);
   const properties: Record<string, unknown> = {
     [schema.titleProp]: { title: [{ text: { content: truncate(title, 2000) } }] },
   };
@@ -128,8 +152,40 @@ export async function saveToNotion(params: NotionSaveParams): Promise<{ url?: st
     }),
   });
   if (!res.ok) throw await notionError(res);
-  const data = (await res.json()) as { url?: string };
-  return { url: data.url, title };
+  const data = (await res.json()) as { id?: string; url?: string };
+
+  // 5) 재저장이면 옛 페이지를 휴지통으로. 새 페이지는 이미 만들어졌으므로 여기서 실패해도
+  //    저장 자체는 성공 — oldKept로 알리기만 하고 throw하지 않는다(중복 두 개 = 옛 동작).
+  let oldKept: boolean | undefined;
+  const prevPageId = params.prevPageId ? normalizeId(params.prevPageId) : null;
+  if (prevPageId && prevPageId !== normalizeId(data.id ?? '')) {
+    if (normalizeId(params.prevDatabaseId ?? '') !== dbId) {
+      oldKept = true; // DB가 바뀜 — 옛 페이지는 다른 DB 소속이라 안 건드림
+    } else {
+      try {
+        await archivePage(token, prevPageId);
+      } catch (e) {
+        console.warn('[YDT] 옛 Notion 페이지 정리 실패:', e);
+        oldKept = true;
+      }
+    }
+  }
+
+  return { url: data.url, title, pageId: data.id, oldKept };
+}
+
+// 페이지를 휴지통으로(soft delete). integration에 "update content" 권한이 필요 — 없으면 403이고
+// 호출 측이 oldKept로 흡수한다. 404는 사용자가 노션에서 이미 지운 것이라 치울 게 없다 = 성공으로
+// 본다(실패로 치면 "옛 페이지 남음" 거짓 경고가 뜬다. notionError의 404 문구도 DB 전용이라 부적합).
+// 필드명은 Notion-Version 2022-06-28 기준 `archived` — 최신 버전의 `in_trash`와 같은 동작.
+async function archivePage(token: string, pageId: string): Promise<void> {
+  const res = await fetch(`${ENDPOINT}/pages/${pageId}`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify({ archived: true }),
+  });
+  if (res.status === 404) return;
+  if (!res.ok) throw await notionError(res);
 }
 
 // 옵션 "테스트" 버튼용 — 토큰+DB 공유+ID를 한 번에 검증. DB 제목 반환.
