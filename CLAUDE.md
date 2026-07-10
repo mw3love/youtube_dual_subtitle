@@ -382,6 +382,16 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **필드명 주의**: 우리는 `Notion-Version: 2022-06-28` 고정이라 휴지통 필드가 `archived`. 최신 버전 문서는 `in_trash`로 안내하니 버전을 올릴 땐 함께 바꿔야 한다.
 - **검증:** 사용자 실조건검증(저장→형광펜→`♻ 업데이트`→노션 DB에 한 줄만 남고 갱신됨 확인). `archived` 필드는 실호출로만 확정되며, 틀려도 400 → `oldKept`로 안전하게 실패한다.
 
+### 35. 해설 탭 클릭만으로 옆 탭 이동 + 닫기 ✕ 활성 탭 한정 (A59, v0.19.0)
+
+**문제:** 해설 패널 탭스트립(섹션 20)은 탭이 쌓여 넘치면 `overflow-x: auto`로 **가로스크롤을 사용자가 직접** 해야만 밀린 탭에 닿았다. 살짝 튀어나온 탭을 클릭하면 활성화는 되지만 그 다음 탭이 여전히 밀려 있어 "클릭만으로 계속 옆으로"가 안 됐다.
+
+- **활성 칩 자동 스크롤** (`explain-ui.ts:scrollChipIntoView`, `renderTabstrip` 끝에서 `strip.children[this.active]`로 호출): 활성 칩이 스트립 밖으로 잘려 있으면 **넘치는 만큼만** 가로스크롤해 완전히 드러낸다. 잘린 탭을 클릭 → 그 탭이 다 보이고 그 옆 탭이 `PAD`만큼 드러나 다음 클릭 타겟이 됨 → 좌·우 어느 끝이든 **클릭 연타로 걸어감**. `scrollLeft`를 rect 차분으로 직접 계산(좌: `c.left < s.left+PAD`, 우: `c.right > s.right-PAD`) — `scrollIntoView`는 스크롤 가능한 조상(유튜브 페이지)까지 움직일 수 있어 회피. `getBoundingClientRect` 사용(`.ydt-explain-tabs`에 `position` 없어 `offsetParent`가 스트립이 아니라 좌표계 어긋남). 브라우저가 `scrollLeft`를 `[0,max]`로 클램프해 양끝 칩에선 무해하게 no-op. **덤으로 기존 버그 수정**: `replaceChildren`가 매 렌더마다 `scrollLeft`를 0으로 되돌려, 오른쪽 옛 탭을 보려 스크롤해 둔 상태에서 Notion 저장 `✓`(섹션 27)·형광펜 stale 등으로 `renderTabstrip`이 불리면 맨 왼쪽으로 튀던 것. 스크롤 보정을 `renderTabstrip` 안에 둬 함께 해소. `restore()`(최소화 복원)에서도 재적용 — `display:none` 동안 `scrollLeft`가 풀리므로.
+- **칩 클릭 = 활성화** (`renderTabstrip`): 클릭 리스너를 `label`→`chip` 전체로 이동. 살짝 드러난 칩의 왼쪽 가장자리는 테두리·패딩이라 라벨만 받으면 눌러도 안 먹던 것. 닫기 `✕`는 `stopPropagation`으로 칩 클릭과 분리.
+- **닫기 ✕는 활성 탭에만** (`styles.ts:.ydt-explain-tab-close { visibility: hidden }` + `.active`만 `visible`): **구조적 함정** — ✕가 칩 오른쪽에 있고 왼쪽 peek 탭은 항상 **오른쪽 부분(=✕)**이 보인다. 그래서 ✕가 비활성 탭에 뜨면(특히 hover 시 커서 자리에) 옆으로 넘기려다 탭이 닫힌다. 처음엔 `hover/active`에 노출로 막으려 했으나 **hover가 곧 peek 자리에 ✕를 띄워** 원점(2번째 수정에서 발견). 활성 탭에만 노출로 확정 — 활성 탭은 위 스크롤 로직이 항상 완전히 드러내 ✕가 안전한 위치에 있고, 비활성 peek 탭은 hover해도 ✕가 없어 눌러도 무조건 활성화. **닫기는 "클릭해 활성화 → ✕" 2스텝**(닫기는 저빈도라 수용). `visibility`(≠`display`)라 폭 고정 → peek 기하학 일정, hidden 버튼은 클릭 타겟이 아니라 그 자리를 눌러도 칩 활성화로 통과.
+- **PAD=44** (`scrollChipIntoView`): 다음 탭이 gap(4px)을 빼고 ~40px 노출 — 넉넉한 클릭 타겟. ✕가 활성 탭에만 보여 작은 peek도 안전하므로 크게 둠. 대칭이라 좌·우 동일 폭 peek.
+- **검증:** 사용자 실조건검증(오른쪽↔왼쪽 클릭 연타 이동·peek hover 시 ✕ 안 뜸·활성 탭 ✕ 닫기 확인). 빌드·타입체크 통과.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

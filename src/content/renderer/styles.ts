@@ -291,7 +291,15 @@ const STYLES = `
   border: none;
   border-radius: 4px;
   cursor: pointer;
+  /* ✕는 칩 오른쪽에 있고, 왼쪽에서 빼꼼 나온 탭은 항상 오른쪽 부분(=✕)이 보인다.
+     그래서 ✕가 비활성 탭에도 뜨면(특히 hover 시 커서 자리에) 옆으로 넘기려다 닫힌다.
+     활성 탭에만 노출 — 활성 탭은 스크롤 로직이 항상 완전히 드러내 ✕가 안전한 위치에 있고,
+     비활성 peek 탭은 hover해도 ✕가 없어 눌러도 무조건 활성화. 닫기는 "활성화→✕" 2스텝.
+     visibility(≠display)라 폭이 고정돼 peek 기하학이 일정하고, hidden 버튼은 클릭 타겟이
+     아니라 그 자리를 눌러도 칩 활성화로 넘어간다. */
+  visibility: hidden;
 }
+.ydt-explain-tab.active .ydt-explain-tab-close { visibility: visible; }
 .ydt-explain-tab-close:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
 
 /* 탭 콘텐츠 컨테이너 — 활성 탭(contentEl)만 display, 본문은 그 안에서 스크롤. */

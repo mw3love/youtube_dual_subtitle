@@ -649,11 +649,13 @@ export class ExplainUI {
         mark.title = 'Notion 저장됨';
         chip.appendChild(mark);
       }
+      // 클릭은 칩 전체가 받는다(라벨만 받으면 살짝 드러난 칩의 테두리·패딩을 눌러도 안 먹음).
+      // 닫기 버튼은 stopPropagation으로 이 핸들러를 막는다.
+      chip.addEventListener('click', () => this.activateTab(i));
       const label = document.createElement('span');
       label.className = 'ydt-explain-tab-label';
       // 후속(파생) 탭은 ⏎, 첫 질문 탭은 ❓, 해설 탭은 아이콘 없음.
       label.textContent = (t.isFollowup ? '⏎ ' : t.isQuestion ? '❓ ' : '') + t.term;
-      label.addEventListener('click', () => this.activateTab(i));
       const close = document.createElement('button');
       close.className = 'ydt-explain-tab-close';
       close.type = 'button';
@@ -665,6 +667,26 @@ export class ExplainUI {
       chip.append(label, close);
       strip.appendChild(chip);
     });
+    // 칩 순서 = 탭 배열 순서라 active 인덱스로 바로 집는다.
+    this.scrollChipIntoView(strip.children[this.active] as HTMLElement | undefined);
+  }
+
+  // 활성 칩이 스트립 밖으로 잘려 있으면 넘치는 만큼만 가로스크롤해 완전히 드러낸다.
+  // 잘린 탭을 클릭하면 그 탭이 다 보이고 그 옆 탭이 PAD만큼 드러나 다음 클릭 타겟이 되므로,
+  // 좌·우 어느 끝이든 클릭만으로 계속 옆으로 이동할 수 있다.
+  // replaceChildren가 scrollLeft를 0으로 되돌리므로 매 렌더 후 재적용도 겸함.
+  // scrollIntoView는 스크롤 가능한 조상(유튜브 페이지)까지 움직일 수 있어 쓰지 않는다.
+  private scrollChipIntoView(chip: HTMLElement | undefined): void {
+    const strip = this.tabstripEl;
+    if (!chip || !strip || strip.hidden || strip.clientWidth === 0) return; // 최소화 중이면 측정 불가
+    // 옆 탭이 다음 클릭 타겟이 되게 남기는 여백(칩 사이 gap 4px을 빼고 남는 ~40px이 노출 폭).
+    // ✕가 활성 탭에만 보여(styles.ts) peek 아무 데나 눌러도 활성화라, 넉넉히 드러내도 안전.
+    // 대칭이라 좌·우 양방향 모두 다음 탭이 같은 폭으로 peek → 클릭만으로 계속 이동.
+    const PAD = 44;
+    const c = chip.getBoundingClientRect();
+    const s = strip.getBoundingClientRect();
+    if (c.left < s.left + PAD) strip.scrollLeft -= s.left + PAD - c.left;
+    else if (c.right > s.right - PAD) strip.scrollLeft += c.right - (s.right - PAD);
   }
 
   // 활성 탭 상태(결과 유무·Notion 저장 여부)를 헤더 버튼에 반영.
@@ -853,6 +875,8 @@ export class ExplainUI {
     // 최소화 중 열린 탭은 측정 불가로 트림이 보류됐을 수 있어, 보이게 된 지금 재적용.
     const tab = this.tabs[this.active];
     if (tab) this.setTitle(tab.term);
+    // display:none 동안 스트립 scrollLeft가 0으로 풀리므로 활성 칩을 다시 보이게 한다.
+    this.scrollChipIntoView(this.tabstripEl?.children[this.active] as HTMLElement | undefined);
   }
 
   private closePanel(): void {
