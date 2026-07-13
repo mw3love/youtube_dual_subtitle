@@ -836,6 +836,10 @@ function armWatchdog(videoId: string): void {
         TAG,
         `[health] watchdog ${attempt}/${WATCHDOG_DELAYS_MS.length}: no cues for ${videoId} after ${cumulative}ms — requesting force boot`,
       );
+      // 1회성 direct-fetch 가드를 풀어야 MAIN의 재broadcast → handleCaptionTracks가
+      // FETCH_TIMEDTEXT를 다시 보낼 수 있다(= trySetTrack + CC click + direct fetch 재시도).
+      // 이걸 안 풀면 워치독이 MAIN capture 상태만 리셋하고 정작 부트 시퀀스는 재발사되지 않는다.
+      requestedDirectFetchVideoIds.delete(videoId);
       window.postMessage(
         { source: 'YDT_CONTENT', type: 'FORCE_BOOT', videoId },
         location.origin,

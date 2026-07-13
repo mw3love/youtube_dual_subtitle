@@ -392,6 +392,20 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **PAD=44** (`scrollChipIntoView`): 다음 탭이 gap(4px)을 빼고 ~40px 노출 — 넉넉한 클릭 타겟. ✕가 활성 탭에만 보여 작은 peek도 안전하므로 크게 둠. 대칭이라 좌·우 동일 폭 peek.
 - **검증:** 사용자 실조건검증(오른쪽↔왼쪽 클릭 연타 이동·peek hover 시 ✕ 안 뜸·활성 탭 ✕ 닫기 확인). 빌드·타입체크 통과.
 
+### 36. 자막 '사용 안 함' 영상에서 듀얼자막 미표시 — 부팅 레이스 + 워치독 복구 (A60, v0.19.1)
+
+**증상:** 듀얼자막이 켜져 있는데도 자막이 안 나오고, 확인해 보면 그 영상의 유튜브 자막 상태가 `사용 안 함`. 자동생성/영어를 **수동으로** 고르면 그때 듀얼자막이 뜬다.
+
+**구조적 전제:** 우리 direct fetch는 **페이지가 이 영상의 timedtext를 한 번은 스스로 fetch해 줘야** 성립한다 — raw `baseUrl`엔 PoToken이 없어 `200 + empty body`가 오고, `waitForMatchingPageUrl`이 **같은 videoId의** 페이지 URL에서 PoToken을 빌려오기 때문(섹션 2). 즉 페이지 자막이 `사용 안 함`이면 데이터 경로가 통째로 없다. 그걸 뚫는 게 우리 CC 켜기 시퀀스(`trySetTrack` → CC click)인데, 아래 두 버그로 그 시퀀스가 발화하지 않거나 재시도되지 않았다.
+
+- **원인 1 — 부팅 레이스: `subtitlesEnabled=false`가 "꺼짐"과 "아직 모름"을 구분 못 함** (`inject-main.ts`). MAIN은 `subtitlesEnabled=false`로 시작해 isolated의 `SUBTITLES_ENABLED`를 기다리는데(초기 오작동 방지용, 섹션 12 주석), isolated의 `handleCaptionTracks`는 **설정 로드를 기다리지 않고** 트랙 방송 즉시 `FETCH_TIMEDTEXT`를 쏜다. 트랙이 `ytInitialPlayerResponse`에 이미 있는 첫 로드에선 이게 `loadSettings()` 완료보다 빨라, MAIN의 `tryEnableCaptions`·`forceToggleCaptions`·`armCaptureTimeout`이 **셋 다 게이트에 걸려 early-return** → **CC 클릭이 한 번도 안 나감**. 유튜브 자막이 원래 켜져 있던 영상은 페이지가 알아서 fetch해 티가 안 나고, `사용 안 함` 영상에서만 증상이 드러나 간헐적으로 보였다.
+  **해결:** `settingsKnown` 플래그로 "모름"을 분리하고, 설정 도착 전에 온 chosen 트랙은 `pendingEnable`에 **보류**했다가 `SUBTITLES_ENABLED` 수신 시 `runEnableSequence(lang, kind)`로 실행. 시퀀스(`trySetTrack` → 100ms 후 CC click → 300ms 후 force toggle)를 함수로 묶어 즉시/보류 두 경로가 같은 코드를 타게 했고, `armCaptureTimeout`도 시퀀스 안에서 재호출 — 레이스 때 `tryBroadcast`가 게이트에 걸려 못 건 재시도 타이머를 되살린다(재호출은 기존 타이머 교체라 idempotent).
+- **원인 2 — 워치독이 부트 시퀀스를 재발사 못 함** (`content/index.ts`). `requestedDirectFetchVideoIds`는 videoId당 `FETCH_TIMEDTEXT` 1회만 허용하고 `emptied`(영상 전환)에서만 비워진다. 그래서 워치독이 `FORCE_BOOT`로 MAIN의 capture 상태를 리셋하고 트랙을 재방송해도 isolated가 "이미 요청함"으로 판단해 **`FETCH_TIMEDTEXT`를 다시 안 보냈다** → `trySetTrack` + CC click + direct fetch 전체가 재시도되지 않고, 남은 복구 경로는 `armCaptureTimeout`의 CC 재토글뿐이었다(그마저 원인 1이면 안 걸림). **해결:** `FORCE_BOOT` 전송 직전에 `requestedDirectFetchVideoIds.delete(videoId)` — 섹션 4의 "워치독은 capture 상태 전체를 reset하는 장기 보호"가 실제로 성립하게 된다.
+- **보조 — `loadModule('captions')`** (`inject-main.ts:trySetTrack`): 자막이 `사용 안 함`인 영상은 captions 모듈이 안 올라와 있을 수 있고 그 상태의 `setOption`은 조용히 무시된다. `setOption` 전에 모듈을 먼저 올린다(이미 올라와 있으면 no-op). 타입엔 선언돼 있었으나 호출한 적이 없던 API.
+- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고(섹션 12의 CC=false 무시 — 단방향 sync) ⓑ `C` 키로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다. 자막을 진짜로 끄는 유일한 스위치는 `C` 키·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). 네이티브 자막은 CSS로 숨겨져 있어 이중 표시는 없다.
+- **남은 의존:** 이 수정은 "페이지가 자막을 확실히 켜게" 만든 것이지 **페이지 의존 자체를 끊은 건 아니다.** 근본 해결은 세션 내 다른 영상의 timedtext URL에서 `pot`만 떼어 이 영상 baseUrl(서명 유효)에 이식하는 것 — `pot`이 세션 바인딩인지 콘텐츠 바인딩인지 **미확인**이라 콘솔 probe로 판정 대기(성공 시 CC 강제 켜기 자체를 제거 가능).
+- **검증:** 사용자 실조건검증(`사용 안 함` 영상에서 듀얼자막 표시 + 트랙 자동 선택 확인). 빌드·타입체크 통과.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

@@ -18,6 +18,12 @@ import { getVideoIdFromLocation } from '../shared/url';
   //  isolated가 document_start에 같이 등록되고 loadSettings 끝나면 즉시 보내므로 첫 토글
   //  지연은 수십~수백ms 수준 — 자막 ON 사용자도 체감 영향 적음.)
   let subtitlesEnabled = false;
+  // isolated의 SUBTITLES_ENABLED를 아직 한 번도 못 받았으면 false는 "꺼짐"이 아니라 "모름"이다.
+  // 이 구분이 없으면 설정 도착 전에 온 FETCH_TIMEDTEXT의 CC 켜기 시퀀스가 통째로 버려진다
+  // (아래 pendingEnable 참조).
+  let settingsKnown = false;
+  // 설정 도착 전에 받은 chosen 트랙 — 설정이 오면 그때 CC 켜기 시퀀스를 실행한다.
+  let pendingEnable: { lang: string; kind: 'asr' | undefined } | null = null;
 
   // ───────────────────────── 1. fetch + XHR monkey-patch (즉시) ─────────────────────────
   // YouTube가 timedtext를 fetch / XMLHttpRequest 중 어느 쪽으로 호출하는지 불분명하므로 둘 다.
@@ -408,6 +414,13 @@ import { getVideoIdFromLocation } from '../shared/url';
         })
       | null;
     if (!player?.setOption) return;
+    // 자막 상태가 '사용 안 함'인 영상은 captions 모듈이 아예 안 올라와 있을 수 있고,
+    // 그 상태의 setOption은 조용히 무시된다. 모듈을 먼저 올린다(이미 올라와 있으면 no-op).
+    try {
+      player.loadModule?.('captions');
+    } catch {
+      // ignore — 비공식 API
+    }
     // M2: 자동번역 sticky 해제 — track set 전에 호출. setOption 미공식 API라 여러 형태 시도.
     try {
       player.setOption('captions', 'translationLanguage', null);
@@ -423,6 +436,20 @@ import { getVideoIdFromLocation } from '../shared/url';
     } catch (e) {
       console.warn(TAG, 'setOption failed:', e);
     }
+  }
+
+  // M1: setOption(chosen) → 짧은 delay 후 CC click 순서로 발화.
+  // page가 sticky 기반으로 잘못된 lang fetch하기 전에 chosen lang으로 선점.
+  // (tryBroadcast에서 CC click을 발화하지 않으므로 여기가 click 책임.)
+  // armCaptureTimeout도 여기서 한 번 더 — 설정 도착 전의 tryBroadcast는 게이트에 걸려
+  // 타이머를 못 걸었을 수 있다(재호출은 기존 타이머를 교체하므로 idempotent).
+  function runEnableSequence(lang: string, kind: 'asr' | undefined): void {
+    trySetTrack(lang, kind);
+    // 100ms: setOption이 page state에 적용될 시간 확보 후 CC click.
+    // 300ms 후 추가 force toggle: 첫 click이 안 먹은 경우 보완.
+    setTimeout(() => tryEnableCaptions(0), 100);
+    setTimeout(() => forceToggleCaptions(), 300);
+    armCaptureTimeout(getVideoId());
   }
 
   async function waitForMatchingPageUrl(videoId: string | null): Promise<string | null> {
@@ -507,14 +534,15 @@ import { getVideoIdFromLocation } from '../shared/url';
         languageCode: string;
         kind?: 'asr' | undefined;
       };
-      // M1: setOption(chosen) → 짧은 delay 후 CC click 순서로 발화.
-      // page가 sticky 기반으로 잘못된 lang fetch하기 전에 chosen lang으로 선점.
-      // (tryBroadcast에서 CC click을 발화하지 않도록 변경했으므로 여기서 click 책임.)
-      trySetTrack(d.languageCode, d.kind);
-      // 100ms: setOption이 page state에 적용될 시간 확보 후 CC click.
-      // 200ms 후 추가 force toggle: 첫 click이 안 먹은 경우 보완.
-      setTimeout(() => tryEnableCaptions(0), 100);
-      setTimeout(() => forceToggleCaptions(), 300);
+      const kind = d.kind === 'asr' ? ('asr' as const) : undefined;
+      if (settingsKnown) {
+        runEnableSequence(d.languageCode, kind);
+      } else {
+        // 설정이 아직 안 왔다 — 지금 시퀀스를 돌리면 subtitlesEnabled=false(=모름) 게이트에
+        // 전부 걸려 CC click이 한 번도 안 나간다. 설정 도착 시점으로 미룬다.
+        pendingEnable = { lang: d.languageCode, kind };
+        console.log(TAG, 'enable sequence deferred — settings not received yet');
+      }
       void fetchTimedtextDirect(
         d.baseUrl,
         d.videoId ?? null,
@@ -524,7 +552,14 @@ import { getVideoIdFromLocation } from '../shared/url';
     } else if (data.type === 'SUBTITLES_ENABLED') {
       if (typeof data.enabled !== 'boolean') return;
       subtitlesEnabled = data.enabled;
+      settingsKnown = true;
       console.log(TAG, 'subtitlesEnabled =', subtitlesEnabled);
+      const pending = pendingEnable;
+      pendingEnable = null;
+      if (pending && subtitlesEnabled) {
+        console.log(TAG, 'running deferred enable sequence');
+        runEnableSequence(pending.lang, pending.kind);
+      }
     } else if (data.type === 'FORCE_BOOT') {
       // 워치독에서 호출. 현재 영상의 capture 상태를 reset하고 부트 시퀀스를 재발사.
       // (stale 요청 — isolated가 보낸 후 영상이 바뀐 경우 — 은 무시)
