@@ -9,7 +9,7 @@
 // user = 선택 표현 + 자막 문맥. 응답 markdown 문자열을 그대로 content로 돌려 패널이 렌더한다.
 
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
-import { QUESTION_SYSTEM_PROMPT } from '../shared/settings';
+import { getMindlogicBaseUrl, QUESTION_SYSTEM_PROMPT } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import type { ChatTurn } from '../shared/types';
 import { resolveGeminiModelId } from './translators/gemini';
@@ -17,7 +17,6 @@ import { resolveGeminiModelId } from './translators/gemini';
 const TAG = '[YDT/explain]';
 
 const GEMINI_ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-const MINDLOGIC_ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions';
 
 // 해설은 표·예문 여러 개로 번역보다 훨씬 길어질 수 있어 토큰 여유를 크게(잘림 방지).
 const MAX_TOKENS = 4096;
@@ -123,6 +122,8 @@ async function explainMindlogic(
 ): Promise<string> {
   const apiKey = await getMindlogicApiKey();
   if (!apiKey) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  const baseUrl = await getMindlogicBaseUrl();
+  if (!baseUrl) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
   // OpenAI 호환: system 다음에 history(model→assistant 매핑), 끝에 이번 user 메시지.
   const messages = [
     { role: 'system', content: prompt },
@@ -136,7 +137,7 @@ async function explainMindlogic(
     max_tokens: MAX_TOKENS,
   };
 
-  const res = await fetchWithRetry(MINDLOGIC_ENDPOINT, {
+  const res = await fetchWithRetry(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify(body),

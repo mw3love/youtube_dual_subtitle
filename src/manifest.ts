@@ -55,7 +55,10 @@ export default defineManifest({
     // Gemini (BYOK) 번역 백엔드. 사용자가 옵션 페이지에서 본인 키 입력 시에만 호출.
     'https://generativelanguage.googleapis.com/*',
     // Mindlogic API Gateway (BYOK) — 학교/조직 계정 키로 OpenAI/Anthropic/Gemini 등 통과.
-    'https://factchat-cloud.mindlogic.ai/*',
+    // base URL은 옵션 페이지에서 사용자가 직접 입력(조직마다 도메인이 다름) — host_permissions는
+    // 정적 선언이라 지금 아는 도메인만 미리 등록. 새 조직 도메인이 추가되면 여기도 추가 필요.
+    'https://factchat-cloud.mindlogic.ai/*', // 전북대(학교)
+    'https://factchat.mindlogic-kr-api.com/*', // KBS(회사)
     // Notion API (BYOK) — 해설 패널을 사용자 본인 Notion DB에 저장. integration 토큰 입력 시에만 호출.
     'https://api.notion.com/*',
   ],

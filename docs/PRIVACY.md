@@ -1,6 +1,6 @@
 # Privacy Policy — YouTube Dual Subtitle
 
-_Last updated: 2026-05-27 (Mindlogic Gateway backend added in v0.3.0)_
+_Last updated: 2026-07-28 (Mindlogic Gateway base URL is now user-configurable, supporting multiple organizations)_
 
 YouTube Dual Subtitle ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
 
@@ -16,7 +16,7 @@ The Extension processes the following data **locally on your device** to perform
 | Subtitle (caption) text from YouTube videos you watch | Translate to your chosen target language for display | RAM during playback; translated text cached in your browser's IndexedDB | See "External services" below |
 | Translation cache | Avoid re-translating the same video | IndexedDB (your local browser, auto-pruned at 30 days or 200 entries) | Not sent to any third-party server |
 | Gemini API key (only if you choose the Gemini backend) | Authenticate your own Google AI Studio key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to Google's Gemini API as your `x-goog-api-key` header |
-| Mindlogic API key (only if you choose the Mindlogic Gateway backend) | Authenticate your own school/organization-issued gateway key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to `https://factchat-cloud.mindlogic.ai/` as the `Authorization: Bearer` header |
+| Mindlogic API key + Gateway base URL (only if you choose the Mindlogic Gateway backend) | Authenticate your own school/organization-issued gateway key for translation | `chrome.storage.local` (key) / `chrome.storage.sync` (base URL, not sensitive) — this device only for the key, NOT synced to your Google account | Sent only to the Gateway base URL you enter in Options (your organization's own domain, e.g. `https://factchat-cloud.mindlogic.ai/`) as the `Authorization: Bearer` header |
 | Last translation backend used (which backend, when) | Show "최근 번역: X · N분 전" in the popup so you can see whether your preferred backend or a fallback handled the latest translation | `chrome.storage.local` (this device only) | Not sent to any third-party server |
 
 ## 2. External services
@@ -41,8 +41,8 @@ Depending on which translation backend you select in the Extension's options:
 - If the call fails (rate limit, invalid key, etc.), the Extension automatically falls back to **Google Free** so that subtitles still appear. You can see the actual backend in use via the popup or console logs.
 
 ### Mindlogic Gateway (Bring Your Own Key)
-- You enter your own API key, issued by a school or organization that subscribes to the Mindlogic API Gateway, on the Extension's options page. The key is stored in `chrome.storage.local` on the current device only and is **not** synced to your Google account.
-- When this backend is selected, the subtitle text of the current video is sent in batches to `https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions` together with your key (as an `Authorization: Bearer` header) and the model ID you chose (e.g. `gemini-2.5-flash`, `claude-haiku-4-5-20251001`, `gpt-5.4-mini`).
+- You enter your own API key, issued by a school or organization that subscribes to the Mindlogic API Gateway, on the Extension's options page. The key is stored in `chrome.storage.local` on the current device only and is **not** synced to your Google account. You also enter that organization's Gateway base URL — different organizations use different domains, so the Extension does not assume a fixed one.
+- When this backend is selected, the subtitle text of the current video is sent in batches to the base URL you configured (e.g. `https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions`) together with your key (as an `Authorization: Bearer` header) and the model ID you chose (e.g. `gemini-2.5-flash`, `claude-haiku-4-5-20251001`, `gpt-5.4-mini`).
 - Each request includes the source-language text and target language. No identifying information is attached by the Extension.
 - The gateway forwards the request to the upstream provider (OpenAI, Anthropic, Google, etc.) selected by the model ID. Your subtitle text reaches both Mindlogic and that upstream provider, and is subject to their respective privacy practices and the terms of your gateway subscription.
 - If the call fails (no key, invalid key, rate limit, etc.), the Extension automatically falls back to **Google Free** so that subtitles still appear. You can see the actual backend in use via the popup or console logs.
@@ -59,7 +59,7 @@ You can switch backends or disable the Extension at any time from the popup or o
 | `host_permissions: https://www.youtube.com/*` | Read YouTube caption tracks and overlay subtitles on the video player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the Google Free translation endpoint when that backend is selected. |
 | `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with your own API key when the Gemini backend is selected. The Extension itself does not ship any API key. |
-| `host_permissions: https://factchat-cloud.mindlogic.ai/*` | Call the Mindlogic API Gateway with your own school/organization key when the Mindlogic backend is selected. The Extension itself does not ship any API key. |
+| `host_permissions: https://factchat-cloud.mindlogic.ai/*`, `https://factchat.mindlogic-kr-api.com/*` | Call the Mindlogic API Gateway (at the base URL you configure) with your own school/organization key when the Mindlogic backend is selected. The Extension itself does not ship any API key. Only these known gateway domains are pre-declared; a brand-new organization domain would require an Extension update. |
 
 The Extension does **not** request the `tabs`, `history`, `cookies`, or `webRequest` permissions and cannot read your browsing history, other tabs, or any cookies.
 

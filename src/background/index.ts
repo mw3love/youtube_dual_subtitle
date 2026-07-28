@@ -49,6 +49,7 @@ interface TestMindlogicMsg {
   type: 'TEST_MINDLOGIC';
   apiKey: string;
   model: MindlogicModel;
+  baseUrl: string;
 }
 
 // 번역 캐시는 background가 소유한다 — content script의 IndexedDB는 호스트 페이지
@@ -161,12 +162,18 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
     return true;
   }
 
-  if (m?.type === 'TEST_MINDLOGIC' && typeof m.apiKey === 'string' && m.model) {
+  if (
+    m?.type === 'TEST_MINDLOGIC' &&
+    typeof m.apiKey === 'string' &&
+    m.model &&
+    typeof m.baseUrl === 'string'
+  ) {
     const apiKey = m.apiKey;
     const model = m.model as MindlogicModel;
+    const baseUrl = m.baseUrl;
     (async (): Promise<void> => {
       try {
-        const translation = await testMindlogicKey(apiKey, model);
+        const translation = await testMindlogicKey(apiKey, model, baseUrl);
         sendResponse({ ok: true, translation });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
@@ -179,9 +186,10 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
   if (m?.type === 'MINDLOGIC_LIST_MODELS') {
     const apiKey = typeof m.apiKey === 'string' ? m.apiKey : '';
+    const baseUrl = typeof m.baseUrl === 'string' ? m.baseUrl : '';
     (async (): Promise<void> => {
       try {
-        const models = await listMindlogicModels(apiKey);
+        const models = await listMindlogicModels(apiKey, baseUrl);
         sendResponse({ ok: true, models });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);

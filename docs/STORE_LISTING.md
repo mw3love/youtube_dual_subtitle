@@ -73,7 +73,7 @@ YouTube Dual Subtitle은 영상에 원문 자막과 번역 자막을 동시에 �
 | `host_permissions: https://www.youtube.com/*` | Intercept YouTube caption track responses and overlay our dual subtitle container on the player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the user-selected Google free translation endpoint. Not used when Chrome Built-in backend is selected. |
 | `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with the user's own API key (BYOK) when the Gemini backend is selected. The extension does not ship any key — the user enters theirs from Google AI Studio. |
-| `host_permissions: https://factchat-cloud.mindlogic.ai/*` | Call the Mindlogic API Gateway with the user's own school/organization-issued key (BYOK) when the Mindlogic backend is selected. The extension does not ship any key — the user enters theirs from their institution. |
+| `host_permissions: https://factchat-cloud.mindlogic.ai/*`, `https://factchat.mindlogic-kr-api.com/*` | Call the Mindlogic API Gateway (at the base URL the user configures in Options) with the user's own school/organization-issued key (BYOK) when the Mindlogic backend is selected. The extension does not ship any key — the user enters theirs from their institution. |
 
 ## 5. 아이콘
 

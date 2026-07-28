@@ -495,6 +495,7 @@ function Options() {
       const res = (await chrome.runtime.sendMessage({
         type: msgType,
         apiKey: apiKeyVal.trim(),
+        ...(isGemini ? {} : { baseUrl: settings.mindlogicBaseUrl.trim() }),
       })) as { ok: true; models: ModelInfo[] } | { ok: false; error: string } | undefined;
       if (!res) setFetch({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
       else if (res.ok) {
@@ -566,11 +567,12 @@ function Options() {
     const isGemini = provider === 'gemini';
     const apiKeyVal = isGemini ? apiKey : mindlogicApiKey;
     const fetchState = isGemini ? geminiModelsFetch : modelsFetch;
+    const missingBaseUrl = !isGemini && !settings.mindlogicBaseUrl.trim();
     return (
       <>
         <button
           onClick={() => void refreshModels(provider)}
-          disabled={!apiKeyVal.trim() || fetchState.kind === 'pending'}
+          disabled={!apiKeyVal.trim() || missingBaseUrl || fetchState.kind === 'pending'}
           style={{ padding: '4px 10px', fontSize: 12 }}
           type="button"
           title="제공자에서 사용 가능한 모델 목록을 다시 가져옵니다"
@@ -712,6 +714,7 @@ function Options() {
         type: 'TEST_MINDLOGIC',
         apiKey: mindlogicApiKey.trim(),
         model: settings.mindlogicModel,
+        baseUrl: settings.mindlogicBaseUrl.trim(),
       })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
       if (!res)
         setMindlogicTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
@@ -1196,6 +1199,20 @@ function Options() {
 
       {showMindlogic && (
         <Section title="Mindlogic Gateway 설정">
+          <Row label="Base URL">
+            <input
+              type="text"
+              value={settings.mindlogicBaseUrl}
+              onChange={(e) => update({ mindlogicBaseUrl: e.target.value })}
+              placeholder="https://factchat-xxx.../v1/gateway"
+              style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </Row>
+          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+            소속 조직(학교/회사)에서 안내받은 게이트웨이 주소를 붙여넣으세요. 조직마다 도메인이 달라요 — 다른 조직 계정으로 바꾸려면 이 값도 함께 바꾸면 됩니다.
+          </p>
           <Row label="API 키">
             <input
               type={showMindlogicKey ? 'text' : 'password'}
@@ -1215,7 +1232,11 @@ function Options() {
             </button>
             <button
               onClick={() => void onTestMindlogic()}
-              disabled={!mindlogicApiKey.trim() || mindlogicTestState.kind === 'pending'}
+              disabled={
+                !mindlogicApiKey.trim() ||
+                !settings.mindlogicBaseUrl.trim() ||
+                mindlogicTestState.kind === 'pending'
+              }
               style={testButtonStyle}
               type="button"
             >
@@ -1231,9 +1252,9 @@ function Options() {
                 ✗ {mindlogicTestState.error}
               </span>
             )}
-            {!mindlogicApiKey.trim() && (
+            {(!mindlogicApiKey.trim() || !settings.mindlogicBaseUrl.trim()) && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                키 없으면 Google 무료로 자동 fallback
+                Base URL·키 없으면 Google 무료로 자동 fallback
               </span>
             )}
           </Row>

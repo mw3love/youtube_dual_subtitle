@@ -19,10 +19,10 @@
 // - 429 받으면 cooldown — Gemini 백엔드와 같은 패턴(매 청크마다 백오프 누적 방지).
 
 import { getMindlogicApiKey } from '../../shared/secrets';
+import { getMindlogicBaseUrl } from '../../shared/settings';
 import type { MindlogicModel } from '../../shared/settings';
 
 const TAG = '[YDT/mindlogic]';
-const ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/chat/completions';
 
 // 한 호출당 cue 수가 적을수록 합침 mismatch가 덜 발생. Immersive Translate의 "자막 요청당
 // 최대 섹션 수 = 5"를 따름(일반 텍스트보다 자막을 더 잘게 쪼갬).
@@ -39,6 +39,7 @@ let rateLimitedUntil = 0;
 interface MindlogicOptions {
   apiKey?: string;
   model?: MindlogicModel;
+  baseUrl?: string;
   // 영상 제목 — 모델에 주제 문맥으로 주입해 단어 뜻/말투를 교정(Immersive의 title_prompt 차용).
   // 예: 커리어 영상에서 "work gets seen"을 "작품 공개"가 아니라 "성과 인정"으로.
   videoTitle?: string;
@@ -60,16 +61,21 @@ export async function translateBatch(
   if (!apiKey) {
     throw new Error('Mindlogic API 키가 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
   }
+  const baseUrl = opts?.baseUrl ?? (await getMindlogicBaseUrl());
+  if (!baseUrl) {
+    throw new Error('Mindlogic Base URL이 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
+  }
+  const chatUrl = `${baseUrl}/chat/completions`;
   const model = opts?.model ?? (await readModel());
   const title = opts?.videoTitle;
 
   if (texts.length <= MINDLOGIC_CHUNK_SIZE) {
-    return callWithRetry(texts, src, tgt, apiKey, model, title);
+    return callWithRetry(texts, src, tgt, apiKey, chatUrl, model, title);
   }
   const out: string[] = [];
   for (let i = 0; i < texts.length; i += MINDLOGIC_CHUNK_SIZE) {
     const chunk = texts.slice(i, i + MINDLOGIC_CHUNK_SIZE);
-    const part = await callWithRetry(chunk, src, tgt, apiKey, model, title);
+    const part = await callWithRetry(chunk, src, tgt, apiKey, chatUrl, model, title);
     out.push(...part);
   }
   return out;
@@ -80,8 +86,9 @@ export async function translateBatch(
 export async function testMindlogicKey(
   apiKey: string,
   model: MindlogicModel,
+  baseUrl: string,
 ): Promise<string> {
-  const out = await callWithRetry(['Hello, world.'], 'en', 'ko', apiKey, model);
+  const out = await callWithRetry(['Hello, world.'], 'en', 'ko', apiKey, `${baseUrl}/chat/completions`, model);
   rateLimitedUntil = 0;
   return out[0] ?? '';
 }
@@ -89,17 +96,21 @@ export async function testMindlogicKey(
 // 게이트웨이가 통과시키는 모델 목록 (OpenAI 호환 GET /models). 옵션 페이지가 "모델 새로고침"으로
 // 호출 → storage.local에 캐시 → 드롭다운에 동적 표시. 하드코딩 큐레이션(MINDLOGIC_MODELS)은
 // 추천 마커/새로고침 전 fallback으로 남는다.
-const MODELS_ENDPOINT = 'https://factchat-cloud.mindlogic.ai/v1/gateway/models';
 
 export interface MindlogicModelInfo {
   id: string;
   ownedBy: string;
 }
 
-export async function listMindlogicModels(apiKey?: string): Promise<MindlogicModelInfo[]> {
+export async function listMindlogicModels(
+  apiKey?: string,
+  baseUrl?: string,
+): Promise<MindlogicModelInfo[]> {
   const key = apiKey || (await getMindlogicApiKey());
   if (!key) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
-  const res = await fetch(MODELS_ENDPOINT, { headers: { Authorization: `Bearer ${key}` } });
+  const url = baseUrl || (await getMindlogicBaseUrl());
+  if (!url) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
+  const res = await fetch(`${url}/models`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
     throw new Error(`모델 목록 실패 (HTTP ${res.status})`);
@@ -186,15 +197,16 @@ async function callWithRetry(
   src: string,
   tgt: string,
   apiKey: string,
+  chatUrl: string,
   model: MindlogicModel,
   title?: string,
 ): Promise<string[]> {
   try {
-    return await callMindlogic(texts, src, tgt, apiKey, model, title);
+    return await callMindlogic(texts, src, tgt, apiKey, chatUrl, model, title);
   } catch (e) {
     if (e instanceof Error && e.message.startsWith('Mindlogic 응답 길이 불일치')) {
       console.warn(TAG, `${e.message} — retry once`);
-      return await callMindlogic(texts, src, tgt, apiKey, model, title);
+      return await callMindlogic(texts, src, tgt, apiKey, chatUrl, model, title);
     }
     throw e;
   }
@@ -205,6 +217,7 @@ async function callMindlogic(
   src: string,
   tgt: string,
   apiKey: string,
+  chatUrl: string,
   model: MindlogicModel,
   title?: string,
 ): Promise<string[]> {
@@ -223,7 +236,7 @@ async function callMindlogic(
 
   let retried = false;
   while (true) {
-    const res = await fetch(ENDPOINT, {
+    const res = await fetch(chatUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

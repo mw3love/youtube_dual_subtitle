@@ -91,6 +91,10 @@ export const SettingsSchema = z.object({
   subtitlesEnabled: z.boolean(),
   backend: BackendIdSchema,
   geminiModel: GeminiModelSchema,
+  // Mindlogic 게이트웨이 base URL — 조직마다 도메인이 다름(예: 전북대 vs KBS). 기본값을 특정
+  // 조직 URL로 박으면 웹스토어 공개 배포 시 그 조직과 무관한 사용자에게 남의 인프라 주소가
+  // 노출되므로 빈 문자열이 기본값 — 사용자가 자기 조직 URL을 직접 입력해야 동작.
+  mindlogicBaseUrl: z.string(),
   mindlogicModel: MindlogicModelSchema,
   sourceLang: SourceLangSchema,
   targetLang: TargetLangSchema,
@@ -140,6 +144,7 @@ export const DEFAULT_SETTINGS: Settings = {
   subtitlesEnabled: true,
   backend: 'google-free',
   geminiModel: 'gemini-2.5-flash',
+  mindlogicBaseUrl: '',
   mindlogicModel: 'gemini-2.5-flash',
   sourceLang: 'en',
   targetLang: 'ko',
@@ -178,6 +183,15 @@ export async function loadSettings(): Promise<Settings> {
     return DEFAULT_SETTINGS;
   }
   return parsed.data;
+}
+
+// mindlogic.ts(번역)·explain.ts(해설) 공용 — 매 호출마다 fresh read해서 옵션 페이지의
+// 디바운스 저장과 race 회피(API 키와 동일 패턴). trailing slash 제거해 사용자가
+// ".../v1/gateway/"처럼 슬래시를 붙여도 "//chat/completions"가 되지 않게.
+export async function getMindlogicBaseUrl(): Promise<string> {
+  const r = await chrome.storage.sync.get({ mindlogicBaseUrl: '' });
+  const v = typeof r.mindlogicBaseUrl === 'string' ? r.mindlogicBaseUrl.trim() : '';
+  return v.replace(/\/+$/, '');
 }
 
 export async function saveSettings(patch: Partial<Settings>): Promise<void> {
