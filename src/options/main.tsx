@@ -878,7 +878,7 @@ function Options() {
         <div>
 
       <Section title="이중 자막 설정">
-        <Row label="자막 켜기" hint="단축키 Alt+C">
+        <Row label="자막 켜기" hint="단축키 V">
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}

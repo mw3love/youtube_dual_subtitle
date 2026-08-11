@@ -695,23 +695,24 @@ function applySettings(s: Settings): void {
 
 void loadSettings().then(applySettings);
 
-// Alt+C로 듀얼 자막 on/off (A62). 'C' 단독 키는 더 이상 가로채지 않고 YouTube 기본 동작(네이티브
-// CC on/off)에 그대로 맡긴다 — 네이티브 자막과 우리 듀얼자막을 완전히 독립된 컨트롤로 분리.
-// 네이티브 강제숨김 CSS(styles.ts)도 subtitlesEnabled 조건부라, 듀얼자막을 꺼두면 네이티브 CC를
-// 사용자가 직접 켰을 때(C 키) 원래 자막이 그대로 보인다.
-// input/textarea/contenteditable focus 시는 통과 (검색창 입력 보호).
-// 키 판별은 ev.code('KeyC', 물리 키) 우선 — 'C' 단독 핸들러(섹션10)와 동일한 IME/레이아웃 견고성.
+// V 단독 키로 듀얼 자막 on/off (A63, Alt+C에서 변경). 'C' 단독 키는 여전히 가로채지 않고 YouTube
+// 기본 동작(네이티브 CC on/off)에 그대로 맡긴다 — 네이티브 자막과 우리 듀얼자막을 완전히 독립된
+// 컨트롤로 분리(A62). 네이티브 강제숨김 CSS(styles.ts)도 subtitlesEnabled 조건부라, 듀얼자막을
+// 꺼두면 네이티브 CC를 사용자가 직접 켰을 때(C 키) 원래 자막이 그대로 보인다.
+// input/textarea/contenteditable focus 시는 통과 (검색창 입력 보호). 수정키(Alt/Ctrl/Shift/Meta)가
+// 하나라도 눌려 있으면 통과 — Ctrl+V(붙여넣기) 등과 충돌 방지.
+// 키 판별은 ev.code('KeyV', 물리 키) 우선 — 'C' 단독 핸들러(섹션10)와 동일한 IME/레이아웃 견고성.
 document.addEventListener(
   'keydown',
   (ev) => {
-    if (ev.code !== 'KeyC' && ev.key !== 'c') return;
-    if (!ev.altKey || ev.ctrlKey || ev.metaKey) return;
+    if (ev.code !== 'KeyV' && ev.key !== 'v') return;
+    if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
     const t = ev.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (!currentSettings) return;
     const next = !currentSettings.subtitlesEnabled;
     void saveSettings({ subtitlesEnabled: next });
-    console.log(TAG, `dual subtitles toggled: ${next ? 'on' : 'off'} via Alt+C`);
+    console.log(TAG, `dual subtitles toggled: ${next ? 'on' : 'off'} via V`);
   },
   true,
 );
@@ -733,6 +734,16 @@ function clearWatchdog(): void {
   watchdogVideoId = null;
 }
 
+// MAIN에 capture 상태 reset + 부트 시퀀스 재발사를 요청. 워치독 타임아웃과 "자막 꺼짐→켜짐"
+// 전환 시 둘 다 이 경로를 탄다. 1회성 direct-fetch 가드(requestedDirectFetchVideoIds)를 먼저
+// 풀어야 MAIN의 재broadcast → handleCaptionTracks가 FETCH_TIMEDTEXT를 다시 보낼 수 있다
+// (= trySetTrack + CC click + direct fetch 재시도). 안 풀면 MAIN capture 상태만 리셋되고
+// 정작 부트 시퀀스는 재발사되지 않는다.
+function requestForceBoot(videoId: string): void {
+  requestedDirectFetchVideoIds.delete(videoId);
+  window.postMessage({ source: 'YDT_CONTENT', type: 'FORCE_BOOT', videoId }, location.origin);
+}
+
 function armWatchdog(videoId: string): void {
   clearWatchdog();
   watchdogVideoId = videoId;
@@ -751,14 +762,7 @@ function armWatchdog(videoId: string): void {
         TAG,
         `[health] watchdog ${attempt}/${WATCHDOG_DELAYS_MS.length}: no cues for ${videoId} after ${cumulative}ms — requesting force boot`,
       );
-      // 1회성 direct-fetch 가드를 풀어야 MAIN의 재broadcast → handleCaptionTracks가
-      // FETCH_TIMEDTEXT를 다시 보낼 수 있다(= trySetTrack + CC click + direct fetch 재시도).
-      // 이걸 안 풀면 워치독이 MAIN capture 상태만 리셋하고 정작 부트 시퀀스는 재발사되지 않는다.
-      requestedDirectFetchVideoIds.delete(videoId);
-      window.postMessage(
-        { source: 'YDT_CONTENT', type: 'FORCE_BOOT', videoId },
-        location.origin,
-      );
+      requestForceBoot(videoId);
     }, elapsed);
     watchdogTimers.push(t);
   });
@@ -808,6 +812,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
       if (needsRetranslate && lastSentences.length > 0 && mountedVideoId) {
         console.log(TAG, 'retranslating with new settings');
         void translateCues(lastSentences, mountedVideoId);
+      }
+
+      // 자막 꺼짐→켜짐 전환 + 이 영상 cue가 아직 하나도 없으면(예: 영상 시작 시 자막이 꺼져
+      // 있어 부트 시퀀스 자체가 보류됐던 경우, 섹션36) 워치독의 다음 틱(최대 60s+)을 기다리지
+      // 않고 즉시 강제 재부팅 — 쇼츠처럼 영상이 짧으면 워치독이 오기 전에 끝나버린다.
+      if (changes.subtitlesEnabled?.newValue === true && lastCues.length === 0) {
+        const vid = currentVideoId();
+        if (vid) {
+          console.log(TAG, `subtitles enabled with no cues for ${vid} — forcing capture boot`);
+          requestForceBoot(vid);
+        }
       }
     })
     .catch((e) => console.warn(TAG, 'reload settings failed:', e));

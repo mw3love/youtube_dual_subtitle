@@ -308,7 +308,7 @@ function Popup() {
       <label style={rowStyle}>
         <span>
           자막 켜기
-          <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>단축키 Alt+C</span>
+          <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>단축키 V</span>
         </span>
         <input
           type="checkbox"

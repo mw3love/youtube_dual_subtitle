@@ -5,7 +5,7 @@ import type { CueStyle } from '../../shared/settings';
 
 const STYLES = `
 /* native 자막 숨김 — 우리 듀얼자막이 켜져 있을 때만(html[data-ydt-active="true"], content/index.ts의
-   applySettings가 토글). 꺼두면 네이티브 CC를 사용자가 직접 켤 수 있게 그대로 둔다(A62: C/Alt+C 분리). */
+   applySettings가 토글). 꺼두면 네이티브 CC를 사용자가 직접 켤 수 있게 그대로 둔다(A62: C/V 분리). */
 html[data-ydt-active="true"] .ytp-caption-window-container { display: none !important; }
 
 .ydt-container {

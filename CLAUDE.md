@@ -122,14 +122,14 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 
 YouTube는 `yt-navigate-finish` 이벤트로 영상 전환을 알림. 단순히 매 navigate마다 cue를 비우면 새 cue가 동시에 도착할 때 파괴됨. 해결: `mountedVideoId`에 현재 cue가 어느 영상 것인지 기록해두고, navigate 시 `currentVideoId() !== mountedVideoId`일 때만 `clearCues`(`content/index.ts:201-207`). 번역 mid-flight 응답도 `currentVideoId()` 비교로 drop(같은 파일의 `translateCues`).
 
-### 10. 'C'·`Alt+C` 단축키 (A16 → A62로 분리)
+### 10. 'C'·`V` 단축키 (A16 → A62로 분리 → A63에서 `Alt+C`→`V`로 변경)
 
 **A62(섹션 38)부터 네이티브 자막과 듀얼자막은 완전히 독립된 컨트롤이다.**
 
 - `'C'` 단독: 더 이상 가로채지 않는다. YouTube native `'c'` 핸들러에 그대로 맡겨 **네이티브 CC만** on/off(우리 `subtitlesEnabled` 무관).
-- `Alt+C`: **듀얼자막만** on/off(`subtitlesEnabled` 토글). 네이티브 CC 버튼은 건드리지 않음.
+- `V` 단독(**A63부터, 이전엔 `Alt+C`** — 섹션 39): **듀얼자막만** on/off(`subtitlesEnabled` 토글). 네이티브 CC 버튼은 건드리지 않음. 수정키(Alt/Ctrl/Shift/Meta)가 하나라도 눌려 있으면 통과 — `Ctrl+V`(붙여넣기) 등과 충돌 방지.
 
-키 판별은 물리 키 `ev.code === 'KeyC'` 우선(+ `ev.key === 'c'` 폴백) — `ev.key`만 보면 CapsLock 시 `'C'`, 한글 IME 시 `'ㅊ'`이 되어 새는 문제를 방지(같은 견고성 패턴을 `Alt+C` 핸들러도 공유). input/textarea/contenteditable focus 시는 통과(검색창 입력 보호).
+키 판별은 물리 키 `ev.code === 'KeyC'`(`V`는 `'KeyV'`) 우선(+ `ev.key` 폴백) — `ev.key`만 보면 CapsLock 시 대문자, 한글 IME 시 자음으로 바뀌어 새는 문제를 방지(같은 견고성 패턴을 `V` 핸들러도 공유). input/textarea/contenteditable focus 시는 통과(검색창 입력 보호).
 
 A16~A61까지는 `'C'`가 `subtitlesEnabled`를 토글하면서 CC 버튼도 프로그램적으로 `click()`해 시각 동기했다(옛 방식 — 지금은 없음). 분리 이유: 네이티브 자막이 꺼진 채였던 이유는 섹션 8의 강제숨김 CSS가 `subtitlesEnabled` 조건부로 바뀌어(A62), 듀얼자막을 꺼두면 네이티브 CC를 `'C'`로 직접 켜서 원래 자막을 볼 수 있게 하기 위함 — 하나의 키로 묶여 있으면 이게 불가능했다.
 
@@ -409,7 +409,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
   **해결:** `settingsKnown` 플래그로 "모름"을 분리하고, 설정 도착 전에 온 chosen 트랙은 `pendingEnable`에 **보류**했다가 `SUBTITLES_ENABLED` 수신 시 `runEnableSequence(lang, kind)`로 실행. 시퀀스(`trySetTrack` → 100ms 후 CC click → 300ms 후 force toggle)를 함수로 묶어 즉시/보류 두 경로가 같은 코드를 타게 했고, `armCaptureTimeout`도 시퀀스 안에서 재호출 — 레이스 때 `tryBroadcast`가 게이트에 걸려 못 건 재시도 타이머를 되살린다(재호출은 기존 타이머 교체라 idempotent).
 - **원인 2 — 워치독이 부트 시퀀스를 재발사 못 함** (`content/index.ts`). `requestedDirectFetchVideoIds`는 videoId당 `FETCH_TIMEDTEXT` 1회만 허용하고 `emptied`(영상 전환)에서만 비워진다. 그래서 워치독이 `FORCE_BOOT`로 MAIN의 capture 상태를 리셋하고 트랙을 재방송해도 isolated가 "이미 요청함"으로 판단해 **`FETCH_TIMEDTEXT`를 다시 안 보냈다** → `trySetTrack` + CC click + direct fetch 전체가 재시도되지 않고, 남은 복구 경로는 `armCaptureTimeout`의 CC 재토글뿐이었다(그마저 원인 1이면 안 걸림). **해결:** `FORCE_BOOT` 전송 직전에 `requestedDirectFetchVideoIds.delete(videoId)` — 섹션 4의 "워치독은 capture 상태 전체를 reset하는 장기 보호"가 실제로 성립하게 된다.
 - **보조 — `loadModule('captions')`** (`inject-main.ts:trySetTrack`): 자막이 `사용 안 함`인 영상은 captions 모듈이 안 올라와 있을 수 있고 그 상태의 `setOption`은 조용히 무시된다. `setOption` 전에 모듈을 먼저 올린다(이미 올라와 있으면 no-op). 타입엔 선언돼 있었으나 호출한 적이 없던 API.
-- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고 ⓑ `Alt+C`로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다. 자막을 진짜로 끄는 유일한 스위치는 `Alt+C`·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). **A62(섹션 38)부터** 네이티브 자막 강제숨김이 `subtitlesEnabled` 조건부라 듀얼자막을 꺼두면 네이티브 자막(`'C'`로 제어)이 이중표시 없이 그대로 보인다 — 이전엔 CSS가 무조건 숨겨 이중표시가 원천 불가능했다.
+- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고 ⓑ 듀얼자막 토글 키(A63부터 `V`, 이전엔 `Alt+C`)로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다(A63부터는 워치독을 기다리지 않고 즉시 — 섹션 39). 자막을 진짜로 끄는 유일한 스위치는 `V`·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). **A62(섹션 38)부터** 네이티브 자막 강제숨김이 `subtitlesEnabled` 조건부라 듀얼자막을 꺼두면 네이티브 자막(`'C'`로 제어)이 이중표시 없이 그대로 보인다 — 이전엔 CSS가 무조건 숨겨 이중표시가 원천 불가능했다.
 - **남은 의존 — 제거 불가로 확정(2026-07-13 실측).** 이 수정은 "페이지가 자막을 확실히 켜게" 만든 것이지 페이지 의존 자체를 끊은 건 아니다. 근본안으로 검토한 **`pot` 크로스-비디오 이식**(세션 내 다른 영상의 timedtext URL에서 `pot`만 떼어 이 영상 baseUrl에 이식)은 **콘솔 probe로 기각**됐다: 이 영상의 **정상 페이지 URL에서 `pot`만 다른 영상 것으로 교체**하니 `body.len 110545 → 0`. 나머지 파라미터가 전부 유효한 상태의 단일 변수 실험이므로 **`pot`은 콘텐츠(영상) 바인딩**으로 확정 — 세션 공용이 아니다. `pot` 자체 생성은 BotGuard 챌린지가 필요해 확장에서 비현실적. **따라서 "페이지가 그 영상의 timedtext를 한 번 fetch하게 만든다"가 유일한 데이터 경로이고, 유튜브 자막 메뉴가 강제로 켜지는 부작용은 구조적 대가다.** (probe 함정은 `~/.claude/wiki/youtube-timedtext-potoken.md`)
 - **검증:** 사용자 실조건검증(`사용 안 함` 영상에서 듀얼자막 표시 + 트랙 자동 선택 확인). 빌드·타입체크 통과.
 
@@ -439,9 +439,23 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 - **막고 있던 지점:** `styles.ts`의 네이티브 자막 강제숨김(`.ytp-caption-window-container { display: none !important }`)이 `subtitlesEnabled` 상태와 무관하게 **무조건** 적용돼 있었다. 듀얼자막을 꺼도 네이티브 자막이 안 보이는 게 이 CSS 한 줄 때문 — 키를 아무리 분리해도 이게 있으면 "본자막이 보이는" 요청 자체가 원천 불가능했다.
 - **수정:** CSS를 `html[data-ydt-active="true"] .ytp-caption-window-container {...}`로 스코프(`content/index.ts:applySettings`가 `document.documentElement.dataset.ydtActive`를 `subtitlesEnabled`에 맞춰 토글). `'C'` 키 가로채기(`stopImmediatePropagation` + 프로그램적 CC `click()` + `subtitlesEnabled` 토글)를 완전히 제거해 YouTube 기본 동작에 맡기고, 듀얼자막 on/off는 새로 만든 `Alt+C` 핸들러(`document.keydown`, 기존 `'C'`와 같은 물리 키 판별 패턴)로 이동. CC 버튼→`subtitlesEnabled` 단방향 sync(옛 섹션 12, `ccButtonObserver` 전체)도 독립성 목표와 충돌해 제거.
-- **결과:** `'C'` = 네이티브 CC만, `Alt+C` = 듀얼자막만. 듀얼자막을 꺼둔 채 `'C'`로 네이티브를 켜면 원래 자막이 그대로 보인다.
+- **결과:** `'C'` = 네이티브 CC만, `Alt+C` = 듀얼자막만. 듀얼자막을 꺼둔 채 `'C'`로 네이티브를 켜면 원래 자막이 그대로 보인다. (**A63부터 `Alt+C`는 `V`로 변경** — 분리 메커니즘 자체는 동일, 섹션 39.)
 
 **검증:** 사용자 실조건검증(Shorts 영상에서 듀얼자막 정상 렌더 확인, `'C'`/`Alt+C` 각각 의도대로 분리 동작 확인). 여러 언어 자막이 동시에 있는 영상에서 원어가 정확히 뽑히는지는 그런 영상을 아직 못 만나 실조건 미확인 — 구조상(설정 자체가 없어져 `videoLang` 외 다른 기준이 없음) 어긋날 경로가 없다는 점만 코드로 확인.
+
+### 39. 듀얼자막 단축키 `Alt+C`→`V` + 자막 꺼짐 상태에서 켜면 즉시 강제 재부팅 (A63, v0.22.0)
+
+**계기:** 사용자 요청 두 가지 — ⓐ `Alt+C`를 `V`(단독 키)로 변경, ⓑ 영상이 자막 `사용 안 함` 상태로 시작한 경우(특히 Shorts) 단축키로 듀얼자막을 켜도 화면에 표시되지 않고, 유튜브 자막 메뉴에서 자동생성 자막을 마우스로 직접 선택해야만 그제서야 보이는 문제.
+
+**ⓐ 단축키 변경 — `Alt+C` → `V` 단독 키.** `chrome.commands`(매니페스트 단축키, `Alt+Q`가 이미 쓰는 방식 — 섹션 28)는 수정키 없는 단독 키를 등록할 수 없어 채택 불가 — 기존과 같은 `document.keydown` 리스너를 유지하되 판별 키만 교체(`content/index.ts` 최하단). 물리 키 `ev.code === 'KeyV'` 우선(+ `ev.key === 'v'` 폴백)은 기존 `'C'`/`Alt+C` 핸들러와 동일한 IME/레이아웃 견고성 패턴(섹션 10). 수정키(Alt/Ctrl/Shift/Meta) 중 하나라도 눌려 있으면 통과 — `Ctrl+V`(붙여넣기)와 충돌 방지. 팝업·옵션 페이지의 단축키 안내 라벨(`popup/main.tsx`·`options/main.tsx`)도 동기화.
+
+**ⓑ 자막 꺼짐→켜짐 전환 시 즉시 강제 재부팅 — 워치독의 타이밍 갭.**
+
+- **구조적 원인:** A60(섹션 36)이 고친 건 "영상 시작 시점의 부팅 레이스"였지, "자막이 꺼진 채 시작한 영상에서 **나중에** 사용자가 켜는" 경로가 아니었다. `subtitlesEnabled=false`인 채 영상이 시작하면 MAIN은 CC 클릭·`setOption`을 아예 보류하고(`inject-main.ts`의 `pendingEnable`), 우리 direct fetch는 페이지가 자체 fetch한 적이 없어 PoToken 없이 빈 응답만 받는다(섹션 36 "구조적 전제"). 이 상태를 복구하는 유일한 경로는 워치독(`content/index.ts:armWatchdog`)인데, **영상 진입 후 8s/30s/60s 누적 지연으로만** 동작하고 그마저 콜백이 도는 순간 `subtitlesEnabled`가 `true`여야 발화한다. 사용자가 그 사이 어느 시점에 단축키로 켜도 다음 워치독 틱까지(최장 수십 초) 아무 재시도가 없다 — 쇼츠는 그 전에 스와이프하거나 영상이 끝나 사실상 복구가 안 됐다. 유튜브 메뉴로 직접 켜면 우리 메커니즘을 거치지 않고 페이지가 즉시 자체 fetch하니 바로 뜨는 것이었다.
+- **수정:** 워치독 콜백 안에 있던 재부팅 코드(`requestedDirectFetchVideoIds.delete` + `FORCE_BOOT` postMessage)를 `requestForceBoot(videoId)`로 추출하고, `chrome.storage.onChanged` 핸들러에서 `subtitlesEnabled`가 `false→true`로 바뀌었고 그 영상의 cue가 아직 하나도 없으면(`lastCues.length === 0`) 워치독 틱을 기다리지 않고 즉시 호출한다(`content/index.ts`). 이미 cue가 있는 영상에서 껐다 켜는 정상 케이스는 조건에 안 걸려 불필요한 재부팅이 없다.
+- **한계:** Shorts의 CC 버튼 셀렉터(`inject-main.ts`의 `.ytmClosedCaptioningButtonButton`, 섹션 3)가 현재 유튜브 DOM과 여전히 일치하는지는 코드로만 확인했고 실조건 미확인 — 이 수정 후에도 재현되면 다음 의심 지점.
+
+**검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 자막 꺼짐 영상에서 `V`로 켰을 때 즉시 표시되는지, 특히 Shorts는 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 
