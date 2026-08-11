@@ -185,11 +185,7 @@ let lastCues: Cue[] = [];
 let lastSentences: Sentence[] = [];
 
 // 현재 활성 settings 캐시. boot 후 storage.onChanged로 갱신.
-// 'en' default는 storage 로드 전 한 짧은 순간 동안만 쓰임.
 let currentSettings: Settings | null = null;
-function preferredSource(): string {
-  return currentSettings?.sourceLang ?? 'en';
-}
 function targetLang(): string {
   return currentSettings?.targetLang ?? 'ko';
 }
@@ -241,7 +237,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       cueCount: lastCues.length,
       videoId: mountedVideoId,
       subtitlesEnabled: currentSettings?.subtitlesEnabled ?? false,
-      sourceLang: currentSettings?.sourceLang ?? 'en',
       targetLang: currentSettings?.targetLang ?? 'ko',
     });
   }
@@ -285,9 +280,10 @@ function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
     if (tgtAsr) return tgtAsr;
   }
 
-  // 외국어 영상 → preferredSource 매치 우선 (기존 로직)
+  // 외국어 영상 → 영상 원본 언어(videoLang) 매치 우선. 사용자 설정이 아니라 그 영상이
+  // 실제로 말하는 언어를 자동 감지 — 여러 언어 자막이 같이 있어도 원어가 뽑힘.
   const sorted = [...tracks].sort(
-    (a, b) => trackScore(a, preferredSource()) - trackScore(b, preferredSource()),
+    (a, b) => trackScore(a, videoLang ?? '') - trackScore(b, videoLang ?? ''),
   );
   return sorted[0];
 }
@@ -482,7 +478,9 @@ async function translateCues(cues: Cue[], requestVideoId: string | null): Promis
   }
 
   const texts = cues.map((c) => c.text);
-  const src = preferredSource();
+  // 실제로 고른 트랙의 언어(currentTrackLang) — 사용자 설정이 아니라 영상이 실제 말하는 언어를
+  // 번역 API에 그대로 전달해야 원본 언어 hint가 어긋나지 않는다(pickTrack의 자동감지와 정합).
+  const src = currentTrackLang ?? 'en';
   const tgt = targetLang();
   const backend = activeBackend();
   const cacheKey = makeKey(requestVideoId, src, tgt, cacheBackendTag());
@@ -658,9 +656,6 @@ document.addEventListener(
     // 트랙 언어 정보 reset — 새 영상의 handleCaptionTracks가 다시 세팅한다.
     currentTrackLang = null;
     renderer.setSuppressTarget(false);
-    // Shorts swipe / 일반 영상 자동 다음 재생 시 CC 버튼 element가 새로 mount될 수 있어
-    // observer 재attach. (yt-navigate-finish는 이 케이스에서 발화 안 함)
-    ensureCcObserver();
   },
   true,
 );
@@ -670,6 +665,9 @@ document.addEventListener(
 function applySettings(s: Settings): void {
   currentSettings = s;
   renderer.setUserVisible(s.subtitlesEnabled);
+  // 네이티브 자막 강제숨김(styles.ts)은 우리 듀얼자막이 켜져 있을 때만 — 꺼두면 native CC가
+  // 사용자 자기 제어(C 키)로 그대로 보여야 한다(A62: C/Alt+C 분리).
+  document.documentElement.dataset.ydtActive = String(s.subtitlesEnabled);
   renderer.setDisplayMode(s.displayMode);
   renderer.setWordRevealEnabled(s.wordRevealEnabled);
   renderer.setSingleContextLines(s.singleContextLines);
@@ -697,106 +695,23 @@ function applySettings(s: Settings): void {
 
 void loadSettings().then(applySettings);
 
-// CC 버튼 → 우리 subtitlesEnabled 단방향 동기 (사용자가 native CC를 "직접" 켰을 때만).
-let ccButtonObserver: MutationObserver | null = null;
-let observedCcButton: HTMLElement | null = null;
-
-// 사용자가 native CC 버튼을 직접 클릭한 마지막 시각. YouTube의 자동 CC enable(sticky/계정
-// 설정으로 영상 진입 시 켜짐)이나 우리 tryEnableCaptions의 프로그램적 .click()은 둘 다
-// isTrusted=false라 기록되지 않는다. 이 게이트가 없으면 CC=true를 무조건 사용자 의도로 간주해,
-// 사용자가 꺼둔 자막이 YouTube 자동 enable로 몇 분 뒤 저절로 되살아나는 버그가 생김.
-let lastUserCcClickAt = 0;
-const USER_CC_CLICK_WINDOW_MS = 1000;
-const CC_BUTTON_SELECTORS = '.ytmClosedCaptioningButtonButton, .ytp-subtitles-button';
-document.addEventListener(
-  'click',
-  (ev) => {
-    if (!ev.isTrusted) return; // 진짜 사용자 클릭만 (프로그램적 .click()은 isTrusted=false)
-    const t = ev.target as HTMLElement | null;
-    if (t?.closest(CC_BUTTON_SELECTORS)) lastUserCcClickAt = Date.now();
-  },
-  true,
-);
-
-// ccObserver — page CC 버튼 상태와 우리 storage sync. 단 한 방향만 + 사용자 제스처 게이팅:
-//   CC=true → 우리 true (단, 최근 ~1초 내 사용자가 native CC를 직접 클릭했을 때만 honor)
-//   CC=false → 무시 (page sticky의 잘못된 lang으로 자막 자동 disable되는 케이스를 막기 위해.
-//   자막 끄기는 사용자가 C 키나 팝업으로만 — page CC의 disable은 sticky-induced로 가정.)
-function syncSubtitlesEnabledFromCc(btn: HTMLElement): void {
-  const pressed = btn.getAttribute('aria-pressed') === 'true';
-  if (!currentSettings) return;
-  if (currentSettings.subtitlesEnabled === pressed) return;
-  if (!pressed) return;
-  // CC=true는 사용자가 방금 직접 CC를 클릭했을 때만 honor. YouTube 자동 enable이나 우리
-  // 프로그램적 click은 lastUserCcClickAt을 안 남겨 여기서 걸러짐 → 꺼둔 자막이 안 되살아남.
-  if (Date.now() - lastUserCcClickAt > USER_CC_CLICK_WINDOW_MS) return;
-  console.log(TAG, `CC button -> subtitlesEnabled=true (user click)`);
-  void saveSettings({ subtitlesEnabled: true });
-}
-
-function attachCcObserver(): void {
-  // Shorts는 .ytmClosedCaptioningButtonButton(가시), 일반은 .ytp-subtitles-button.
-  // 화면에 실제로 보이는 쪽을 우선. Shorts 페이지엔 둘 다 존재하는데 일반 셀렉터는 hidden.
-  const candidates = [
-    '.ytmClosedCaptioningButtonButton',
-    '.ytp-subtitles-button',
-  ];
-  let btn: HTMLElement | null = null;
-  for (const sel of candidates) {
-    const el = document.querySelector<HTMLElement>(sel);
-    if (el && el.getBoundingClientRect().width > 0) {
-      btn = el;
-      break;
-    }
-  }
-  if (!btn || btn === observedCcButton) return;
-  ccButtonObserver?.disconnect();
-  observedCcButton = btn;
-  ccButtonObserver = new MutationObserver(() => syncSubtitlesEnabledFromCc(btn));
-  ccButtonObserver.observe(btn, { attributes: true, attributeFilter: ['aria-pressed'] });
-  // 첫 attach 시도 한 번 sync. (한 방향 sync라 추가 분기 불필요)
-  syncSubtitlesEnabledFromCc(btn);
-}
-
-// player가 DOM에 늦게 들어올 수 있어 짧게 retry. Shorts는 CC 버튼 없으므로 자연스럽게 패스.
-const CC_OBSERVER_RETRY_MS = [0, 500, 1500, 3000];
-function ensureCcObserver(attempt = 0): void {
-  attachCcObserver();
-  if (!observedCcButton && attempt + 1 < CC_OBSERVER_RETRY_MS.length) {
-    setTimeout(() => ensureCcObserver(attempt + 1), CC_OBSERVER_RETRY_MS[attempt + 1]);
-  }
-}
-ensureCcObserver();
-// SPA navigate로 player가 새로 mount될 수 있어 재시도.
-window.addEventListener('yt-navigate-finish', () => ensureCcObserver());
-// 1초 폴링은 아래 tickWatchdog과 합쳐 한 interval로 처리 (성능: setInterval 3→2).
-
-// C 키로 듀얼 자막 on/off.
-// YouTube native 'c' 핸들러는 .ytp-subtitles-button만 click하므로 Shorts에선 CC 시각 동기가
-// 안 된다. 우리가 책임지고 setting 토글 + 적절한 CC 버튼 click 둘 다 수행.
-// capture phase + stopImmediatePropagation으로 native 중복 발화 차단 — 안 그러면 일반 영상에서
-// 우리 click과 native click이 합쳐져 토글이 상쇄될 수 있음.
-// input/textarea/contenteditable focus 시는 통과 (검색창 'c' 입력 보호).
-// 키 판별은 ev.code('KeyC', 물리 키)로 — ev.key는 CapsLock 시 'C', 한글 IME 시 'ㅊ'이 되어
-// 새는 반면 native(keyCode 기반)는 발화해 "CC 아이콘만 바뀌고 우리 자막은 안 토글"되는 불일치 방지.
+// Alt+C로 듀얼 자막 on/off (A62). 'C' 단독 키는 더 이상 가로채지 않고 YouTube 기본 동작(네이티브
+// CC on/off)에 그대로 맡긴다 — 네이티브 자막과 우리 듀얼자막을 완전히 독립된 컨트롤로 분리.
+// 네이티브 강제숨김 CSS(styles.ts)도 subtitlesEnabled 조건부라, 듀얼자막을 꺼두면 네이티브 CC를
+// 사용자가 직접 켰을 때(C 키) 원래 자막이 그대로 보인다.
+// input/textarea/contenteditable focus 시는 통과 (검색창 입력 보호).
+// 키 판별은 ev.code('KeyC', 물리 키) 우선 — 'C' 단독 핸들러(섹션10)와 동일한 IME/레이아웃 견고성.
 document.addEventListener(
   'keydown',
   (ev) => {
     if (ev.code !== 'KeyC' && ev.key !== 'c') return;
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (!ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const t = ev.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (!currentSettings) return;
-    ev.stopImmediatePropagation();
     const next = !currentSettings.subtitlesEnabled;
     void saveSettings({ subtitlesEnabled: next });
-    // CC 버튼이 있고 상태가 우리와 다르면 click해 시각 동기. MutationObserver가
-    // 같은 값으로 또 saveSettings 호출해도 storage no-op이라 안전.
-    const btn = observedCcButton;
-    if (btn && (btn.getAttribute('aria-pressed') === 'true') !== next) {
-      btn.click();
-    }
-    console.log(TAG, `toggled: ${next ? 'on' : 'off'} via shortcut`);
+    console.log(TAG, `dual subtitles toggled: ${next ? 'on' : 'off'} via Alt+C`);
   },
   true,
 );
@@ -860,16 +775,13 @@ function tickWatchdog(): void {
   armWatchdog(vid);
 }
 tickWatchdog();
-// 1초 폴링 — watchdog rearm + CC observer 안전망(Shorts swipe 등 navigate 이벤트 누락 케이스).
-// 두 호출 모두 같은 인스턴스에 idempotent라 한 interval로 합쳐도 비용 차이 없음.
+// 1초 폴링 — watchdog rearm (videoId 변화 감지, Shorts swipe 등 navigate 이벤트 누락 케이스).
 setInterval(() => {
   tickWatchdog();
-  attachCcObserver();
 }, 1000);
 
 // 번역 결과를 바꾸는 키 — 변경되면 현재 영상 다시 번역.
 const RETRANSLATE_KEYS = new Set([
-  'sourceLang',
   'targetLang',
   'backend',
   'geminiModel',

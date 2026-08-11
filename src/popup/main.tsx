@@ -7,10 +7,9 @@ import {
   type BackendId,
   type DisplayMode,
   type Settings,
-  type SourceLang,
   type TargetLang,
 } from '../shared/settings';
-import { BACKENDS, DISPLAY_MODES, SOURCE_LANGS, TARGET_LANGS } from '../shared/lang-options';
+import { BACKENDS, DISPLAY_MODES, TARGET_LANGS } from '../shared/lang-options';
 import {
   getGeminiApiKey,
   getLastBackend,
@@ -309,7 +308,7 @@ function Popup() {
       <label style={rowStyle}>
         <span>
           자막 켜기
-          <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>단축키 C</span>
+          <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>단축키 Alt+C</span>
         </span>
         <input
           type="checkbox"
@@ -340,22 +339,6 @@ function Popup() {
           {DISPLAY_MODES.map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={rowStyle} title="영상 자막에서 우선 고를 언어">
-        <span>영상 자막</span>
-        <select
-          value={settings.sourceLang}
-          onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
-          disabled={!loaded}
-          style={selectStyle}
-        >
-          {SOURCE_LANGS.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
             </option>
           ))}
         </select>

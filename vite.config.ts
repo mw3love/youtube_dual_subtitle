@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   server: {
+    // host 미지정 시 Node가 이 환경에서 IPv6(::1)로만 바인딩해 Chrome의 127.0.0.1 접속이
+    // 막히는 경우가 있음(CRXJS dev mode "Cannot connect" 오류) — 명시해 IPv4도 열어둠.
+    host: true,
     port: 5173,
     strictPort: true,
     hmr: { port: 5174 },

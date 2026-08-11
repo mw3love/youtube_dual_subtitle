@@ -40,7 +40,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 
 - 트랙 선택 (`content/index.ts:pickTrack`): ASR 트랙의 lang을 영상 원본 lang hint로 사용.
   - 영상 원본 lang === `targetLang`(예: 한국어 영상) → 모국어 single 의도 → tgt 트랙 강제 (manual > asr).
-  - 외국어 영상 → `preferredSource` 매치 트랙 우선 (manual > asr).
+  - 외국어 영상 → 영상 원본 언어(`videoLang`, ASR 트랙 lang) 매치 트랙 우선 (manual > asr). **A62(섹션 38)부터** — 그 전엔 사용자 설정 `preferredSource` 매치가 기준이었으나 설정 자체를 제거하고 완전 자동감지로 전환.
   - 한국어 영상에 영어/일본어 manual이 같이 있어도 한국어 잡음 (예전엔 외국어 잡혀 듀얼됨).
 - chosen 강제 fetch: isolated → `FETCH_TIMEDTEXT { baseUrl, languageCode, kind }` 메시지. MAIN의 `fetchTimedtextDirect`가:
   1. `waitForMatchingPageUrl`: page가 자체 fetch한 timedtext URL의 PoToken을 얻기 위해 최대 5초 대기.
@@ -97,7 +97,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 
 - `src/shared/settings.ts`: `zod` 스키마로 검증, partial 마이그레이션(새 필드는 default로). 모든 페이지가 같은 schema 공유.
 - 옵션 페이지(`src/options/main.tsx`)는 변경을 즉시 UI에 반영하되 `storage.sync.set`은 **250ms 디바운스** (color/slider 입력으로 분당 120회 quota에 안 걸리게).
-- `src/content/index.ts:241-255`: `chrome.storage.onChanged` 수신 → settings 전체 reload → `applySettings`. `RETRANSLATE_KEYS = {sourceLang, targetLang, backend, geminiModel, mindlogicModel}` 중 하나가 바뀌면 현재 영상 자동 재번역(재조립된 `lastSentences` 보관 덕분 — 섹션 13).
+- `src/content/index.ts:241-255`: `chrome.storage.onChanged` 수신 → settings 전체 reload → `applySettings`. `RETRANSLATE_KEYS = {targetLang, backend, geminiModel, mindlogicModel}` 중 하나가 바뀌면 현재 영상 자동 재번역(재조립된 `lastSentences` 보관 덕분 — 섹션 13). `sourceLang`은 A62(섹션 38)에서 제거 — 원문 언어는 영상마다 자동 감지라 사용자가 바꿀 설정이 없음.
 
 ### 7. 캐시
 
@@ -114,7 +114,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 - **렌더 단위는 raw cue가 아니라 재조립된 `Sentence`**(⊇`Cue`, 섹션 13). `setCues`에 sentence 배열이 들어와 코드는 그대로 `cue`처럼 다루되 한 항목 = 한 문장. 그래서 문장 전체가 `[start,end)` 내내 블록으로 떠 있고(원문·번역 둘 다), word-reveal이 그 안에서 현재 발화 위치를 칠해 "preview + 진행 표시"가 한 메커니즘으로 통합됨.
 - `findCueIndex`는 이전 인덱스 기반 빠른 경로(현재 cue 유지 / 다음 cue 진입) 두 번 체크 후 선형 폴백 — 정주행 시 ~1회 비교.
 - `findMountTarget`(`container.ts`): YouTube DOM 셀렉터에 최소 의존. **video element 기반 탐지**로 active 영상(Shorts 다중 reel 포함) 찾음.
-- `styles.ts`: 사용자 조절 값은 모두 CSS 변수로 `:root`에 박아 `:fullscreen` / `[data-mode="shorts"]` 보정까지 한 번에 적용. native YouTube 자막은 `.ytp-caption-window-container { display: none !important }`로 숨김.
+- `styles.ts`: 사용자 조절 값은 모두 CSS 변수로 `:root`에 박아 `:fullscreen` / `[data-mode="shorts"]` 보정까지 한 번에 적용. native YouTube 자막은 `html[data-ydt-active="true"] .ytp-caption-window-container { display: none !important }`로 숨김 — **A62(섹션 38)부터 조건부**: 듀얼자막이 켜져 있을 때만 숨기고, 꺼두면 네이티브 자막이 그대로 보임.
 - **드래그 UX**: DOM 핸들 없음(A13에서 제거). `.ydt-container` 자체가 `pointerdown` 타겟이고, `::before`(`inset: -6px`)가 hit-area 확장 + cyan halo 시각 affordance 둘 다 담당. 텍스트 선택이 1순위라 `e.target`이 `.ydt-cue-text` 또는 `.ydt-history`(누적 윗줄) 안이면 pointerdown은 early-return — native 선택에 완전 양보. 같은 두 셀렉터에 `cursor: text`도 매칭. 드래그 가능 영역은 행 padding + 두 행 사이 4px gap + 외곽 6px halo 띠. `clampPosition`은 좌우 대칭(예전 `HANDLE_MARGIN_PX` 없음). **위치(%) 좌표계 기준은 컨테이너의 CSS offset parent(= mount host `#movie_player`)이지 `video` 요소가 아니다(A28)** — YouTube는 레터박스(상하 검은 띠) 영상에서 `<video>`를 콘텐츠 크기로 축소·중앙배치해 player보다 세로로 작고 위치가 다른데, CSS `left/bottom %`는 offset parent 기준으로 풀리므로 드래그/clamp 계산도 같은 박스를 써야 한다. `positioningRect()`(`offsetParent ?? host`)가 `clampPosition`·`onPointerDown`·`onMove` 공통 기준. 옛 코드가 `video` rect를 써서 폭은 우연히 일치(좌우 정상)하나 세로가 어긋나 레터박스 영상 맨 아래에서 세로 드래그가 0에 고착되던 버그를 수정.
 - **누적(rolling) 윈도우**(A14): 싱글 자막 모드(translation-only / source-only / 모국어 영상)에서만 현재 cue(=문장) 위에 직전 `singleContextLines-1`개 cue(=문장)를 쌓아 맥락 보강. 듀얼 모드는 두 줄 이미 보이므로 누적 안 함. 행마다 `.ydt-history` div가 텍스트 span 위에 자리. `isRollingActive()`로 게이트, `renderHistory(idx)`가 윈도우 그림. Sticky gap-fill: 발화 사이 공백에서 cue가 -1이어도 직전 윈도우 유지(`update()`의 sticky 분기). `historyLayout: 'stacked'`는 cue마다 한 줄, `'inline'`은 현재 줄과 한 문단 흐름. `dimHistory`는 stacked일 때만 컨테이너 opacity로 적용 (inline은 한 문단 흐름이라 흐려지면 가독성↓ — A18에서 분기 추가). 번역 줄에서 history cue의 번역 아직 미도착이면 원문으로 임시 대체(setTargetTexts 도착 시 lastIdx=-2로 재렌더).
 
@@ -122,9 +122,16 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 
 YouTube는 `yt-navigate-finish` 이벤트로 영상 전환을 알림. 단순히 매 navigate마다 cue를 비우면 새 cue가 동시에 도착할 때 파괴됨. 해결: `mountedVideoId`에 현재 cue가 어느 영상 것인지 기록해두고, navigate 시 `currentVideoId() !== mountedVideoId`일 때만 `clearCues`(`content/index.ts:201-207`). 번역 mid-flight 응답도 `currentVideoId()` 비교로 drop(같은 파일의 `translateCues`).
 
-### 10. 'C' 단축키
+### 10. 'C'·`Alt+C` 단축키 (A16 → A62로 분리)
 
-`subtitlesEnabled` 토글. capture phase + `stopImmediatePropagation`으로 YouTube native 'c' 핸들러를 **차단**(동시 발화하면 우리 click과 native click이 합쳐져 토글이 상쇄됨)한 뒤, CC 버튼 `aria-pressed`가 우리 상태와 다르면 직접 `btn.click()`해 하단 CC 버튼 시각 상태를 동기화한다(우리 native 자막은 CSS로 숨겨져 있으므로 native가 켜져도 보이지 않음). input/textarea/contenteditable focus 시는 통과(검색창의 'c' 입력 보호). 키 판별은 물리 키 `ev.code === 'KeyC'` 우선(+ `ev.key === 'c'` 폴백) — `ev.key`만 보면 CapsLock 시 `'C'`, 한글 IME 시 `'ㅊ'`이 되어 우리 핸들러는 새고 native(keyCode 기반)만 발화해 "CC 아이콘만 바뀌고 자막은 안 토글"되는 불일치가 생김.
+**A62(섹션 38)부터 네이티브 자막과 듀얼자막은 완전히 독립된 컨트롤이다.**
+
+- `'C'` 단독: 더 이상 가로채지 않는다. YouTube native `'c'` 핸들러에 그대로 맡겨 **네이티브 CC만** on/off(우리 `subtitlesEnabled` 무관).
+- `Alt+C`: **듀얼자막만** on/off(`subtitlesEnabled` 토글). 네이티브 CC 버튼은 건드리지 않음.
+
+키 판별은 물리 키 `ev.code === 'KeyC'` 우선(+ `ev.key === 'c'` 폴백) — `ev.key`만 보면 CapsLock 시 `'C'`, 한글 IME 시 `'ㅊ'`이 되어 새는 문제를 방지(같은 견고성 패턴을 `Alt+C` 핸들러도 공유). input/textarea/contenteditable focus 시는 통과(검색창 입력 보호).
+
+A16~A61까지는 `'C'`가 `subtitlesEnabled`를 토글하면서 CC 버튼도 프로그램적으로 `click()`해 시각 동기했다(옛 방식 — 지금은 없음). 분리 이유: 네이티브 자막이 꺼진 채였던 이유는 섹션 8의 강제숨김 CSS가 `subtitlesEnabled` 조건부로 바뀌어(A62), 듀얼자막을 꺼두면 네이티브 CC를 `'C'`로 직접 켜서 원래 자막을 볼 수 있게 하기 위함 — 하나의 키로 묶여 있으면 이게 불가능했다.
 
 ### 11. 마지막 번역 백엔드 표시 (A21)
 
@@ -134,11 +141,11 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - 팝업(`popup/main.tsx:LastBackendLine`): 열릴 때 `getLastBackend()` 호출 → "최근 번역: Gemini · 2분 전" 한 줄 표시. preferred ≠ used면 ⚠ 표시 + 색 변경(fallback 시각화). 1분 간격으로 "N초/N분 전" 갱신. 30분 이상 지난 정보는 흐리게(stale 표시).
 - 왜 storage.sync 아닌 local: 휘발성 런타임 상태(다른 기기와 공유 가치 없음) + sync 쿼터 절약. 키 분리 패턴과 같은 storage area 공유.
 
-### 12. CC 버튼 ↔ subtitlesEnabled 단방향 sync (A16)
+### 12. (제거됨, A62) CC 버튼 ↔ subtitlesEnabled 단방향 sync
 
-`ccButtonObserver`는 page CC 버튼의 `aria-pressed`를 감시하지만 **CC=true → 우리 true만 sync**, CC=false는 무시. 이유: page sticky 잘못된 lang으로 새 영상에 자막이 자동 disable되는 케이스에서 우리까지 따라 disable되면 사용자가 자막을 못 봄. 자막 끄기는 사용자가 C 키나 팝업으로만 함. trade-off: 사용자가 native CC 버튼을 직접 클릭해 끄는 동작이 우리에 반영 안 됨 (native만 끔, 우리 자막은 계속 표시).
+A16~A61까지는 `ccButtonObserver`가 page CC 버튼의 `aria-pressed`를 감시해 **CC=true → 우리 `subtitlesEnabled`도 true**로 동기했다(CC=false는 무시 — page sticky의 잘못된 lang으로 자막이 자동 disable되는 케이스 방지). A39(v0.11.1)에서 진짜 사용자 클릭(`isTrusted=true`, 1초 윈도)만 honor하도록 게이팅도 추가됐었다.
 
-**사용자 제스처 게이팅 (A39, v0.11.1):** "CC=true → 우리 true"를 **무조건** 적용하면, 사용자가 자막을 꺼둔 영상에서 YouTube가 sticky·계정설정으로 CC를 **자동 enable**할 때 우리 자막이 몇 분 뒤 저절로 되살아나는 버그가 있었다. 해결: 진짜 사용자 클릭(`isTrusted=true`)이 최근 `USER_CC_CLICK_WINDOW_MS`(1초) 내 있었을 때만 honor (`content/index.ts:lastUserCcClickAt`, capture-phase document click 리스너로 `.ytmClosedCaptioningButtonButton, .ytp-subtitles-button` 클릭 시각 기록). YouTube 자동 enable이나 **우리 `tryEnableCaptions`의 프로그램적 `.click()`은 둘 다 `isTrusted=false`라** 기록 안 됨 → `syncSubtitlesEnabledFromCc`의 게이트에서 걸러져 꺼둔 자막이 안 되살아남. (실조건 미확인 — 프록시검증.)
+**A62(섹션 38)에서 메커니즘 전체 제거.** 네이티브 CC(`'C'` 키)와 듀얼자막(`Alt+C`)을 완전히 독립된 컨트롤로 분리하면서(섹션 10), "네이티브를 켜면 듀얼자막도 켜진다"는 동기 자체가 목표와 충돌해 옵저버·게이팅 로직을 통째로 삭제했다. 지금은 두 상태가 서로 어떤 영향도 주지 않는다.
 
 ### 13. 문장 재조립 — cue → Sentence 세그멘테이션 (A27, v0.4.0)
 
@@ -402,7 +409,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
   **해결:** `settingsKnown` 플래그로 "모름"을 분리하고, 설정 도착 전에 온 chosen 트랙은 `pendingEnable`에 **보류**했다가 `SUBTITLES_ENABLED` 수신 시 `runEnableSequence(lang, kind)`로 실행. 시퀀스(`trySetTrack` → 100ms 후 CC click → 300ms 후 force toggle)를 함수로 묶어 즉시/보류 두 경로가 같은 코드를 타게 했고, `armCaptureTimeout`도 시퀀스 안에서 재호출 — 레이스 때 `tryBroadcast`가 게이트에 걸려 못 건 재시도 타이머를 되살린다(재호출은 기존 타이머 교체라 idempotent).
 - **원인 2 — 워치독이 부트 시퀀스를 재발사 못 함** (`content/index.ts`). `requestedDirectFetchVideoIds`는 videoId당 `FETCH_TIMEDTEXT` 1회만 허용하고 `emptied`(영상 전환)에서만 비워진다. 그래서 워치독이 `FORCE_BOOT`로 MAIN의 capture 상태를 리셋하고 트랙을 재방송해도 isolated가 "이미 요청함"으로 판단해 **`FETCH_TIMEDTEXT`를 다시 안 보냈다** → `trySetTrack` + CC click + direct fetch 전체가 재시도되지 않고, 남은 복구 경로는 `armCaptureTimeout`의 CC 재토글뿐이었다(그마저 원인 1이면 안 걸림). **해결:** `FORCE_BOOT` 전송 직전에 `requestedDirectFetchVideoIds.delete(videoId)` — 섹션 4의 "워치독은 capture 상태 전체를 reset하는 장기 보호"가 실제로 성립하게 된다.
 - **보조 — `loadModule('captions')`** (`inject-main.ts:trySetTrack`): 자막이 `사용 안 함`인 영상은 captions 모듈이 안 올라와 있을 수 있고 그 상태의 `setOption`은 조용히 무시된다. `setOption` 전에 모듈을 먼저 올린다(이미 올라와 있으면 no-op). 타입엔 선언돼 있었으나 호출한 적이 없던 API.
-- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고(섹션 12의 CC=false 무시 — 단방향 sync) ⓑ `C` 키로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다. 자막을 진짜로 끄는 유일한 스위치는 `C` 키·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). 네이티브 자막은 CSS로 숨겨져 있어 이중 표시는 없다.
+- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고 ⓑ `Alt+C`로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다. 자막을 진짜로 끄는 유일한 스위치는 `Alt+C`·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). **A62(섹션 38)부터** 네이티브 자막 강제숨김이 `subtitlesEnabled` 조건부라 듀얼자막을 꺼두면 네이티브 자막(`'C'`로 제어)이 이중표시 없이 그대로 보인다 — 이전엔 CSS가 무조건 숨겨 이중표시가 원천 불가능했다.
 - **남은 의존 — 제거 불가로 확정(2026-07-13 실측).** 이 수정은 "페이지가 자막을 확실히 켜게" 만든 것이지 페이지 의존 자체를 끊은 건 아니다. 근본안으로 검토한 **`pot` 크로스-비디오 이식**(세션 내 다른 영상의 timedtext URL에서 `pot`만 떼어 이 영상 baseUrl에 이식)은 **콘솔 probe로 기각**됐다: 이 영상의 **정상 페이지 URL에서 `pot`만 다른 영상 것으로 교체**하니 `body.len 110545 → 0`. 나머지 파라미터가 전부 유효한 상태의 단일 변수 실험이므로 **`pot`은 콘텐츠(영상) 바인딩**으로 확정 — 세션 공용이 아니다. `pot` 자체 생성은 BotGuard 챌린지가 필요해 확장에서 비현실적. **따라서 "페이지가 그 영상의 timedtext를 한 번 fetch하게 만든다"가 유일한 데이터 경로이고, 유튜브 자막 메뉴가 강제로 켜지는 부작용은 구조적 대가다.** (probe 함정은 `~/.claude/wiki/youtube-timedtext-potoken.md`)
 - **검증:** 사용자 실조건검증(`사용 안 함` 영상에서 듀얼자막 표시 + 트랙 자동 선택 확인). 빌드·타입체크 통과.
 
@@ -416,6 +423,25 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **host_permissions는 정적이라 아는 도메인만 선등록.** MV3는 런타임에 임의 도메인을 fetch 허용할 수 없어(`optional_host_permissions` + 사용자 제스처 기반 `chrome.permissions.request` 없이는), 지금 아는 두 도메인(`factchat-cloud.mindlogic.ai`, `factchat.mindlogic-kr-api.com`)을 `manifest.ts`에 미리 등록. 제3의 조직 도메인이 추가되면 매니페스트 갱신 + 재배포 필요 — base URL을 완전 자유 입력으로 열어도 이 한계는 남는다.
 - **배선:** `mindlogic.ts`의 `translateBatch`/`testMindlogicKey`/`listMindlogicModels`, `explain.ts`의 `explainMindlogic` 모두 하드코딩 `ENDPOINT`/`MODELS_ENDPOINT` 상수 대신 `getMindlogicBaseUrl() + '/chat/completions'` 또는 `'/models'`로 조립. 옵션 페이지의 "테스트"·"모델 새로고침" 버튼도 저장된 값이 아니라 입력 중인 `settings.mindlogicBaseUrl`을 그대로 실어 보내(API 키와 같은 "저장 전 즉시 검증" 패턴) `TEST_MINDLOGIC`/`MINDLOGIC_LIST_MODELS` 메시지에 `baseUrl` 필드 추가.
 - **검증:** 사용자 실조건검증(옵션 페이지에서 Base URL+키 입력 후 "테스트" 통과 확인).
+
+### 38. 영상 언어 자동감지 + 'C'/`Alt+C` 완전 분리 (A62, v0.21.0)
+
+**계기:** 사용자 요청 두 가지 — ⓐ 어떤 나라 영상이든 그 나라 언어 기반 듀얼자막이 자동 실행됐으면(특히 정식 자막이 드문 Shorts는 자동생성 자막 우선), ⓑ `'C'` 키가 네이티브 자막·듀얼자막을 동시에 토글하는 게 불편 — 둘을 분리하고 듀얼자막을 꺼도 네이티브 자막은 보이게.
+
+**ⓐ 언어 자동감지 — `sourceLang` 설정 완전 제거.**
+
+- **문제였던 것:** `pickTrack`(섹션 2)의 외국어 분기가 사용자가 미리 골라둔 `sourceLang` 설정(기본 `'en'`)과 일치하는 트랙을 최우선으로 골랐다. 대부분 영상은 그 설정 언어 트랙이 없어 결과적으로 영상 원어가 뽑혔지만(운 좋은 fallback), 크리에이터가 원어+영어 자막을 같이 올린 영상에서는 실제로 프랑스어인 영상인데 영어 트랙이 뽑히는 식으로 어긋났다. 번역 API에 넘기는 원본 언어(`src`)도 실제 고른 트랙이 아니라 이 설정값이라 이중으로 어긋날 수 있었다(잠재 버그).
+- **수정:** `pickTrack`(`content/index.ts`) 외국어 분기의 정렬 기준을 사용자 설정 → **ASR 트랙의 lang(`videoLang`, 영상이 실제 말하는 언어)** 으로 교체. 같은 언어 안 manual > asr 우선순위는 그대로. 번역 시 `src`도 설정값 대신 `currentTrackLang`(실제 고른 트랙의 언어)을 쓰도록 통일 — 원본 언어 hint가 항상 실제 트랙과 일치.
+- **설정 UI 통째로 제거:** `SourceLangSchema`/`SourceLang`(`settings.ts`), `SOURCE_LANGS`(`lang-options.ts`), 옵션 페이지 "원문 → 번역문"의 원문 드롭다운(→ "번역 언어" 한 줄로 축소), 팝업의 "영상 자막" 행, `RETRANSLATE_KEYS`의 `'sourceLang'`. 옛 사용자 storage에 남은 `sourceLang` 값은 스키마에서 안 읽으므로 그냥 무시됨(마이그레이션 불필요).
+- **트레이드오프:** "특정 언어만 계속 학습하고 싶다"(예: 항상 영어 자막 우선) 같은 고정 선호 옵션은 사라짐 — 이제 항상 영상의 실제 언어를 따른다.
+
+**ⓑ `'C'`/`Alt+C` 완전 분리 (섹션 10·12 참조).**
+
+- **막고 있던 지점:** `styles.ts`의 네이티브 자막 강제숨김(`.ytp-caption-window-container { display: none !important }`)이 `subtitlesEnabled` 상태와 무관하게 **무조건** 적용돼 있었다. 듀얼자막을 꺼도 네이티브 자막이 안 보이는 게 이 CSS 한 줄 때문 — 키를 아무리 분리해도 이게 있으면 "본자막이 보이는" 요청 자체가 원천 불가능했다.
+- **수정:** CSS를 `html[data-ydt-active="true"] .ytp-caption-window-container {...}`로 스코프(`content/index.ts:applySettings`가 `document.documentElement.dataset.ydtActive`를 `subtitlesEnabled`에 맞춰 토글). `'C'` 키 가로채기(`stopImmediatePropagation` + 프로그램적 CC `click()` + `subtitlesEnabled` 토글)를 완전히 제거해 YouTube 기본 동작에 맡기고, 듀얼자막 on/off는 새로 만든 `Alt+C` 핸들러(`document.keydown`, 기존 `'C'`와 같은 물리 키 판별 패턴)로 이동. CC 버튼→`subtitlesEnabled` 단방향 sync(옛 섹션 12, `ccButtonObserver` 전체)도 독립성 목표와 충돌해 제거.
+- **결과:** `'C'` = 네이티브 CC만, `Alt+C` = 듀얼자막만. 듀얼자막을 꺼둔 채 `'C'`로 네이티브를 켜면 원래 자막이 그대로 보인다.
+
+**검증:** 사용자 실조건검증(Shorts 영상에서 듀얼자막 정상 렌더 확인, `'C'`/`Alt+C` 각각 의도대로 분리 동작 확인). 여러 언어 자막이 동시에 있는 영상에서 원어가 정확히 뽑히는지는 그런 영상을 아직 못 만나 실조건 미확인 — 구조상(설정 자체가 없어져 `videoLang` 외 다른 기준이 없음) 어긋날 경로가 없다는 점만 코드로 확인.
 
 ## 비명백한 주의사항
 

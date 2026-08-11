@@ -10,14 +10,12 @@ import {
   type DisplayMode,
   type HistoryLayout,
   type Settings,
-  type SourceLang,
   type TargetLang,
 } from '../shared/settings';
 import {
   DISPLAY_MODES,
   GEMINI_MODELS,
   MINDLOGIC_MODELS,
-  SOURCE_LANGS,
   TARGET_LANGS,
 } from '../shared/lang-options';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
@@ -204,7 +202,7 @@ function StyleEditor({
 
 // 미리보기 샘플 — 실제 cue처럼 보이도록 짧은 문장 3개씩(같은 의미를 각 언어로).
 // history는 위에서부터 오래된 → 직전, 맨 아래가 현재 cue.
-// sourceLang === 'auto'이거나 lookup 실패 시 영어로 fallback.
+// lookup 실패 시 영어로 fallback.
 const SAMPLES: Record<string, string[]> = {
   en: ['First, listen carefully.', 'Let me show you a preview.', 'Now you can see how it works.'],
   ko: ['먼저 잘 들어보세요.', '미리보기를 보여드릴게요.', '이제 어떻게 작동하는지 보여요.'],
@@ -252,7 +250,6 @@ function PreviewBox({ settings, displayMode }: { settings: Settings; displayMode
     singleContextLines,
     dimHistory,
     historyLayout,
-    sourceLang,
     targetLang,
   } = settings;
   const cueBg = `rgba(0,0,0,${backgroundOpacity})`;
@@ -260,12 +257,8 @@ function PreviewBox({ settings, displayMode }: { settings: Settings; displayMode
   const targetFontSize = targetStyle.fontSize;
 
   // 모국어 영상(source-only) 케이스에서 source 줄은 사실 targetLang(=모국어) 텍스트가 들어감.
-  // dual / source-only 외 케이스는 source = sourceLang.
-  // 'auto'면 영어 fallback(getSample 내부).
-  const sourceSample =
-    displayMode === 'source-only'
-      ? getSample(targetLang)
-      : getSample(sourceLang === 'auto' ? 'en' : sourceLang);
+  // 그 외엔 원문 언어가 영상마다 자동 감지되는 값이라 미리보기는 영어로 고정.
+  const sourceSample = displayMode === 'source-only' ? getSample(targetLang) : getSample('en');
   const targetSample = getSample(targetLang);
 
   const singleRow: 'source' | 'target' | null =
@@ -885,25 +878,14 @@ function Options() {
         <div>
 
       <Section title="이중 자막 설정">
-        <Row label="자막 켜기" hint="단축키 'C'">
+        <Row label="자막 켜기" hint="단축키 Alt+C">
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}
             onChange={(e) => update({ subtitlesEnabled: e.target.checked })}
           />
         </Row>
-        <Row label="원문 → 번역문">
-          <select
-            value={settings.sourceLang}
-            onChange={(e) => update({ sourceLang: e.target.value as SourceLang })}
-          >
-            {SOURCE_LANGS.map((l) => (
-              <option key={l.value} value={l.value}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-          <span style={{ color: '#777', fontSize: 13 }}>→</span>
+        <Row label="번역 언어" hint="원문 언어는 영상마다 자동 감지">
           <select
             value={settings.targetLang}
             onChange={(e) => update({ targetLang: e.target.value as TargetLang })}

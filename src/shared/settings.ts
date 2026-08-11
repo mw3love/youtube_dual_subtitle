@@ -63,10 +63,6 @@ export const QUESTION_SYSTEM_PROMPT = `너는 나의 언어 학습 도우미야.
 export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
 export type HistoryLayout = z.infer<typeof HistoryLayoutSchema>;
 
-// 자주 보는 소스 언어만. 더 필요하면 사용자가 'auto' 선택 가능 (M5+ 백엔드가 감지).
-export const SourceLangSchema = z.enum(['en', 'ja', 'zh', 'es', 'fr', 'de', 'auto']);
-export type SourceLang = z.infer<typeof SourceLangSchema>;
-
 export const TargetLangSchema = z.enum(['ko', 'en', 'ja', 'zh', 'es', 'fr', 'de']);
 export type TargetLang = z.infer<typeof TargetLangSchema>;
 
@@ -96,7 +92,6 @@ export const SettingsSchema = z.object({
   // 노출되므로 빈 문자열이 기본값 — 사용자가 자기 조직 URL을 직접 입력해야 동작.
   mindlogicBaseUrl: z.string(),
   mindlogicModel: MindlogicModelSchema,
-  sourceLang: SourceLangSchema,
   targetLang: TargetLangSchema,
   displayMode: DisplayModeSchema,
   sourceStyle: CueStyleSchema,
@@ -146,7 +141,6 @@ export const DEFAULT_SETTINGS: Settings = {
   geminiModel: 'gemini-2.5-flash',
   mindlogicBaseUrl: '',
   mindlogicModel: 'gemini-2.5-flash',
-  sourceLang: 'en',
   targetLang: 'ko',
   displayMode: 'dual',
   sourceStyle: { fontSize: 22, color: '#ffa200', fontWeight: 500 },

@@ -4,19 +4,8 @@ import type {
   ExplainBackend,
   GeminiModel,
   MindlogicModel,
-  SourceLang,
   TargetLang,
 } from './settings';
-
-export const SOURCE_LANGS: Array<{ value: SourceLang; label: string }> = [
-  { value: 'en', label: '영어 (English)' },
-  { value: 'ja', label: '일본어 (日本語)' },
-  { value: 'zh', label: '중국어 (中文)' },
-  { value: 'es', label: '스페인어 (Español)' },
-  { value: 'fr', label: '프랑스어 (Français)' },
-  { value: 'de', label: '독일어 (Deutsch)' },
-  { value: 'auto', label: '자동으로 골라줘요' },
-];
 
 export const TARGET_LANGS: Array<{ value: TargetLang; label: string }> = [
   { value: 'ko', label: '한국어' },
