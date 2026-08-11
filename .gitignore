@@ -11,3 +11,6 @@ desktop.ini
 
 # Playwright MCP 도구가 남기는 로컬 로그/스냅샷
 .playwright-mcp/
+
+# Claude Code personal local settings
+.claude/settings.local.json
