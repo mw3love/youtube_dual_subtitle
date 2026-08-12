@@ -1,6 +1,6 @@
 # Privacy Policy — YouTube Dual Subtitle
 
-_Last updated: 2026-07-28 (Mindlogic Gateway base URL is now user-configurable, supporting multiple organizations)_
+_Last updated: 2026-08-12 (Ask AI now works on any website via `Alt+Q`, not just YouTube; documented the pre-existing Explain/Ask and Notion export features)_
 
 YouTube Dual Subtitle ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
 
@@ -18,6 +18,8 @@ The Extension processes the following data **locally on your device** to perform
 | Gemini API key (only if you choose the Gemini backend) | Authenticate your own Google AI Studio key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to Google's Gemini API as your `x-goog-api-key` header |
 | Mindlogic API key + Gateway base URL (only if you choose the Mindlogic Gateway backend) | Authenticate your own school/organization-issued gateway key for translation | `chrome.storage.local` (key) / `chrome.storage.sync` (base URL, not sensitive) — this device only for the key, NOT synced to your Google account | Sent only to the Gateway base URL you enter in Options (your organization's own domain, e.g. `https://factchat-cloud.mindlogic.ai/`) as the `Authorization: Bearer` header |
 | Last translation backend used (which backend, when) | Show "최근 번역: X · N분 전" in the popup so you can see whether your preferred backend or a fallback handled the latest translation | `chrome.storage.local` (this device only) | Not sent to any third-party server |
+| Text you select or type when using "Explain" / "Ask a question" (💡/❓ buttons, or the `Alt+Q` shortcut) | Get an AI explanation or answer from your chosen backend (Gemini or Mindlogic Gateway) | RAM only, not persisted beyond the on-screen panel (closing the tab or the panel discards it) | See "AI Explain / Ask a question" below |
+| Notion integration token + database ID (only if you use the 📝 Notion export button) | Save an explanation/answer as a page in your own Notion database | Token: `chrome.storage.local` (this device only) / Database ID: `chrome.storage.sync` | Sent only to `https://api.notion.com` with your token as the `Authorization: Bearer` header |
 
 ## 2. External services
 
@@ -49,19 +51,31 @@ Depending on which translation backend you select in the Extension's options:
 
 You can switch backends or disable the Extension at any time from the popup or options page.
 
+### AI Explain / Ask a question (Gemini / Mindlogic Gateway)
+
+Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, or the `Alt+Q` keyboard shortcut. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for "해설" in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
+
+**As of this version, `Alt+Q` works on any website, not only YouTube.** Pressing it injects a small answer panel into the current tab **only for that one keypress** (Chrome's `activeTab` permission — the Extension does not run on other websites otherwise, and stops having any special access to that tab once you navigate away or close the panel). On non-YouTube pages there is no subtitle context to send — only the text you select or type.
+
+### Notion (optional export)
+
+If you enter a Notion integration token and database ID in Options, the 📝 Notion button in the answer panel saves that answer (and, on YouTube, the video title/URL) as a page in your own Notion database, via `https://api.notion.com`. This only happens when you click that button — nothing is saved automatically.
+
 ## 3. Permissions explained
 
 | Permission | Why it's needed |
 |---|---|
 | `storage` | Save your settings (sync) and the translation cache (IndexedDB). |
-| `scripting` | Run the content script on YouTube pages (declared in `content_scripts`). |
+| `scripting` | Run the content script on YouTube pages (declared in `content_scripts`), and — together with `activeTab` — inject the "Ask AI" panel into the active tab when you press `Alt+Q` on a non-YouTube page. |
 | `offscreen` | Host the Chrome Built-in Translator API, which requires a DOM context. |
 | `host_permissions: https://www.youtube.com/*` | Read YouTube caption tracks and overlay subtitles on the video player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the Google Free translation endpoint when that backend is selected. |
 | `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with your own API key when the Gemini backend is selected. The Extension itself does not ship any API key. |
 | `host_permissions: https://factchat-cloud.mindlogic.ai/*`, `https://factchat.mindlogic-kr-api.com/*` | Call the Mindlogic API Gateway (at the base URL you configure) with your own school/organization key when the Mindlogic backend is selected. The Extension itself does not ship any API key. Only these known gateway domains are pre-declared; a brand-new organization domain would require an Extension update. |
+| `host_permissions: https://api.notion.com/*` | Save an AI explanation/answer to your own Notion database when you click the 📝 Notion button and have entered your own Notion integration token. |
+| `activeTab` | Let the `Alt+Q` shortcut inject the "Ask AI" answer panel into whichever tab is active **at the moment you press it**, on any website — not only YouTube. This grants no standing access to that tab; it's scoped to that one user-initiated action. |
 
-The Extension does **not** request the `tabs`, `history`, `cookies`, or `webRequest` permissions and cannot read your browsing history, other tabs, or any cookies.
+The Extension does **not** request the broad `tabs`, `history`, `cookies`, or `webRequest` permissions and cannot read your browsing history, other tabs' contents, or any cookies.
 
 ## 4. Your controls
 

@@ -33,8 +33,8 @@ Chrome Web Store 제출 전 critical path 점검용. 테스트 프레임워크�
 | # | 시나리오 | 통과 기준 |
 |---|---|---|
 | 3.1 | `C` 키 토글 (A62부터 네이티브 전용) | YouTube 네이티브 자막만 on/off. 우리 듀얼자막 상태 무관 |
-| 3.1b | `Alt+C` 토글 (A62 신규) | 듀얼자막만 on/off. native CC 버튼 상태 무관 |
-| 3.2 | 검색창에 'c' 입력 | 자막 토글 발화 X (input focus 보호, Alt+C 핸들러 대상) |
+| 3.1b | `V` 토글 (A62 신규, A63부터 `Alt+C`→`V`) | 듀얼자막만 on/off. native CC 버튼 상태 무관 |
+| 3.2 | 검색창에 'c'/'v' 입력 | 자막 토글 발화 X (input focus 보호, `V` 핸들러 대상) |
 | 3.3 | 팝업 자막 ON/OFF | 즉시 반영. 다른 탭에도 storage.onChanged 통해 적용 |
 | 3.4 | 팝업 표시 모드 변경 (dual/번역만/원문만) | 즉시 반영 |
 | 3.5 | 팝업 백엔드 변경 | 즉시 재번역. F12 로그에 새 backend 사용 확인 |
@@ -81,7 +81,7 @@ Chrome Web Store 제출 전 critical path 점검용. 테스트 프레임워크�
 | 7.2 | 미리보기 박스 | 외국어 박스 = displayMode 반영. 모국어 박스 = source-only |
 | 7.3 | 옵션 초기화 | 확인 → 모든 값 default. 캐시는 유지 |
 | 7.4 | Gemini 섹션은 backend=gemini 일 때만 노출 | google-free 선택 시 Gemini 섹션 숨김 |
-| 7.5 | 단축키 'Alt+C' 표시 | "자막 켜기" 라벨 옆에 표시 |
+| 7.5 | 단축키 'V' 표시 | "자막 켜기" 라벨 옆에 표시 |
 
 ## 8. 자가복구 (Watchdog)
 
@@ -110,7 +110,8 @@ Chrome Web Store 제출 전 critical path 점검용. 테스트 프레임워크�
 | 10.1 | manifest 권한 정당화 (제출용) | docs/STORE_LISTING.md "권한 사용 정당화" 표 그대로 사용 가능 |
 | 10.2 | Gemini 키가 storage.sync에 안 들어감 | 옵션에서 키 입력 → DevTools `chrome.storage.sync.get(null)` 확인 → 키 부재. `chrome.storage.local.get('geminiApiKey')`에만 존재 |
 | 10.3 | 옵션 페이지 키 표시/숨김 토글 | 기본은 password 마스크. "보기" 클릭 시 text |
-| 10.4 | host_permissions 외 origin에 요청 X | DevTools Network 탭 확인 — youtube.com / translate.googleapis.com / generativelanguage.googleapis.com 외 요청 없음 |
+| 10.4 | host_permissions 외 origin에 요청 X | DevTools Network 탭 확인 — youtube.com / translate.googleapis.com / generativelanguage.googleapis.com / factchat-cloud.mindlogic.ai / factchat.mindlogic-kr-api.com / api.notion.com 외 요청 없음 |
+| 10.5 | `Alt+Q`로 비유튜브 사이트에 주입 시 activeTab 범위 확인 (A65) | 그 탭에서 패널이 뜸. 다른 탭으로 전환 후 다시 `Alt+Q`를 눌러도 처음 탭에는 재주입 안 됨(각 키press가 그 순간 활성 탭에만 스코프) |
 
 ## 11. 빌드·배포
 
@@ -119,7 +120,8 @@ Chrome Web Store 제출 전 critical path 점검용. 테스트 프레임워크�
 | 11.1 | `npm run build` | clean exit. dist/manifest.json 권한 정확 |
 | 11.2 | production console.log strip | F12에 `[YDT]` 로그 없음. warn/error만 보임 |
 | 11.3 | dist/ 압축해제 로드 | 에러 없이 로드. action icon 표시 |
-| 11.4 | 사용 안 한 host_permissions | dist/manifest.json에 youtube + translate + generativelanguage 3개만 |
+| 11.4 | 사용 안 한 host_permissions | dist/manifest.json에 youtube + translate + generativelanguage + mindlogic 2종 + notion 6개만 |
+| 11.5 | ask-anywhere web_accessible_resources 그룹 (A65) | dist/manifest.json에서 resources에 `ask-anywhere`가 들어간 그룹의 matches가 `<all_urls>`인지 확인(`npm run build`가 `scripts/patch-manifest.mjs`까지 돌려야 함 — 그룹 못 찾으면 빌드 자체가 실패해야 정상) |
 
 ---
 
