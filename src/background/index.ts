@@ -131,11 +131,23 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
             (result.used !== m.backend ? ` (preferred ${m.backend} fell back)` : ''),
         );
         // 팝업이 "최근 번역" 표시할 수 있게 storage에 기록. await 안 함 — 응답 빠르게.
-        void setLastBackend({
-          used: result.used,
-          preferred: m.backend ?? 'google-free',
-          at: Date.now(),
-        }).catch(() => {});
+        // 모델은 gemini/mindlogic일 때만 의미 있음 — 그 시점 storage.sync 값을 fresh read
+        // (gemini.ts/mindlogic.ts가 호출 시점에 읽는 것과 같은 값이라 실제 쓰인 모델과 일치).
+        void (async (): Promise<void> => {
+          let model: string | undefined;
+          if (result.used === 'gemini' || result.used === 'mindlogic') {
+            const key = result.used === 'gemini' ? 'geminiModel' : 'mindlogicModel';
+            const r = await chrome.storage.sync.get(key);
+            const v = r[key];
+            if (typeof v === 'string' && v.trim()) model = v.trim();
+          }
+          await setLastBackend({
+            used: result.used,
+            preferred: m.backend ?? 'google-free',
+            model,
+            at: Date.now(),
+          });
+        })().catch(() => {});
         sendResponse({ ok: true, translations: result.translations, used: result.used });
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);

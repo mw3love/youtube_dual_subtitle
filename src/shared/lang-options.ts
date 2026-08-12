@@ -36,7 +36,7 @@ export const BACKENDS: Array<{ value: BackendId; label: string }> = [
 export interface ModelOption<V> {
   value: V;
   label: string;
-  transHint: string;
+  transHint?: string;
   explainHint?: string;
 }
 
@@ -51,13 +51,15 @@ export const GEMINI_MODELS: Array<ModelOption<GeminiModel>> = [
 
 // Mindlogic gateway. gateway가 ID를 그대로 upstream에 전달하므로 권한 없는 모델은 401/403
 // (번역은 router가 google-free로 fallback, 해설은 fallback 없이 에러 → 모델 바꾸면 됨).
+// transHint/explainHint 없음 — 모델 라인업이 자주 바뀌어 "자연스러움/고품질" 같은 고정 추천 문구가
+// 금방 낡음(A64). 필요하면 GEMINI_MODELS처럼 다시 달 수 있으나 유지보수 부담 대비 가치가 낮아 제거.
 export const MINDLOGIC_MODELS: Array<ModelOption<MindlogicModel>> = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
-  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite', transHint: '최저가' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', transHint: '고품질·고가', explainHint: '해설 추천' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', transHint: '자연스러움' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini', transHint: 'OpenAI 경량' },
-  { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano', transHint: 'OpenAI 초경량' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { value: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+  { value: 'gpt-5.4-nano', label: 'GPT-5.4 nano' },
 ];
 
 // 해설에 쓰이는 모델의 사람용 표시 이름 — 로딩 메시지 "…로 해설 생성 중"에 사용.

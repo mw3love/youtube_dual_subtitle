@@ -509,7 +509,7 @@ function Options() {
     onChange: (v: string) => void,
     forExplain: boolean,
     dynamic: ModelInfo[] | null,
-    curated: Array<{ value: string; transHint: string; explainHint?: string }>,
+    curated: Array<{ value: string; transHint?: string; explainHint?: string }>,
   ): React.ReactNode => {
     const known = new Map(curated.map((m) => [m.value, m]));
     let base: ModelInfo[] =

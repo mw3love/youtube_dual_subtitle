@@ -58,6 +58,7 @@ export async function setNotionToken(key: string | null): Promise<void> {
 export interface LastBackendInfo {
   used: BackendId; // 실제 처리한 백엔드
   preferred: BackendId; // 사용자가 선택한 백엔드 (다르면 fallback 발생)
+  model?: string; // used가 gemini/mindlogic일 때 그 시점 모델 ID (A64)
   at: number; // epoch ms
 }
 

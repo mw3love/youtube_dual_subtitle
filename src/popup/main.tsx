@@ -9,7 +9,7 @@ import {
   type Settings,
   type TargetLang,
 } from '../shared/settings';
-import { BACKENDS, DISPLAY_MODES, TARGET_LANGS } from '../shared/lang-options';
+import { BACKENDS, DISPLAY_MODES, GEMINI_MODELS, MINDLOGIC_MODELS, TARGET_LANGS } from '../shared/lang-options';
 import {
   getGeminiApiKey,
   getLastBackend,
@@ -92,6 +92,14 @@ const BACKEND_LABEL: Record<BackendId, string> = {
   mindlogic: 'Mindlogic',
 };
 
+// gemini/mindlogic 모델 ID → 사람용 라벨(목록에 없으면 raw ID 그대로).
+function modelLabel(backend: BackendId, model?: string): string | null {
+  if (!model) return null;
+  if (backend === 'gemini') return GEMINI_MODELS.find((m) => m.value === model)?.label ?? model;
+  if (backend === 'mindlogic') return MINDLOGIC_MODELS.find((m) => m.value === model)?.label ?? model;
+  return null;
+}
+
 function formatAgo(at: number): string {
   const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
   if (sec < 60) return `${sec}초 전`;
@@ -131,7 +139,9 @@ function LastBackendLine({ info, preferred }: { info: LastBackendInfo; preferred
           : `${BACKEND_LABEL[info.used]}로 처리 완료`
       }
     >
-      최근 번역: {BACKEND_LABEL[info.used]} · {formatAgo(info.at)}
+      최근 번역: {BACKEND_LABEL[info.used]}
+      {modelLabel(info.used, info.model) ? ` (${modelLabel(info.used, info.model)})` : ''} ·{' '}
+      {formatAgo(info.at)}
       {fellBack && (
         <span style={{ marginLeft: 6, fontSize: 10 }}>
           ⚠ {BACKEND_LABEL[preferred]} 실패 → fallback
