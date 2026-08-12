@@ -486,6 +486,18 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 **검증:** 빌드·타입체크 통과(프록시검증) — 실제 게이트웨이 응답 스키마가 문서와 일치하는지, 두 조직 도메인 모두에서 엔드포인트가 살아있는지는 Chrome 실사용(유효 키로 "크레딧 확인" 클릭) 확인 대상.
 
+### 43. ask-anywhere 버튼 아이콘이 다른 사이트에서 안 보임 — 호스트 CSS 충돌 방어 (A67, v0.23.1)
+
+**증상 (사용자 실사용 리포트):** A65(섹션 41)로 유튜브 밖 페이지에서 `Alt+Q`를 눌러보니 패널 본문(마크다운·표·색상)은 정상인데, 헤더의 아이콘 버튼(🖍️형광펜·📋복사·📝Notion·➕새질문·–/✕)만 빈 사각형으로 보임.
+
+- **원인:** 유튜브에서는 안 드러났던 문제 — 호스트 페이지가 `button` 엘리먼트에 거는 전역 리셋이 우리 버튼의 글리프를 지운다. 헤드리스 렌더로 재현해보니 최소 두 경로가 확인됨: ⓐ 그라디언트 텍스트 버튼 디자인(`-webkit-text-fill-color:transparent`+`background-clip:text`)은 이모지까지 함께 지운다, ⓑ 아이콘폰트 시스템이 흔히 쓰는 `button{font-size:0}`류 리셋. 박스(배경·테두리·패딩)는 우리 클래스 규칙이 이겨서 정상으로 보이는데 글리프만 사라지니 "버튼은 있는데 텅 빔"으로 보인 것.
+- **수정** (`content/renderer/styles.ts`): 이모지/텍스트 글리프를 가진 버튼 클래스(`.ydt-explain-btn`·`.ydt-explain-action`·`.ydt-explain-close`·`.ydt-explain-qsend`·`.ydt-explain-fab`·`.ydt-explain-tab-close`)에 `color`·`font-family`·`font-size` 등 시각 속성을 `!important`로 재선언하고, `-webkit-text-fill-color: currentColor !important` + `background-clip: border-box !important`(그라디언트 텍스트 무력화)를 추가.
+- **specificity까지 올려야 했던 이유:** `!important` 대 `!important`는 selector specificity로 승부가 갈린다 — 단일 클래스(0,1,0)는 호스트의 "컨텍스트+엘리먼트" 리셋(예: `.header button{...!important}`, specificity 0,1,1)에 여전히 진다. 헤드리스 렌더로 실측하고서야 발견(첫 시도 `!important`만으로는 시뮬레이션 2를 못 이김) — 그래서 위 클래스들의 베이스 셀렉터를 `.foo.foo` 형태로 두 번 겹쳐 specificity를 (0,2,0)으로 올렸다. `.active`/`.ydt-explain-action-notion` 같은 두 클래스 조합 변형은 이미 (0,2,0)이라 손대지 않음.
+- **자체검증 방법:** 실제 충돌 사이트를 몰라 재현 불가 → 그라디언트 텍스트·`font-size:0` 두 리셋을 흉내낸 최소 HTML을 만들어 로컬 서버로 띄우고 헤드리스 브라우저(Playwright)로 스크린샷 비교. "방어 전"은 재현(글리프 소실), "방어 후"는 두 경로 모두 정상 노출을 실측 확인.
+- **한계:** 있을 수 있는 모든 호스트 CSS를 이길 순 없다(예: `#id` 셀렉터나 3중 클래스 조합의 리셋은 여전히 이론상 이길 수 있음) — 실전에서 흔한 두 패턴만 방어. 완전한 격리는 Shadow DOM 전환이지만 `window.getSelection()`이 open shadow root 경계를 넘는 동작이 브라우저별로 불확실해(본문 드래그 재해설·형광펜 기능이 걸림) 이번엔 채택하지 않음 — 재발하면 다음 검토 대상.
+
+**검증:** 헤드리스 렌더 실측(프록시검증) — 사용자가 원래 겪은 실제 사이트에서 아이콘이 보이는지는 재확인 필요.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

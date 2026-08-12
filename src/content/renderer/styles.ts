@@ -109,21 +109,33 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   gap: 6px;
   align-items: center;
 }
-.ydt-explain-btn {
-  padding: 5px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: "YouTube Sans", "Roboto", "Noto Sans KR", sans-serif;
-  color: #fff;
-  background: #3ea6ff;
-  border: none;
-  border-radius: 14px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-  cursor: pointer;
-  line-height: 1.2;
-  white-space: nowrap;
+/* 아래 여러 규칙의 셀렉터를 ".foo.foo"로 두 번 겹친 건 실수가 아니다 — !important끼리 부딪히면
+   specificity로 승부가 갈리는데, 단일 클래스(0,1,0)는 호스트 페이지의 흔한 "컨텍스트+엘리먼트"
+   리셋(예: .header button{font-size:0!important}, specificity 0,1,1)에 여전히 진다. 클래스를
+   두 번 써서 specificity를 (0,2,0)으로 올려 그 경우도 이긴다(헤드리스 렌더로 실측 확인 — 섹션 41).
+   주의: STYLES는 template literal이라 이 CSS 주석 안에 backtick 문자를 쓰면 안 된다 — 문자열이
+   거기서 끝나버려 tsc가 "," expected류 에러를 낸다(직접 겪은 실수). */
+.ydt-explain-btn.ydt-explain-btn {
+  padding: 5px 10px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  font-family: "YouTube Sans", "Roboto", "Noto Sans KR", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  color: #fff !important;
+  background: #3ea6ff !important;
+  border: none !important;
+  border-radius: 14px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45) !important;
+  cursor: pointer !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+  /* ask-anywhere(섹션 41)로 임의 페이지에 주입될 때, 그 페이지의 전역 button 리셋(그라디언트
+     텍스트용 -webkit-text-fill-color:transparent, 아이콘폰트용 font-size:0 등)이 이모지 글리프를
+     지워버리는 사고를 막는 방어용 재선언 — 위 !important 전부와 이 두 줄이 한 세트. */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
 }
-.ydt-explain-btn:hover { background: #5cb3ff; }
+.ydt-explain-btn:hover { background: #5cb3ff !important; }
 
 /* 해설 패널 — 우상단 사이드 패널. 영상 중앙을 가리지 않게. */
 .ydt-explain-panel {
@@ -189,38 +201,43 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   border-bottom: 1px solid #333;
   flex: 0 0 auto;
 }
-.ydt-explain-action {
-  padding: 4px 9px;
-  font-size: 12px;
-  font-weight: 600;
-  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
-  color: #ddd;
-  background: #333;
-  border: 1px solid #444;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: nowrap;
+.ydt-explain-action.ydt-explain-action {
+  padding: 4px 9px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  color: #ddd !important;
+  background: #333 !important;
+  border: 1px solid #444 !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  /* .ydt-explain-btn과 같은 방어용 재선언 — 임의 페이지의 button 리셋이 이모지 글리프를 지우는
+     사고 방지(섹션 41). */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
 }
-.ydt-explain-action:hover:not(:disabled) { background: #3f3f3f; color: #fff; }
-.ydt-explain-action:disabled { opacity: 0.45; cursor: default; }
+.ydt-explain-action:hover:not(:disabled) { background: #3f3f3f !important; color: #fff !important; }
+.ydt-explain-action:disabled { opacity: 0.45 !important; cursor: default !important; }
 /* ➕ 새 질문 — "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 다른 범주 → 왼쪽으로 밀어 분리. */
 .ydt-explain-action-newq { margin-right: auto; }
 /* 형광펜 모드 ON — 켜진 상태를 또렷이. 켜진 동안 패널 본문 커서도 text로. */
 .ydt-explain-action.active {
-  background: #2e6f86;
-  border-color: #4aa3c4;
-  color: #fff;
+  background: #2e6f86 !important;
+  border-color: #4aa3c4 !important;
+  color: #fff !important;
 }
 /* 📝 Notion — 내용을 정리해 내보내는 마지막 액션이라 녹색으로 구별(복사·형광펜은 중립 회색).
    저장 후 ✓/실패 ✗ 상태는 textContent만 바뀌고 클래스는 유지돼 색이 그대로 남는다. */
 .ydt-explain-action.ydt-explain-action-notion {
-  background: #244b34;
-  border-color: #3a6e4d;
-  color: #cdebd6;
+  background: #244b34 !important;
+  border-color: #3a6e4d !important;
+  color: #cdebd6 !important;
 }
 .ydt-explain-action.ydt-explain-action-notion:hover:not(:disabled) {
-  background: #2d5d40;
-  color: #fff;
+  background: #2d5d40 !important;
+  color: #fff !important;
 }
 .ydt-explain-body.highlighting { cursor: text; }
 
@@ -280,18 +297,23 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   line-height: 1;
   color: #6fdc95;
 }
-.ydt-explain-tab-close {
+.ydt-explain-tab-close.ydt-explain-tab-close {
   flex: 0 0 auto;
   width: 16px;
   height: 16px;
-  padding: 0;
-  font-size: 11px;
+  padding: 0 !important;
+  font-size: 11px !important;
   line-height: 1;
-  color: #aaa;
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  color: #aaa !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41) — 이 버튼은 <button>이라 호스트 페이지의
+     전역 button 리셋(색 투명화 등)에 걸리기 쉽다. */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
   /* ✕는 칩 오른쪽에 있고, 왼쪽에서 빼꼼 나온 탭은 항상 오른쪽 부분(=✕)이 보인다.
      그래서 ✕가 비활성 탭에도 뜨면(특히 hover 시 커서 자리에) 옆으로 넘기려다 닫힌다.
      활성 탭에만 노출 — 활성 탭은 스크롤 로직이 항상 완전히 드러내 ✕가 안전한 위치에 있고,
@@ -301,7 +323,7 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   visibility: hidden;
 }
 .ydt-explain-tab.active .ydt-explain-tab-close { visibility: visible; }
-.ydt-explain-tab-close:hover { background: rgba(255, 255, 255, 0.15); color: #fff; }
+.ydt-explain-tab-close:hover { background: rgba(255, 255, 255, 0.15) !important; color: #fff !important; }
 
 /* 탭 콘텐츠 컨테이너 — 활성 탭(contentEl)만 display, 본문은 그 안에서 스크롤. */
 .ydt-explain-tabsbody {
@@ -319,7 +341,7 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
 }
 
 /* 최소화 핸들 — 패널을 접으면 우상단에 작게. 클릭하면 복원(탭 보존). */
-.ydt-explain-fab {
+.ydt-explain-fab.ydt-explain-fab {
   position: fixed;
   z-index: 2147483646;
   top: 72px;
@@ -327,34 +349,42 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   display: none;
   align-items: center;
   gap: 4px;
-  padding: 8px 13px;
-  background: #2e6f86;
-  color: #fff;
-  border: 1px solid #4aa3c4;
-  border-radius: 20px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
-  font-size: 13px;
-  font-weight: 700;
+  padding: 8px 13px !important;
+  background: #2e6f86 !important;
+  color: #fff !important;
+  border: 1px solid #4aa3c4 !important;
+  border-radius: 20px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
   cursor: grab;
   touch-action: none;
   user-select: none;
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41). */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
 }
-.ydt-explain-fab:hover { background: #357f99; }
+.ydt-explain-fab:hover { background: #357f99 !important; }
 .ydt-explain-fab.ydt-dragging { cursor: grabbing; }
-.ydt-explain-close {
+.ydt-explain-close.ydt-explain-close {
   flex: 0 0 auto;
   width: 26px;
   height: 26px;
-  padding: 0;
-  font-size: 13px;
-  color: #ccc;
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
+  padding: 0 !important;
+  font-size: 13px !important;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  color: #ccc !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
 }
-.ydt-explain-close:hover { background: #383838; color: #fff; }
+.ydt-explain-close:hover { background: #383838 !important; color: #fff !important; }
 .ydt-explain-body {
   padding: 12px 16px 16px;
   overflow-y: auto;
@@ -390,20 +420,24 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
 }
 .ydt-explain-qinput:focus { outline: none; border-color: #3ea6ff; }
 .ydt-explain-qinput::placeholder { color: #777; }
-.ydt-explain-qsend {
+.ydt-explain-qsend.ydt-explain-qsend {
   flex: 0 0 auto;
   align-self: stretch;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-  background: #3ea6ff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", sans-serif;
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  background: #3ea6ff !important;
+  border: none !important;
+  border-radius: 6px !important;
+  cursor: pointer !important;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41). */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
 }
-.ydt-explain-qsend:hover { background: #5cb3ff; }
+.ydt-explain-qsend:hover { background: #5cb3ff !important; }
 
 /* 패널 내부 markdown 요소 — 패널 안에서만 스코프(.ydt-explain-body 하위). */
 .ydt-explain-body h3, .ydt-explain-body h4, .ydt-explain-body h5, .ydt-explain-body h6 {
