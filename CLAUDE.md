@@ -486,17 +486,18 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 **검증:** 빌드·타입체크 통과(프록시검증) — 실제 게이트웨이 응답 스키마가 문서와 일치하는지, 두 조직 도메인 모두에서 엔드포인트가 살아있는지는 Chrome 실사용(유효 키로 "크레딧 확인" 클릭) 확인 대상.
 
-### 43. ask-anywhere 버튼 아이콘이 다른 사이트에서 안 보임 — 호스트 CSS 충돌 방어 (A67, v0.23.1)
+### 43. ask-anywhere 버튼 아이콘이 다른 사이트에서 안 보임 — 호스트 CSS 충돌 방어 (A67, v0.23.2)
 
-**증상 (사용자 실사용 리포트):** A65(섹션 41)로 유튜브 밖 페이지에서 `Alt+Q`를 눌러보니 패널 본문(마크다운·표·색상)은 정상인데, 헤더의 아이콘 버튼(🖍️형광펜·📋복사·📝Notion·➕새질문·–/✕)만 빈 사각형으로 보임.
+**증상 (사용자 실사용 리포트):** A65(섹션 41)로 유튜브 밖 페이지(`nate.com`)에서 `Alt+Q`를 눌러보니 패널 본문(마크다운·표·색상)은 정상인데, 헤더의 아이콘 버튼(🖍️형광펜·📋복사·📝Notion·➕새질문·–/✕)만 빈 사각형으로 보임.
 
-- **원인:** 유튜브에서는 안 드러났던 문제 — 호스트 페이지가 `button` 엘리먼트에 거는 전역 리셋이 우리 버튼의 글리프를 지운다. 헤드리스 렌더로 재현해보니 최소 두 경로가 확인됨: ⓐ 그라디언트 텍스트 버튼 디자인(`-webkit-text-fill-color:transparent`+`background-clip:text`)은 이모지까지 함께 지운다, ⓑ 아이콘폰트 시스템이 흔히 쓰는 `button{font-size:0}`류 리셋. 박스(배경·테두리·패딩)는 우리 클래스 규칙이 이겨서 정상으로 보이는데 글리프만 사라지니 "버튼은 있는데 텅 빔"으로 보인 것.
-- **수정** (`content/renderer/styles.ts`): 이모지/텍스트 글리프를 가진 버튼 클래스(`.ydt-explain-btn`·`.ydt-explain-action`·`.ydt-explain-close`·`.ydt-explain-qsend`·`.ydt-explain-fab`·`.ydt-explain-tab-close`)에 `color`·`font-family`·`font-size` 등 시각 속성을 `!important`로 재선언하고, `-webkit-text-fill-color: currentColor !important` + `background-clip: border-box !important`(그라디언트 텍스트 무력화)를 추가.
-- **specificity까지 올려야 했던 이유:** `!important` 대 `!important`는 selector specificity로 승부가 갈린다 — 단일 클래스(0,1,0)는 호스트의 "컨텍스트+엘리먼트" 리셋(예: `.header button{...!important}`, specificity 0,1,1)에 여전히 진다. 헤드리스 렌더로 실측하고서야 발견(첫 시도 `!important`만으로는 시뮬레이션 2를 못 이김) — 그래서 위 클래스들의 베이스 셀렉터를 `.foo.foo` 형태로 두 번 겹쳐 specificity를 (0,2,0)으로 올렸다. `.active`/`.ydt-explain-action-notion` 같은 두 클래스 조합 변형은 이미 (0,2,0)이라 손대지 않음.
-- **자체검증 방법:** 실제 충돌 사이트를 몰라 재현 불가 → 그라디언트 텍스트·`font-size:0` 두 리셋을 흉내낸 최소 HTML을 만들어 로컬 서버로 띄우고 헤드리스 브라우저(Playwright)로 스크린샷 비교. "방어 전"은 재현(글리프 소실), "방어 후"는 두 경로 모두 정상 노출을 실측 확인.
-- **한계:** 있을 수 있는 모든 호스트 CSS를 이길 순 없다(예: `#id` 셀렉터나 3중 클래스 조합의 리셋은 여전히 이론상 이길 수 있음) — 실전에서 흔한 두 패턴만 방어. 완전한 격리는 Shadow DOM 전환이지만 `window.getSelection()`이 open shadow root 경계를 넘는 동작이 브라우저별로 불확실해(본문 드래그 재해설·형광펜 기능이 걸림) 이번엔 채택하지 않음 — 재발하면 다음 검토 대상.
+**1차 시도(불충분, `!important` + specificity만):** 처음엔 그라디언트 텍스트(`-webkit-text-fill-color:transparent`+`background-clip:text`)와 아이콘폰트식 `button{font-size:0}` 두 패턴을 가정해 `color`/`font-family`/`background-clip` 등을 `!important`로 재선언하고 셀렉터를 `.foo.foo`로 이중화해 specificity까지 올렸다. 재현 사이트를 몰라 **가상의 충돌 HTML**로만 검증하고 배포했는데, 사용자가 실제 `nate.com`에서 재확인하니 **동일 증상 재발**(스턱루프 트립와이어 — 규칙 11-b).
 
-**검증:** 헤드리스 렌더 실측(프록시검증) — 사용자가 원래 겪은 실제 사이트에서 아이콘이 보이는지는 재확인 필요.
+**부재 확인(Playwright로 실제 `nate.com` DOM 직접 조사):** `getComputedStyle` + `Range.getBoundingClientRect()`로 우리 버튼 엘리먼트를 실제로 그 페이지에 만들어 넣고 재보니 `text-indent: -14000px` + `overflow: hidden`이 걸려 있었다 — 1차 시도가 방어한 속성(`color`·`font-family`·`background-clip`) 자체는 이미 올바르게 계산되고 있었는데(1차 수정이 무효였던 게 아니라 **다른 속성**이 원인), 텍스트 노드의 실제 렌더 위치가 `x: -7020px`로 화면 밖으로 밀려나 있었다. **`text-indent`/`overflow`로 텍스트를 안 보이게 하고 `background-image`로 아이콘만 보여주는 건 네이버·네이트 등 한국 포털이 흔히 쓰는 접근성 패턴**(텍스트는 스크린리더용으로 남기고 시각적으로만 숨김) — 우리 버튼은 "텍스트"가 곧 아이콘(이모지)이라 이 리셋에 그대로 당한다. 박스(배경·테두리·패딩)는 1차 수정이 이겨서 정상으로 보이니 "버튼은 있는데 텅 빔"으로 보인 것.
+- **최종 수정** (`content/renderer/styles.ts`): 1차 수정(색상·폰트·specificity 이중화)은 그대로 유지한 채, 같은 버튼 클래스들에 `text-indent: 0 !important; overflow: visible !important;`를 추가.
+- **검증 방법 교정:** 가상 HTML 시뮬레이션은 "내가 예상한 충돌 패턴"만 재현해 실제 사이트의 다른 메커니즘을 놓쳤다 — 이후로는 Playwright로 **실제 호스트 페이지에 직접** 우리 클래스의 버튼을 만들어 `getComputedStyle`/`getBoundingClientRect`로 검사하고, 같은 방법으로 최종 수정 후 `nate.com`에서 아이콘이 실제로 보이는 것까지 스크린샷으로 확인.
+- **한계:** `#id` 셀렉터나 3중 클래스 조합처럼 이론상 더 강한 리셋은 여전히 이길 수 있음 — 재발하면 Shadow DOM 격리를 검토(다만 `window.getSelection()`의 open shadow root 경계 처리가 브라우저별로 불확실해 본문 재해설·형광펜 기능이 깨질 위험이 있어 지금은 채택 안 함).
+
+**검증:** 실제 `nate.com`에서 Playwright로 직접 재현·확인(1차는 프록시검증에 그쳐 실패, 2차는 실조건검증 — 같은 사이트에서 컴퓨티드 스타일·스크린샷 둘 다 정상 확인). 사용자가 원래 겪은 화면에서도 같은지는 최종 재확인 대상.
 
 ## 비명백한 주의사항
 

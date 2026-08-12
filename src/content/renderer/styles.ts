@@ -134,6 +134,12 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  /* text-indent:-9999px류 + overflow:hidden — 네이버·네이트 등 다수 한국 포털이 버튼 텍스트를
+     화면 밖으로 밀어 숨기고 background-image 아이콘만 보이게 하는 흔한 패턴. 우리 버튼은 그
+     "텍스트"가 곧 아이콘(이모지)이라 이 리셋에 걸리면 화면 밖으로 밀려 잘린다 — 실제 사이트에서
+     DOM 직접 조사로 확인(computed text-indent: -14000px). */
+  text-indent: 0 !important;
+  overflow: visible !important;
 }
 .ydt-explain-btn:hover { background: #5cb3ff !important; }
 
@@ -217,6 +223,9 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  /* .ydt-explain-btn과 같은 text-indent/overflow 방어(섹션 43 참고). */
+  text-indent: 0 !important;
+  overflow: visible !important;
 }
 .ydt-explain-action:hover:not(:disabled) { background: #3f3f3f !important; color: #fff !important; }
 .ydt-explain-action:disabled { opacity: 0.45 !important; cursor: default !important; }
@@ -314,6 +323,8 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  /* .ydt-explain-btn과 같은 text-indent 방어(섹션 43). */
+  text-indent: 0 !important;
   /* ✕는 칩 오른쪽에 있고, 왼쪽에서 빼꼼 나온 탭은 항상 오른쪽 부분(=✕)이 보인다.
      그래서 ✕가 비활성 탭에도 뜨면(특히 hover 시 커서 자리에) 옆으로 넘기려다 닫힌다.
      활성 탭에만 노출 — 활성 탭은 스크롤 로직이 항상 완전히 드러내 ✕가 안전한 위치에 있고,
@@ -361,10 +372,12 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   cursor: grab;
   touch-action: none;
   user-select: none;
-  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41). */
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41·43). */
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  text-indent: 0 !important;
+  overflow: visible !important;
 }
 .ydt-explain-fab:hover { background: #357f99 !important; }
 .ydt-explain-fab.ydt-dragging { cursor: grabbing; }
@@ -383,6 +396,8 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  text-indent: 0 !important;
+  overflow: visible !important;
 }
 .ydt-explain-close:hover { background: #383838 !important; color: #fff !important; }
 .ydt-explain-body {
@@ -432,10 +447,12 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   border-radius: 6px !important;
   cursor: pointer !important;
   font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
-  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41). */
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41·43). */
   -webkit-text-fill-color: currentColor !important;
   background-clip: border-box !important;
   -webkit-background-clip: border-box !important;
+  text-indent: 0 !important;
+  overflow: visible !important;
 }
 .ydt-explain-qsend:hover { background: #5cb3ff !important; }
 
