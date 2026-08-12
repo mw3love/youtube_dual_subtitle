@@ -412,6 +412,32 @@ function Options() {
   const [mindlogicApiKey, setMindlogicApiKeyState] = useState('');
   const [showMindlogicKey, setShowMindlogicKey] = useState(false);
   const mindlogicKeySaveTimerRef = useRef<number | null>(null);
+
+  // 듀얼자막 on/off 단축키 재지정 — "키 입력 대기" 중엔 다음 유효 키(a-z, 수정키 없음)를 캡처해
+  // 저장. Escape로 취소. content/index.ts의 물리 키(ev.code) 판별과 짝이 맞아야 하므로 여기서도
+  // 같은 알파벳 1글자 제약을 건다(SubtitlesToggleKeySchema). 숫자는 허용 안 함 — YouTube 네이티브
+  // 0-9 seek 단축키와 겹치면 V가 겪은 충돌이 재발한다.
+  const [recordingKey, setRecordingKey] = useState(false);
+  useEffect(() => {
+    if (!recordingKey) return;
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        setRecordingKey(false);
+        return;
+      }
+      if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+      const key = ev.key.toLowerCase();
+      if (!/^[a-z]$/.test(key)) return;
+      ev.preventDefault();
+      setSettings((prev) => ({ ...prev, subtitlesToggleKey: key }));
+      void saveSettings({ subtitlesToggleKey: key });
+      setRecordingKey(false);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingKey]);
   type TestState =
     | { kind: 'idle' }
     | { kind: 'pending' }
@@ -914,12 +940,34 @@ function Options() {
         <div>
 
       <Section title="이중 자막 설정">
-        <Row label="자막 켜기" hint="단축키 V">
+        <Row label="자막 켜기">
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}
             onChange={(e) => update({ subtitlesEnabled: e.target.checked })}
           />
+        </Row>
+        <Row
+          label="켜기/끄기 단축키"
+          hint={
+            recordingKey
+              ? '키를 눌러 지정 (Esc로 취소)'
+              : '수정키 없는 알파벳 1개 · c/f/j/k/l/m/n/i/t/w 등은 YouTube 자체 단축키와 겹침'
+          }
+        >
+          <button
+            onClick={() => setRecordingKey(true)}
+            style={{
+              minWidth: 64,
+              padding: '4px 10px',
+              fontSize: 12,
+              cursor: 'pointer',
+              background: recordingKey ? '#3ea6ff' : undefined,
+              color: recordingKey ? '#000' : undefined,
+            }}
+          >
+            {recordingKey ? '키 입력 대기…' : settings.subtitlesToggleKey.toUpperCase()}
+          </button>
         </Row>
         <Row label="번역 언어" hint="원문 언어는 영상마다 자동 감지">
           <select

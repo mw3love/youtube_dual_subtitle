@@ -83,8 +83,17 @@ export const PositionSchema = z.object({
 });
 export type Position = z.infer<typeof PositionSchema>;
 
+// 듀얼자막 on/off 단독 키(A63엔 V 고정, 이후 사용자 재지정 가능). 소문자 a-z 1글자만 허용 —
+// content/index.ts가 물리 키(ev.code, 'Key<letter>')로 판별하는 패턴과 맞춰야 하므로 자유
+// 문자열이 아니라 이 형태로 제한. 숫자는 제외 — YouTube 네이티브 플레이어가 0-9를 영상 진행률
+// 퍼센트 탐색(seek)에 이미 쓰고 있어 겹치면 V가 겪은 것과 같은 충돌이 재발한다.
+// 기본값 'g' — 'v'는 전체화면에서 YouTube 자체 단축키(추천 영상 오버레이 호출)와 충돌해 제외.
+export const SubtitlesToggleKeySchema = z.string().regex(/^[a-z]$/);
+export type SubtitlesToggleKey = z.infer<typeof SubtitlesToggleKeySchema>;
+
 export const SettingsSchema = z.object({
   subtitlesEnabled: z.boolean(),
+  subtitlesToggleKey: SubtitlesToggleKeySchema,
   backend: BackendIdSchema,
   geminiModel: GeminiModelSchema,
   // Mindlogic 게이트웨이 base URL — 조직마다 도메인이 다름(예: 전북대 vs KBS). 기본값을 특정
@@ -137,6 +146,7 @@ export type Settings = z.infer<typeof SettingsSchema>;
 
 export const DEFAULT_SETTINGS: Settings = {
   subtitlesEnabled: true,
+  subtitlesToggleKey: 'g',
   backend: 'google-free',
   geminiModel: 'gemini-2.5-flash',
   mindlogicBaseUrl: '',

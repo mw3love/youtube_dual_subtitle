@@ -695,24 +695,28 @@ function applySettings(s: Settings): void {
 
 void loadSettings().then(applySettings);
 
-// V 단독 키로 듀얼 자막 on/off (A63, Alt+C에서 변경). 'C' 단독 키는 여전히 가로채지 않고 YouTube
-// 기본 동작(네이티브 CC on/off)에 그대로 맡긴다 — 네이티브 자막과 우리 듀얼자막을 완전히 독립된
-// 컨트롤로 분리(A62). 네이티브 강제숨김 CSS(styles.ts)도 subtitlesEnabled 조건부라, 듀얼자막을
-// 꺼두면 네이티브 CC를 사용자가 직접 켰을 때(C 키) 원래 자막이 그대로 보인다.
+// 단독 키(기본 G, A63엔 V 고정이었으나 A69부터 옵션 페이지에서 사용자 재지정 가능 — 섹션 45)로
+// 듀얼 자막 on/off. 'C' 단독 키는 여전히 가로채지 않고 YouTube 기본 동작(네이티브 CC on/off)에
+// 그대로 맡긴다 — 네이티브 자막과 우리 듀얼자막을 완전히 독립된 컨트롤로 분리(A62). 네이티브
+// 강제숨김 CSS(styles.ts)도 subtitlesEnabled 조건부라, 듀얼자막을 꺼두면 네이티브 CC를 사용자가
+// 직접 켰을 때(C 키) 원래 자막이 그대로 보인다.
 // input/textarea/contenteditable focus 시는 통과 (검색창 입력 보호). 수정키(Alt/Ctrl/Shift/Meta)가
 // 하나라도 눌려 있으면 통과 — Ctrl+V(붙여넣기) 등과 충돌 방지.
-// 키 판별은 ev.code('KeyV', 물리 키) 우선 — 'C' 단독 핸들러(섹션10)와 동일한 IME/레이아웃 견고성.
+// 키 판별은 ev.code(물리 키, 'Key<letter>'/'Digit<n>') 우선 — 'C' 단독 핸들러(섹션10)와 동일한
+// IME/레이아웃 견고성 패턴. 키는 currentSettings에서 매번 읽어 옵션 변경이 즉시 반영되게 한다.
 document.addEventListener(
   'keydown',
   (ev) => {
-    if (ev.code !== 'KeyV' && ev.key !== 'v') return;
+    const toggleKey = currentSettings?.subtitlesToggleKey ?? 'g';
+    const expectedCode = `Key${toggleKey.toUpperCase()}`;
+    if (ev.code !== expectedCode && ev.key.toLowerCase() !== toggleKey) return;
     if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
     const t = ev.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (!currentSettings) return;
     const next = !currentSettings.subtitlesEnabled;
     void saveSettings({ subtitlesEnabled: next });
-    console.log(TAG, `dual subtitles toggled: ${next ? 'on' : 'off'} via V`);
+    console.log(TAG, `dual subtitles toggled: ${next ? 'on' : 'off'} via ${toggleKey.toUpperCase()}`);
   },
   true,
 );
