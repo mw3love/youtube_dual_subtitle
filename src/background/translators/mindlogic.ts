@@ -123,6 +123,59 @@ export async function listMindlogicModels(
   return models;
 }
 
+// 게이트웨이 크레딧 조회 (GET /v1/gateway/credits/, A66) — 옵션 페이지에 월간/구매 크레딧 사용량
+// 표시용. baseUrl은 이미 ".../v1/gateway"까지 포함(모델 목록·chat/completions와 동일 조립 방식).
+export interface MindlogicCredits {
+  monthlyQuota: number;
+  monthlyUsed: number;
+  monthlyRemaining: number;
+  renewalDate: string | null;
+  purchasedQuota: number;
+  purchasedUsed: number;
+  purchasedRemaining: number;
+  totalQuota: number;
+  totalUsed: number;
+  totalRemaining: number;
+}
+
+export async function getMindlogicCredits(
+  apiKey?: string,
+  baseUrl?: string,
+): Promise<MindlogicCredits> {
+  const key = apiKey || (await getMindlogicApiKey());
+  if (!key) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  const url = baseUrl || (await getMindlogicBaseUrl());
+  if (!url) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
+  const res = await fetch(`${url}/credits/`, { headers: { Authorization: `Bearer ${key}` } });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
+    if (res.status === 404) throw new Error('크레딧 조회 미지원 (HTTP 404) — 이 게이트웨이 버전엔 없을 수 있음');
+    throw new Error(`크레딧 조회 실패 (HTTP ${res.status})`);
+  }
+  const data = (await res.json()) as {
+    monthly_allocated?: {
+      quota?: number;
+      used?: number;
+      remaining?: number;
+      renewal_date?: string | null;
+    };
+    purchased?: { quota?: number; used?: number; remaining?: number };
+    total?: { quota?: number; used?: number; remaining?: number };
+  };
+  return {
+    monthlyQuota: data.monthly_allocated?.quota ?? 0,
+    monthlyUsed: data.monthly_allocated?.used ?? 0,
+    monthlyRemaining: data.monthly_allocated?.remaining ?? 0,
+    renewalDate: data.monthly_allocated?.renewal_date ?? null,
+    purchasedQuota: data.purchased?.quota ?? 0,
+    purchasedUsed: data.purchased?.used ?? 0,
+    purchasedRemaining: data.purchased?.remaining ?? 0,
+    totalQuota: data.total?.quota ?? 0,
+    totalUsed: data.total?.used ?? 0,
+    totalRemaining: data.total?.remaining ?? 0,
+  };
+}
+
 async function readModel(): Promise<MindlogicModel> {
   const r = await chrome.storage.sync.get({ mindlogicModel: 'gemini-2.5-flash' });
   return validateModel(r.mindlogicModel);

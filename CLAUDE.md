@@ -457,6 +457,35 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 자막 꺼짐 영상에서 `V`로 켰을 때 즉시 표시되는지, 특히 Shorts는 Chrome 실사용 확인 대상.
 
+### 40. 팝업 "최근 번역"에 모델명 추가 + Mindlogic 추천 힌트 제거 (A64, v0.22.1)
+
+- **모델명 표기** (`secrets.ts:LastBackendInfo` + `background/index.ts` + `popup/main.tsx`): 번역 성공 시 그 순간 `storage.sync`의 `geminiModel`/`mindlogicModel`을 함께 읽어 `LastBackendInfo.model`에 저장(google-free·chrome-builtin은 모델 선택이 없어 `undefined`). 팝업이 `GEMINI_MODELS`/`MINDLOGIC_MODELS`에서 라벨을 찾아 `Mindlogic (Claude Sonnet 4.6) · 28분 전`처럼 표시(목록 밖 값이면 raw ID).
+- **Mindlogic 모델 힌트 제거** (`lang-options.ts`): `ModelOption.transHint`를 optional로 바꾸고 `MINDLOGIC_MODELS`에서 `자연스러움`/`고품질` 등 힌트 텍스트를 뺐다 — 모델 라인업이 자주 바뀌어 고정 추천 문구가 금방 낡기 때문(사용자 피드백). **Gemini는 그대로 유지**(세대가 안정적) — `renderModelSelect`(`options/main.tsx`)는 힌트가 없으면 `known.get(id)?.transHint`가 `undefined`라 자동으로 안 표시.
+
+### 41. Alt+Q "직접 질문"을 유튜브 밖에서도 — activeTab 온디맨드 주입 (A65, v0.23.0)
+
+**계기:** 단축키 `Alt+Q`(섹션 28, "자막 직접 질문 패널 열기")는 `content_scripts.matches`가 `youtube.com`뿐이라 다른 사이트에서는 반응하지 않았다. 사용자는 별도 확장 `AI_Dictionary_260622`([[project_ai_dictionary]])로 그 자리를 메워왔는데 "거의 같은 기능 두 벌"이 번거롭다는 요청 — `AI_Dictionary`가 이미 검증해둔 온디맨드 주입 패턴(그 repo `background/index.ts`)을 이 리포의 더 풍부한 해설 패널(탭·형광펜·Notion, 섹션 14·17·20)에 적용해 흡수했다.
+
+- **왜 `<all_urls>` content_scripts가 아닌가:** 상시 매칭은 브라우저가 열릴 때마다 모든 페이지에 스크립트를 얹어야 하고, 설치 시 "모든 웹사이트의 데이터 읽기·변경" 권한 경고가 뜬다. 실제 필요는 "단축키를 누른 그 순간, 그 탭 하나"뿐이라 `activeTab`(사용자 제스처로 그 탭에만 임시 권한) + `chrome.scripting.executeScript`로 온디맨드 주입한다(`AI_Dictionary`가 이미 쓰던 방식, `manifest.ts`에 `activeTab` 추가).
+- **`ExplainUI`는 이미 YouTube 비의존적:** 생성자가 `requestExplain`/`requestQuestion`/`requestNotionSave`/`modelLabel` 콜백만 받고(`explain-ui.ts`), 패널은 `document.fullscreenElement ?? document.body`에 붙는다. `.ydt-container`(자막 박스) 셀렉터를 참조하는 곳은 "드래그 선택이 자막 박스 안인지" 판정 두 곳뿐이라 유튜브가 아닌 페이지에서는 그냥 매치가 안 돼 무해 — `openAsk()` 경로엔 이 판정 자체가 없다. 그래서 새 진입점(`src/inject/ask-anywhere.ts`)은 `content/index.ts`의 해설 배선(EXPLAIN·NOTION_SAVE 메시지 조립, 섹션 14·19·28)을 그대로 복제 재사용하면 됐다 — `videoTitle()`(유튜브 접미사 스트립) 대신 `document.title`을 씀.
+- **크로스js 빌드 트릭 — "등록은 하되 절대 자동 실행 안 되게":** `chrome.scripting.executeScript({files})`로 주입할 파일은 vite가 콘텐츠 해시를 붙여 빌드하므로, background 코드가 그 경로를 미리 알 수 없다. crxjs는 `content_scripts` 항목만 해시된 실제 경로로 처리해준다 — 그래서 `ask-anywhere.ts`를 `content_scripts`에 등록하되 `matches`를 RFC 2606 예약 도메인(`https://ydt-ask-anywhere.invalid/*`)으로 둬 실제로는 절대 매치되지 않게 했다. background(`askAnywhereFiles()`)는 `chrome.runtime.getManifest().content_scripts`에서 파일명에 `ask-anywhere`가 들어간 항목을 찾아 그 해시 경로를 `executeScript({files})`에 그대로 쓴다.
+- **`web_accessible_resources`는 이 그룹만 `<all_urls>`로 예외:** crxjs가 자동 생성하는 `web_accessible_resources` 항목은 해당 `content_scripts.matches`(=`.invalid` placeholder)를 그대로 복사해버려, 실제로 임의 페이지에 주입했을 때 loader의 동적 `import()`(다른 공유 청크를 chrome-extension:// URL로 fetch)가 그 페이지 origin에서 CORS로 막힌다. `scripts/patch-manifest.mjs`가 `npm run build` 뒤 `dist/manifest.json`에서 리소스 목록에 `ask-anywhere`가 들어간 그룹만 찾아 `matches`를 `<all_urls>`로 넓힌다. **`web_accessible_resources.matches`는 host_permissions와 별개 채널**(그 사이트의 스크립트가 이 파일들을 "볼" 수 있게 하는 것뿐, 확장이 그 사이트 데이터를 보는 권한이 아님)이라 설치 권한 경고를 유발하지 않는다(Chrome 공식 문서가 이 구분을 명시하나 권한 경고 UI 자체에 대한 명시 문장은 없음 — 확인 필요로 남김). 그룹을 못 찾으면 빌드를 `process.exit(1)`로 실패시켜(조용히 깨진 채 배포되는 걸 방지) — 이 그룹이 사라지는 건 crxjs의 내부 청크 분할 방식이 바뀌었다는 신호다.
+- **YouTube 레이스 가드** (`background/index.ts`): `chrome.tabs.sendMessage(tabId, {type:'OPEN_ASK'})`가 실패해도 그 탭이 `youtube.com`이면 온디맨드 주입을 하지 않는다 — content script가 아직 초기화 중일 뿐인데 ask-anywhere를 얹으면 자막 배선 없는 별도 `ExplainUI` 인스턴스가 중복 생겨 선택 이벤트가 두 번 처리된다. 진짜 "콘텐츠 스크립트 자체가 없는 페이지"에서만 보완.
+- **사용자 제스처 유지:** `chrome.commands.onCommand`의 두 번째 인자로 `tab`을 직접 받아(별도 `chrome.tabs.query` 왕복 없이) `activeTab`이 요구하는 "사용자 제스처로 호출됨" 조건을 이벤트 콜백 프레임 안에서 바로 쓴다(`AI_Dictionary`의 `chrome.action.onClicked`와 같은 원칙).
+- **팝업 "➕ 새 질문" 버튼(섹션 29)은 이번엔 그대로 둠** — 여전히 YouTube 탭에서만 노출(`pageReachable` 게이트). 단축키만 전역화했고, 팝업 버튼 전역화는 범위 밖.
+
+**검증:** 빌드·타입체크·`manifest.json` 산출 구조(placeholder matches + `<all_urls>` 리소스 그룹) 확인(프록시검증) — 실제 비유튜브 사이트에서 `Alt+Q` 눌러 패널이 뜨는지는 Chrome 실사용 확인 대상.
+
+### 42. Mindlogic 게이트웨이 크레딧 사용량 조회 (A66, v0.23.0)
+
+옵션 페이지에서 이번 달 크레딧 사용량을 확인할 수 있게 `GET /v1/gateway/credits/` 엔드포인트를 연결(엔드포인트 스펙은 `docs.factchat.kr/docs/kbs/api-gateway/reference/credits` 확인 — KBS 조직 문서지만 두 조직 모두 같은 Mindlogic/FactChat 게이트웨이 소프트웨어라 `/models`처럼 동일 계약으로 가정, 전북대 도메인에서는 실호출 미확인).
+
+- `mindlogic.ts:getMindlogicCredits(apiKey?, baseUrl?)`: `${baseUrl}/credits/`(baseUrl은 이미 `.../v1/gateway`까지 포함, 섹션 5·37) → `{monthly_allocated, purchased, total}` 각각의 `{quota, used, remaining}` + `renewal_date`를 camelCase로 변환. 401/403은 키 인증 실패, **404는 "이 게이트웨이 버전엔 없을 수 있음"으로 별도 문구** — 조직별 배포판마다 지원 여부가 다를 수 있어 일반 서버 오류와 구분.
+- `background/index.ts:MINDLOGIC_CREDITS` 메시지: `TEST_MINDLOGIC`/`MINDLOGIC_LIST_MODELS`와 같은 패턴(옵션 페이지가 입력 중인 baseUrl/키를 그대로 실어 보냄 — 저장 전 즉시 검증).
+- `options/main.tsx`: Mindlogic 설정 섹션에 "사용량 확인" 행 추가 — `💳 크레딧 확인` 버튼 → `이번 달 {used} / {quota} 사용 (갱신 YYYY-MM-DD) · 구매 잔여 {n}`. 응답 타입(`MindlogicCredits`)은 `background/translators/mindlogic.ts`의 동명 인터페이스를 import하지 않고 옵션 페이지에 로컬로 다시 선언(`ModelInfo`와 같은 기존 패턴 — options↔background는 메시지 JSON 모양만 공유, 직접 import 없음).
+
+**검증:** 빌드·타입체크 통과(프록시검증) — 실제 게이트웨이 응답 스키마가 문서와 일치하는지, 두 조직 도메인 모두에서 엔드포인트가 살아있는지는 Chrome 실사용(유효 키로 "크레딧 확인" 클릭) 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.
@@ -465,7 +494,8 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **웹스토어 배포 권한 사유**: `generativelanguage.googleapis.com`은 "사용자 본인 Gemini API 키로 자막 번역/해설", `factchat-cloud.mindlogic.ai`·`factchat.mindlogic-kr-api.com`(사용자가 옵션 페이지에서 입력하는 base URL — 조직마다 다름, 섹션 37)은 "학교/조직 발급 Mindlogic Gateway 키로 자막 번역/해설", `api.notion.com`은 "사용자 본인 Notion integration 토큰으로 해설을 본인 DB에 저장" 용도. 모두 자체 키 미포함(BYOK), 익스텐션 코드에 비밀값 없음. 제출 시 manifest justification에 그대로 사용 가능.
 - **`world: 'MAIN'` 스크립트는 HMR 제약**이 있다. 빌드 로그에 `Some content-scripts don't support HMR because the world is MAIN: /src/content/inject-main.ts` 경고가 나오는 게 정상 — `inject-main.ts`를 바꾸면 확장 ↻로 새로 로드해야 함.
 - **`offscreen` 문서는 manifest entry가 아니다**. `vite.config.ts:14-17`에서 별도로 rollup input에 등록되어 있음. 새 offscreen 페이지 추가 시 같은 패턴 따를 것.
-- **`web_accessible_resources.matches`는 `youtube.com`으로 좁혀져 있음** (`manifest.ts:49-57`). offscreen HTML은 익스텐션 내부 호출(`chrome.offscreen.createDocument`)로만 띄워지므로 외부 origin 화이트리스트는 좁아도 동작에 영향 없음. 스토어 최소권한 원칙에 맞게 유지.
+- **`web_accessible_resources.matches`는 대부분 `youtube.com`으로 좁혀져 있음** (`manifest.ts`). offscreen HTML은 익스텐션 내부 호출(`chrome.offscreen.createDocument`)로만 띄워지므로 외부 origin 화이트리스트는 좁아도 동작에 영향 없음. **예외는 ask-anywhere(섹션 41) 그룹 하나뿐** — `<all_urls>`로 넓혀야 하는 구조적 이유가 있고, 그 값은 `manifest.ts`가 아니라 빌드 후 `scripts/patch-manifest.mjs`가 `dist/manifest.json`을 직접 고쳐서 만든다(crxjs가 자동 생성하는 값은 유튜브로 좁게 나옴). 새 web_accessible_resources 그룹을 추가할 땐 기본은 이 좁힌 패턴을 따르고, `<all_urls>`가 필요한 근본 이유(그 스크립트가 "임의 페이지"에 온디맨드 주입되는가)가 있을 때만 이 예외 패턴을 반복한다.
+- **`npm run build`는 이제 `vite build` 다음에 `node scripts/patch-manifest.mjs`도 돈다**(`package.json`). `vite build`만 직접 돌리면 위 ask-anywhere `web_accessible_resources` 그룹이 좁은 matches로 남아 다른 사이트에서 조용히 깨진다 — `vite build`를 직접 호출하는 스크립트·CI가 있다면 이 후처리 단계를 빠뜨리지 않게 주의.
 
 ## 커밋 메시지 컨벤션 (관찰된 패턴)
 

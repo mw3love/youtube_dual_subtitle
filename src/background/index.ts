@@ -4,7 +4,7 @@
 
 import { translateBatch } from './translators/router';
 import { testGeminiKey, listGeminiModels } from './translators/gemini';
-import { testMindlogicKey, listMindlogicModels } from './translators/mindlogic';
+import { testMindlogicKey, listMindlogicModels, getMindlogicCredits } from './translators/mindlogic';
 import { explain } from './explain';
 import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
@@ -17,18 +17,45 @@ const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');
 
 // 단축키(chrome://extensions/shortcuts에서 재지정 가능한 'open-ask', 기본 Alt+Q) → 활성 탭 콘텐츠로
-// OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다. 활성 탭이 YouTube가 아니면(콘텐츠 스크립트
-// 없음) sendMessage가 거부되므로 조용히 무시. content script는 SW로 직접 단축키를 못 받아 이 왕복이 필요.
-chrome.commands.onCommand.addListener((command) => {
-  if (command !== 'open-ask') return;
-  chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-    const tabId = tabs[0]?.id;
-    if (tabId === undefined) return;
-    chrome.tabs.sendMessage(tabId, { type: 'OPEN_ASK' }).catch(() => {
-      /* YouTube 탭이 아니거나 콘텐츠 스크립트 미주입 — 무시 */
-    });
+// OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다. content script는 SW로 직접 단축키를 못
+// 받아 이 왕복이 필요. 유튜브 탭이면 상시 content script(content/index.ts)가 받아 처리 — 자막
+// 배선까지 통합된 풀 버전 패널. 그 외 탭은 sendMessage가 거부되므로(콘텐츠 스크립트 없음) 그 순간
+// activeTab 제스처로 ask-anywhere(섹션 40)를 온디맨드 주입해 같은 패널을 띄운다(A65).
+// tab을 onCommand가 직접 주는 인자로 받는다(별도 tabs.query 왕복 없이) — activeTab이 요구하는
+// "사용자 제스처로 호출됨" 조건을 이 이벤트 콜백 프레임 안에서 바로 씀으로써 최대한 지킨다.
+chrome.commands.onCommand.addListener((command, tab) => {
+  if (command !== 'open-ask' || tab.id === undefined) return;
+  const tabId = tab.id;
+  chrome.tabs.sendMessage(tabId, { type: 'OPEN_ASK' }).catch(() => {
+    // 유튜브 탭인데 sendMessage가 실패했다면 content script가 아직 초기화 중일 가능성이 큼(레이스) —
+    // 그 경우 ask-anywhere를 얹으면 자막 배선 없는 별도 ExplainUI가 중복 생겨 더 나빠진다.
+    // 진짜 "콘텐츠 스크립트 자체가 없는 페이지"에서만 온디맨드 주입으로 보완한다.
+    if (/^https:\/\/(www\.)?youtube\.com\//.test(tab.url ?? '')) return;
+    void injectAskAnywhere(tabId);
   });
 });
+
+// manifest content_scripts에 등록해둔 ask-anywhere(섹션 40) 항목에서 crxjs가 빌드 시 해시한
+// 실제 파일 경로를 찾는다 — 그 항목의 matches는 절대 안 매치되는 placeholder라 자동 실행되지
+// 않고, 이 경로만 executeScript({files})로 재사용한다.
+function askAnywhereFiles(): string[] {
+  const scripts = chrome.runtime.getManifest().content_scripts ?? [];
+  return scripts.find((s) => s.js?.some((f) => f.includes('ask-anywhere')))?.js ?? [];
+}
+
+async function injectAskAnywhere(tabId: number): Promise<void> {
+  const files = askAnywhereFiles();
+  if (!files.length) {
+    console.warn(TAG, 'ask-anywhere script not found in manifest');
+    return;
+  }
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files });
+  } catch (e) {
+    // chrome:// · 웹스토어 · PDF 뷰어 등 스크립팅이 금지된 페이지 — 조용히 무시.
+    console.warn(TAG, 'ask-anywhere injection skipped:', e instanceof Error ? e.message : String(e));
+  }
+}
 
 interface TranslateBatchMsg {
   type: 'TRANSLATE_BATCH';
@@ -206,6 +233,22 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       } catch (e) {
         const error = e instanceof Error ? e.message : String(e);
         console.warn(TAG, 'mindlogic models list failed:', error);
+        sendResponse({ ok: false, error });
+      }
+    })();
+    return true;
+  }
+
+  if (m?.type === 'MINDLOGIC_CREDITS') {
+    const apiKey = typeof m.apiKey === 'string' ? m.apiKey : '';
+    const baseUrl = typeof m.baseUrl === 'string' ? m.baseUrl : '';
+    (async (): Promise<void> => {
+      try {
+        const credits = await getMindlogicCredits(apiKey, baseUrl);
+        sendResponse({ ok: true, credits });
+      } catch (e) {
+        const error = e instanceof Error ? e.message : String(e);
+        console.warn(TAG, 'mindlogic credits failed:', error);
         sendResponse({ ok: false, error });
       }
     })();

@@ -1,12 +1,12 @@
 {
   "name": "youtube-dual-subtitle",
   "private": true,
-  "version": "0.22.1",
+  "version": "0.23.0",
   "type": "module",
   "description": "YouTube 듀얼 자막 (영어+한글) Chrome 확장 프로그램",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node scripts/patch-manifest.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "icons": "node scripts/generate-icons.mjs"

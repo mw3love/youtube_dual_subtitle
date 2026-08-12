@@ -38,6 +38,17 @@ export default defineManifest({
       js: ['src/content/index.ts'],
       run_at: 'document_start',
     },
+    // "Alt+Q 직접 질문"을 유튜브 밖에서도 쓰기 위한 온디맨드 주입 스크립트(A65, 섹션 40).
+    // matches가 실재하지 않는 도메인(.invalid, RFC 2606 예약)이라 이 항목으로는 절대 자동 실행되지
+    // 않는다 — 여기 등록하는 유일한 목적은 crxjs가 빌드 시 이 파일을 해시된 실제 경로로 처리하게
+    // 하는 것. 실제 주입은 background/index.ts가 chrome.commands 'open-ask' 발화 시(사용자 제스처)
+    // chrome.runtime.getManifest()로 이 해시 경로를 읽어 chrome.scripting.executeScript로 그 순간의
+    // activeTab에만 건다 — 상시 <all_urls> content script(모든 사이트 권한)를 피하기 위함.
+    {
+      matches: ['https://ydt-ask-anywhere.invalid/*'],
+      js: ['src/inject/ask-anywhere.ts'],
+      run_at: 'document_idle',
+    },
   ],
   // 자막 선택 없이 "직접 질문" 패널을 여는 단축키. _execute_action(팝업 열기)과 겹치지 않게
   // 커스텀 커맨드로 둬 chrome://extensions/shortcuts 에 노출 → 사용자가 자유 재지정 가능.
@@ -48,7 +59,9 @@ export default defineManifest({
       description: '자막 직접 질문 패널 열기 (AI에게 물어보기)',
     },
   },
-  permissions: ['storage', 'scripting', 'offscreen'],
+  // activeTab: 'open-ask' 단축키(사용자 제스처)로 그 순간의 탭 하나에만 ask-anywhere를 주입하기
+  // 위함(섹션 40) — 상시 host_permissions 없이 그 탭에 한정된 임시 권한만 받는다.
+  permissions: ['storage', 'scripting', 'offscreen', 'activeTab'],
   host_permissions: [
     'https://www.youtube.com/*',
     'https://translate.googleapis.com/*',
@@ -71,5 +84,10 @@ export default defineManifest({
       resources: ['src/offscreen/document.html'],
       matches: ['https://www.youtube.com/*'],
     },
+    // ask-anywhere(섹션 40)의 web_accessible_resources 그룹은 여기서 선언하지 않는다 — crxjs가
+    // 위 content_scripts 등록으로부터 자동 생성하되 그 항목의 matches(placeholder .invalid)를
+    // 그대로 복사해버려 실제로는 무용하다. 빌드 후 scripts/patch-manifest.mjs가 그 그룹만
+    // <all_urls>로 넓힌다(그 스크립트의 주석 참고) — ask-anywhere의 loader가 임의 페이지 origin에서
+    // 실제 청크를 동적 import()하기 때문에 유튜브 한정 matches로는 CORS에 막힌다.
   ],
 });

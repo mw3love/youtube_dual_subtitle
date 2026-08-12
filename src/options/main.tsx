@@ -420,6 +420,29 @@ function Options() {
   const [testState, setTestState] = useState<TestState>({ kind: 'idle' });
   const [mindlogicTestState, setMindlogicTestState] = useState<TestState>({ kind: 'idle' });
 
+  // Mindlogic 게이트웨이 크레딧 사용량 (A66) — GET /v1/gateway/credits/. 이 게이트웨이 배포판에
+  // 없을 수도 있어(구버전 등) 404는 "미지원"으로 구분해 표시. background/translators/mindlogic.ts의
+  // 동명 인터페이스와 구조만 맞춘 로컬 정의(ModelInfo와 같은 기존 패턴 — background↔options 직접
+  // import 없이 메시지 JSON 모양만 공유).
+  interface MindlogicCredits {
+    monthlyQuota: number;
+    monthlyUsed: number;
+    monthlyRemaining: number;
+    renewalDate: string | null;
+    purchasedQuota: number;
+    purchasedUsed: number;
+    purchasedRemaining: number;
+    totalQuota: number;
+    totalUsed: number;
+    totalRemaining: number;
+  }
+  type CreditsState =
+    | { kind: 'idle' }
+    | { kind: 'pending' }
+    | { kind: 'ok'; credits: MindlogicCredits }
+    | { kind: 'err'; error: string };
+  const [creditsState, setCreditsState] = useState<CreditsState>({ kind: 'idle' });
+
   // Notion integration 토큰 — storage.local(secrets). DB ID는 settings(storage.sync).
   const [notionToken, setNotionTokenState] = useState('');
   const [showNotionToken, setShowNotionToken] = useState(false);
@@ -718,6 +741,27 @@ function Options() {
         kind: 'err',
         error: e instanceof Error ? e.message : String(e),
       });
+    }
+  };
+
+  const onCheckMindlogicCredits = async (): Promise<void> => {
+    if (mindlogicKeySaveTimerRef.current !== null) {
+      clearTimeout(mindlogicKeySaveTimerRef.current);
+      mindlogicKeySaveTimerRef.current = null;
+      await setMindlogicApiKey(mindlogicApiKey.trim() || null);
+    }
+    setCreditsState({ kind: 'pending' });
+    try {
+      const res = (await chrome.runtime.sendMessage({
+        type: 'MINDLOGIC_CREDITS',
+        apiKey: mindlogicApiKey.trim(),
+        baseUrl: settings.mindlogicBaseUrl.trim(),
+      })) as { ok: true; credits: MindlogicCredits } | { ok: false; error: string } | undefined;
+      if (!res) setCreditsState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      else if (res.ok) setCreditsState({ kind: 'ok', credits: res.credits });
+      else setCreditsState({ kind: 'err', error: res.error });
+    } catch (e) {
+      setCreditsState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
     }
   };
 
@@ -1242,6 +1286,39 @@ function Options() {
           </Row>
           <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
             학교/조직에서 발급받은 키를 붙여넣으세요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
+          </p>
+          <Row label="사용량 확인">
+            <button
+              onClick={() => void onCheckMindlogicCredits()}
+              disabled={
+                !mindlogicApiKey.trim() ||
+                !settings.mindlogicBaseUrl.trim() ||
+                creditsState.kind === 'pending'
+              }
+              style={testButtonStyle}
+              type="button"
+            >
+              {creditsState.kind === 'pending' ? '확인 중…' : '💳 크레딧 확인'}
+            </button>
+            {creditsState.kind === 'ok' && (
+              <span style={{ fontSize: 12, color: '#9eff9e', marginLeft: 8 }}>
+                ✓ 이번 달 {creditsState.credits.monthlyUsed.toLocaleString()} /{' '}
+                {creditsState.credits.monthlyQuota.toLocaleString()} 사용
+                {creditsState.credits.renewalDate
+                  ? ` (갱신 ${creditsState.credits.renewalDate.slice(0, 10)})`
+                  : ''}
+                {creditsState.credits.purchasedQuota > 0 &&
+                  ` · 구매 잔여 ${creditsState.credits.purchasedRemaining.toLocaleString()}`}
+              </span>
+            )}
+            {creditsState.kind === 'err' && (
+              <span style={{ fontSize: 12, color: '#ff7777', marginLeft: 8 }}>
+                ✗ {creditsState.error}
+              </span>
+            )}
+          </Row>
+          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+            이 게이트웨이가 크레딧 조회를 지원할 때만 값이 표시돼요(조직 배포판에 따라 다를 수 있음).
           </p>
           <Row label="번역 모델">
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
