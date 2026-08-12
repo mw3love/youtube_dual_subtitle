@@ -247,7 +247,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **스키마 enum→자유 문자열** (`settings.ts:GeminiModelSchema = z.string().min(1)`): 목록 밖 모델을 골라도 검증 통과(enum이면 default 리셋). 실제 유효성은 Gemini API가 판정. `MindlogicModelSchema`와 같은 이유.
 - **하위 호환** (`gemini.ts:resolveGeminiModelId`): 자유 문자열 전환 전(A38 이전) storage에 박힌 옛 별칭 `flash`/`flash-lite`/`3.5-flash`를 `LEGACY_ALIAS`로 실제 ID(`gemini-2.5-flash` 등)로 변환. 새 값은 이미 실제 ID라 그대로 통과. **번역(`callGemini`)·해설(`explain.ts:explainGemini`) 양쪽이 이 함수를 공용** — explain.ts의 옛 `GEMINI_MODEL_ID` 테이블 제거. `lang-options.ts:GEMINI_MODELS`의 value도 실제 ID로 교체(추천 힌트 + 새로고침 전 fallback 목록).
 - **동적 조회** (`gemini.ts:listGeminiModels`): `GET /v1beta/models?pageSize=200` → `supportedGenerationMethods`에 `generateContent` 있는 것만, `embedding|aqa|imagen|veo|tts|image-generation` 제외, `geminiFamily(id)`로 세대 그룹(`gemini-2.5`/`gemini-3.5`/`gemma`) 추출해 optgroup 라벨. background `GEMINI_LIST_MODELS` 메시지 → `chrome.storage.local`(`ydtGeminiModels`) 캐시. 키는 `secrets.ts` 재사용(401/403 즉시 throw).
-- **옵션 UI 통합** (`options/main.tsx`): Mindlogic 전용이던 `renderMindlogicSelect`/`onRefreshMindlogicModels`를 **제공자 공용 `renderModelSelect`/`refreshModels`/`modelRefreshControls`**로 일반화(메시지 타입·키·캐시 키만 분기). 번역·해설 모델 둘 다 `<select>`(owner별 optgroup) + "↻ 모델 새로고침" 버튼. Gemini 번역 모델 행이 radio→select로 바뀜.
+- **옵션 UI 통합** (`options/main.tsx`): Mindlogic 전용이던 `renderMindlogicSelect`/`onRefreshMindlogicModels`를 **제공자 공용 `renderModelSelect`/`refreshModels`**로 일반화(메시지 타입·키·캐시 키만 분기). 번역·해설 모델 둘 다 `<select>`(owner별 optgroup) + "↻ 모델 새로고침" 버튼. Gemini 번역 모델 행이 radio→select로 바뀜. **별도 새로고침 버튼은 A68(섹션 44)부터 `🧪 테스트` 버튼에 통합돼 제거됨.**
 - **캐시 태그**(`content/index.ts:cacheBackendTag`)의 gemini 기본값 `'flash'`→`'gemini-2.5-flash'`(실제 ID와 정합).
 - **검증 한계:** `/models` 동적 조회는 라이브 키 필요 — 빌드·타입체크만 통과(프록시검증, 실조건 미확인).
 
@@ -482,7 +482,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 - `mindlogic.ts:getMindlogicCredits(apiKey?, baseUrl?)`: `${baseUrl}/credits/`(baseUrl은 이미 `.../v1/gateway`까지 포함, 섹션 5·37) → `{monthly_allocated, purchased, total}` 각각의 `{quota, used, remaining}` + `renewal_date`를 camelCase로 변환. 401/403은 키 인증 실패, **404는 "이 게이트웨이 버전엔 없을 수 있음"으로 별도 문구** — 조직별 배포판마다 지원 여부가 다를 수 있어 일반 서버 오류와 구분.
 - `background/index.ts:MINDLOGIC_CREDITS` 메시지: `TEST_MINDLOGIC`/`MINDLOGIC_LIST_MODELS`와 같은 패턴(옵션 페이지가 입력 중인 baseUrl/키를 그대로 실어 보냄 — 저장 전 즉시 검증).
-- `options/main.tsx`: Mindlogic 설정 섹션에 "사용량 확인" 행 추가 — `💳 크레딧 확인` 버튼 → `이번 달 {used} / {quota} 사용 (갱신 YYYY-MM-DD) · 구매 잔여 {n}`. 응답 타입(`MindlogicCredits`)은 `background/translators/mindlogic.ts`의 동명 인터페이스를 import하지 않고 옵션 페이지에 로컬로 다시 선언(`ModelInfo`와 같은 기존 패턴 — options↔background는 메시지 JSON 모양만 공유, 직접 import 없음).
+- `options/main.tsx`: Mindlogic 설정 섹션에 "사용량 확인" 행 추가 — `💳 크레딧 확인` 버튼 → `이번 달 {used} / {quota} 사용 (갱신 YYYY-MM-DD) · 구매 잔여 {n}`. 응답 타입(`MindlogicCredits`)은 `background/translators/mindlogic.ts`의 동명 인터페이스를 import하지 않고 옵션 페이지에 로컬로 다시 선언(`ModelInfo`와 같은 기존 패턴 — options↔background는 메시지 JSON 모양만 공유, 직접 import 없음). **별도 행·버튼·문구는 A68(섹션 44)부터 `🧪 테스트` 버튼에 통합되고 `잔여 R / Q 크레딧` 형식으로 바뀜.**
 
 **검증:** 빌드·타입체크 통과(프록시검증) — 실제 게이트웨이 응답 스키마가 문서와 일치하는지, 두 조직 도메인 모두에서 엔드포인트가 살아있는지는 Chrome 실사용(유효 키로 "크레딧 확인" 클릭) 확인 대상.
 
@@ -498,6 +498,15 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **한계:** `#id` 셀렉터나 3중 클래스 조합처럼 이론상 더 강한 리셋은 여전히 이길 수 있음 — 재발하면 Shadow DOM 격리를 검토(다만 `window.getSelection()`의 open shadow root 경계 처리가 브라우저별로 불확실해 본문 재해설·형광펜 기능이 깨질 위험이 있어 지금은 채택 안 함).
 
 **검증:** 실제 `nate.com`에서 Playwright로 직접 재현·확인(1차는 프록시검증에 그쳐 실패, 2차는 실조건검증 — 같은 사이트에서 컴퓨티드 스타일·스크린샷 둘 다 정상 확인). 사용자가 원래 겪은 화면에서도 같은지는 최종 재확인 대상.
+
+### 44. 옵션 페이지 — 테스트 버튼에 모델 새로고침·크레딧 확인 통합 (A68, v0.23.3)
+
+Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새로고침, 💳 크레딧 확인 — Mindlogic만)로 늘어나 있던 걸 `🧪 테스트` 하나로 합쳤다. 셋 다 "같은 키가 유효한가"를 확인하는 호출이라 분리해 둘 이유가 없었다(사용자 요청, 섹션 21·42의 "↻ 모델 새로고침"·"💳 크레딧 확인" 별도 버튼 서술은 이 섹션으로 대체).
+
+- **배선** (`options/main.tsx`): `onTestGemini`는 `TEST_GEMINI` + `refreshModels('gemini')`를, `onTestMindlogic`은 `TEST_MINDLOGIC` + `refreshModels('mindlogic')` + `checkMindlogicCredits()`를 `Promise.all`로 동시 실행. 번역 모델 행의 `↻ 모델 새로고침` 버튼(`modelRefreshControls`)과 Mindlogic의 `사용량 확인` 행(`💳 크레딧 확인` 버튼)은 제거 — 테스트 버튼 옆에 결과만 이어 붙는다(`✓ 동작함 · 모델 목록 N개 확인 · 잔여 R/Q 크레딧 (갱신 날짜)`).
+- **결과는 항상 한 번에 커밋 — 순차 도착에 의한 레이아웃 점프 방지.** 처음엔 `refreshModels`/`checkMindlogicCredits`가 각자 완료 시점에 자체 `setState`를 호출해, 먼저 끝난 요청의 결과(주로 모델 목록 — 응답이 가벼워 번역 테스트보다 빨리 옴)가 버튼 옆에 먼저 뜨고, 뒤늦게 도착한 테스트 결과 텍스트가 앞에 끼어들며 그 줄이 통째로 다음 줄로 밀리는 점프가 있었다(사용자 실사용 리포트로 발견). 해결: `refreshModels`/`checkMindlogicCredits`를 자체 `setState` 없이 결과값(`ModelsFetch`/`CreditsState`)만 반환하는 함수로 바꾸고, `onTest*`가 `Promise.all`로 다 모은 뒤 `setTestState`/`setModelsFetch`/`setCreditsState`를 같은 tick에 한 번에 호출 — 세 결과가 항상 완성된 한 줄로만 나타난다. 모델 목록 자체(드롭다운 옵션)는 이 점프와 무관한 별도 행이라 `setModels`는 여전히 도착 즉시 반영.
+- **크레딧 문구**: 섹션 42의 "이번 달 N/M 사용" 대신 **잔여량을 앞세운** `잔여 {monthlyRemaining} / {monthlyQuota} 크레딧` 형식(사용자가 남은 양을 우선 확인하고 싶어함). 구매 크레딧이 있으면 `· 구매 잔여 N 크레딧` 이어 붙임.
+- **검증:** 빌드·타입체크 통과(프록시검증) — 실제 Mindlogic 키로 테스트 클릭 시 세 결과가 동시에 한 줄로 뜨는지, 크레딧 문구·소수점 표시는 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 

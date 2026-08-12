@@ -489,14 +489,17 @@ function Options() {
 
   // 제공자에서 사용 가능한 모델 목록을 가져와 캐시. 키 저장이 보류 중이면 먼저 flush.
   // Mindlogic·Gemini가 같은 흐름(메시지 타입·키·캐시 키만 다름)이라 한 함수로 묶음.
+  // 상태(pending/ok/err) 커밋은 호출 측(onTest*)이 다른 요청들과 한 번에 묶어서 한다 —
+  // 여기서 바로 setFetch하면 테스트·크레딧 요청보다 먼저 끝났을 때 그 결과만 잠깐 떴다가
+  // 나머지가 도착하는 순간 줄바꿈되는 레이아웃 점프가 생김. 모델 목록 자체(select 옵션)는
+  // 그 점프와 무관한 별도 행이라 도착 즉시 반영해도 된다.
   const refreshModels = async (
     provider: 'mindlogic' | 'gemini',
-  ): Promise<void> => {
+  ): Promise<ModelsFetch> => {
     const isGemini = provider === 'gemini';
     const apiKeyVal = isGemini ? apiKey : mindlogicApiKey;
     const keyTimerRef = isGemini ? keySaveTimerRef : mindlogicKeySaveTimerRef;
     const setKey = isGemini ? setGeminiApiKey : setMindlogicApiKey;
-    const setFetch = isGemini ? setGeminiModelsFetch : setModelsFetch;
     const setModels = isGemini ? setGeminiModels : setMindlogicModels;
     const msgType = isGemini ? 'GEMINI_LIST_MODELS' : 'MINDLOGIC_LIST_MODELS';
     const cacheKey = isGemini ? 'ydtGeminiModels' : 'ydtMindlogicModels';
@@ -506,21 +509,21 @@ function Options() {
       keyTimerRef.current = null;
       await setKey(apiKeyVal.trim() || null);
     }
-    setFetch({ kind: 'pending' });
     try {
       const res = (await chrome.runtime.sendMessage({
         type: msgType,
         apiKey: apiKeyVal.trim(),
         ...(isGemini ? {} : { baseUrl: settings.mindlogicBaseUrl.trim() }),
       })) as { ok: true; models: ModelInfo[] } | { ok: false; error: string } | undefined;
-      if (!res) setFetch({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
-      else if (res.ok) {
+      if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+      if (res.ok) {
         await chrome.storage.local.set({ [cacheKey]: res.models });
         setModels(res.models);
-        setFetch({ kind: 'ok', count: res.models.length });
-      } else setFetch({ kind: 'err', error: res.error });
+        return { kind: 'ok', count: res.models.length };
+      }
+      return { kind: 'err', error: res.error };
     } catch (e) {
-      setFetch({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+      return { kind: 'err', error: e instanceof Error ? e.message : String(e) };
     }
   };
 
@@ -575,35 +578,6 @@ function Options() {
     onChange: (v: string) => void,
     forExplain: boolean,
   ): React.ReactNode => renderModelSelect(value, onChange, forExplain, geminiModels, GEMINI_MODELS);
-
-  // 모델 새로고침 버튼 + 결과 표시(번역/해설 모델 행에서 재사용).
-  const modelRefreshControls = (
-    provider: 'mindlogic' | 'gemini',
-  ): React.ReactNode => {
-    const isGemini = provider === 'gemini';
-    const apiKeyVal = isGemini ? apiKey : mindlogicApiKey;
-    const fetchState = isGemini ? geminiModelsFetch : modelsFetch;
-    const missingBaseUrl = !isGemini && !settings.mindlogicBaseUrl.trim();
-    return (
-      <>
-        <button
-          onClick={() => void refreshModels(provider)}
-          disabled={!apiKeyVal.trim() || missingBaseUrl || fetchState.kind === 'pending'}
-          style={{ padding: '4px 10px', fontSize: 12 }}
-          type="button"
-          title="제공자에서 사용 가능한 모델 목록을 다시 가져옵니다"
-        >
-          {fetchState.kind === 'pending' ? '불러오는 중…' : '↻ 모델 새로고침'}
-        </button>
-        {fetchState.kind === 'ok' && (
-          <span style={{ fontSize: 11, color: '#9eff9e' }}>✓ {fetchState.count}개</span>
-        )}
-        {fetchState.kind === 'err' && (
-          <span style={{ fontSize: 11, color: '#ff7777' }}>✗ {fetchState.error}</span>
-        )}
-      </>
-    );
-  };
 
   // 번역 모델 설명 — 해설 모델 설명(renderExplainBlock 내 <p>)과 짝을 이루는 안내.
   // 자막 전체를 번역하는 용도라 "많은 문장 = 가성비" 관점을 강조. Gemini/Mindlogic 공용.
@@ -686,6 +660,10 @@ function Options() {
     }, 300);
   };
 
+  // "테스트"가 키 유효성 확인과 모델 목록 새로고침을 함께 수행 — 둘 다 같은 키가 필요한
+  // 검증이라 버튼을 분리해 둘 이유가 없었음(별도 "↻ 모델 새로고침" 버튼은 제거).
+  // 두 결과는 항상 함께 커밋한다(Promise.all 이후 한 번에 setState) — 먼저 끝난 쪽만 즉시
+  // 반영하면 짧은 텍스트가 버튼 옆에 붙었다가 나머지가 도착하는 순간 줄바꿈되는 점프가 생김.
   const onTestGemini = async (): Promise<void> => {
     // 디바운스로 보류 중인 키 저장이 있으면 먼저 flush — 테스트 결과의 일관성 확보.
     if (keySaveTimerRef.current !== null) {
@@ -694,18 +672,24 @@ function Options() {
       await setGeminiApiKey(apiKey.trim() || null);
     }
     setTestState({ kind: 'pending' });
-    try {
-      const res = (await chrome.runtime.sendMessage({
-        type: 'TEST_GEMINI',
-        apiKey: apiKey.trim(),
-        model: settings.geminiModel,
-      })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
-      if (!res) setTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
-      else if (res.ok) setTestState({ kind: 'ok', translation: res.translation });
-      else setTestState({ kind: 'err', error: res.error });
-    } catch (e) {
-      setTestState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
-    }
+    setGeminiModelsFetch({ kind: 'pending' });
+    const runTest = async (): Promise<TestState> => {
+      try {
+        const res = (await chrome.runtime.sendMessage({
+          type: 'TEST_GEMINI',
+          apiKey: apiKey.trim(),
+          model: settings.geminiModel,
+        })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
+        if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+        if (res.ok) return { kind: 'ok', translation: res.translation };
+        return { kind: 'err', error: res.error };
+      } catch (e) {
+        return { kind: 'err', error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const [test, models] = await Promise.all([runTest(), refreshModels('gemini')]);
+    setTestState(test);
+    setGeminiModelsFetch(models);
   };
 
   const onMindlogicKeyChange = (v: string): void => {
@@ -725,43 +709,51 @@ function Options() {
       await setMindlogicApiKey(mindlogicApiKey.trim() || null);
     }
     setMindlogicTestState({ kind: 'pending' });
-    try {
-      const res = (await chrome.runtime.sendMessage({
-        type: 'TEST_MINDLOGIC',
-        apiKey: mindlogicApiKey.trim(),
-        model: settings.mindlogicModel,
-        baseUrl: settings.mindlogicBaseUrl.trim(),
-      })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
-      if (!res)
-        setMindlogicTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
-      else if (res.ok) setMindlogicTestState({ kind: 'ok', translation: res.translation });
-      else setMindlogicTestState({ kind: 'err', error: res.error });
-    } catch (e) {
-      setMindlogicTestState({
-        kind: 'err',
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
+    setModelsFetch({ kind: 'pending' });
+    setCreditsState({ kind: 'pending' });
+    const runTest = async (): Promise<TestState> => {
+      try {
+        const res = (await chrome.runtime.sendMessage({
+          type: 'TEST_MINDLOGIC',
+          apiKey: mindlogicApiKey.trim(),
+          model: settings.mindlogicModel,
+          baseUrl: settings.mindlogicBaseUrl.trim(),
+        })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
+        if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+        if (res.ok) return { kind: 'ok', translation: res.translation };
+        return { kind: 'err', error: res.error };
+      } catch (e) {
+        return { kind: 'err', error: e instanceof Error ? e.message : String(e) };
+      }
+    };
+    const [test, models, credits] = await Promise.all([
+      runTest(),
+      refreshModels('mindlogic'),
+      checkMindlogicCredits(),
+    ]);
+    setMindlogicTestState(test);
+    setModelsFetch(models);
+    setCreditsState(credits);
   };
 
-  const onCheckMindlogicCredits = async (): Promise<void> => {
+  // refreshModels와 같은 이유로 상태 커밋은 호출 측(onTestMindlogic)에 맡기고 결과만 반환.
+  const checkMindlogicCredits = async (): Promise<CreditsState> => {
     if (mindlogicKeySaveTimerRef.current !== null) {
       clearTimeout(mindlogicKeySaveTimerRef.current);
       mindlogicKeySaveTimerRef.current = null;
       await setMindlogicApiKey(mindlogicApiKey.trim() || null);
     }
-    setCreditsState({ kind: 'pending' });
     try {
       const res = (await chrome.runtime.sendMessage({
         type: 'MINDLOGIC_CREDITS',
         apiKey: mindlogicApiKey.trim(),
         baseUrl: settings.mindlogicBaseUrl.trim(),
       })) as { ok: true; credits: MindlogicCredits } | { ok: false; error: string } | undefined;
-      if (!res) setCreditsState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
-      else if (res.ok) setCreditsState({ kind: 'ok', credits: res.credits });
-      else setCreditsState({ kind: 'err', error: res.error });
+      if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+      if (res.ok) return { kind: 'ok', credits: res.credits };
+      return { kind: 'err', error: res.error };
     } catch (e) {
-      setCreditsState({ kind: 'err', error: e instanceof Error ? e.message : String(e) });
+      return { kind: 'err', error: e instanceof Error ? e.message : String(e) };
     }
   };
 
@@ -1205,6 +1197,16 @@ function Options() {
             {testState.kind === 'err' && (
               <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
             )}
+            {geminiModelsFetch.kind === 'ok' && (
+              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+                · 모델 목록 {geminiModelsFetch.count}개 확인
+              </span>
+            )}
+            {geminiModelsFetch.kind === 'err' && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>
+                · 모델 목록 갱신 실패: {geminiModelsFetch.error}
+              </span>
+            )}
             {!apiKey.trim() && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
                 키 없으면 Google 무료로 자동 fallback
@@ -1216,7 +1218,6 @@ function Options() {
           </p>
           <Row label="번역 모델">
             {renderGeminiSelect(settings.geminiModel, (v) => update({ geminiModel: v }), false)}
-            {modelRefreshControls('gemini')}
           </Row>
           {transModelHint}
           {renderExplainBlock('gemini')}
@@ -1278,6 +1279,32 @@ function Options() {
                 ✗ {mindlogicTestState.error}
               </span>
             )}
+            {modelsFetch.kind === 'ok' && (
+              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+                · 모델 목록 {modelsFetch.count}개 확인
+              </span>
+            )}
+            {modelsFetch.kind === 'err' && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>
+                · 모델 목록 갱신 실패: {modelsFetch.error}
+              </span>
+            )}
+            {creditsState.kind === 'ok' && (
+              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+                · 잔여 {creditsState.credits.monthlyRemaining.toLocaleString()} /{' '}
+                {creditsState.credits.monthlyQuota.toLocaleString()} 크레딧
+                {creditsState.credits.renewalDate
+                  ? ` (갱신 ${creditsState.credits.renewalDate.slice(0, 10)})`
+                  : ''}
+                {creditsState.credits.purchasedQuota > 0 &&
+                  ` · 구매 잔여 ${creditsState.credits.purchasedRemaining.toLocaleString()} 크레딧`}
+              </span>
+            )}
+            {creditsState.kind === 'err' && (
+              <span style={{ fontSize: 11, color: '#ff7777' }}>
+                · 크레딧 확인 실패: {creditsState.error}
+              </span>
+            )}
             {(!mindlogicApiKey.trim() || !settings.mindlogicBaseUrl.trim()) && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
                 Base URL·키 없으면 Google 무료로 자동 fallback
@@ -1287,42 +1314,8 @@ function Options() {
           <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
             학교/조직에서 발급받은 키를 붙여넣으세요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
           </p>
-          <Row label="사용량 확인">
-            <button
-              onClick={() => void onCheckMindlogicCredits()}
-              disabled={
-                !mindlogicApiKey.trim() ||
-                !settings.mindlogicBaseUrl.trim() ||
-                creditsState.kind === 'pending'
-              }
-              style={testButtonStyle}
-              type="button"
-            >
-              {creditsState.kind === 'pending' ? '확인 중…' : '💳 크레딧 확인'}
-            </button>
-            {creditsState.kind === 'ok' && (
-              <span style={{ fontSize: 12, color: '#9eff9e', marginLeft: 8 }}>
-                ✓ 이번 달 {creditsState.credits.monthlyUsed.toLocaleString()} /{' '}
-                {creditsState.credits.monthlyQuota.toLocaleString()} 사용
-                {creditsState.credits.renewalDate
-                  ? ` (갱신 ${creditsState.credits.renewalDate.slice(0, 10)})`
-                  : ''}
-                {creditsState.credits.purchasedQuota > 0 &&
-                  ` · 구매 잔여 ${creditsState.credits.purchasedRemaining.toLocaleString()}`}
-              </span>
-            )}
-            {creditsState.kind === 'err' && (
-              <span style={{ fontSize: 12, color: '#ff7777', marginLeft: 8 }}>
-                ✗ {creditsState.error}
-              </span>
-            )}
-          </Row>
-          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-            이 게이트웨이가 크레딧 조회를 지원할 때만 값이 표시돼요(조직 배포판에 따라 다를 수 있음).
-          </p>
           <Row label="번역 모델">
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
-            {modelRefreshControls('mindlogic')}
           </Row>
           {transModelHint}
           {renderExplainBlock('mindlogic')}
