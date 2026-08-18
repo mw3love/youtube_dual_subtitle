@@ -6,8 +6,22 @@
 
 Web Store는 확장이 **단일 목적**을 가져야 합니다. 심사 시 입력란에 한 줄로:
 
-> 한: "YouTube 영상에 원문과 번역 자막을 동시에 표시한다."
-> EN: "Display dual-language (source + translation) subtitles on YouTube videos."
+> 한: "YouTube 영상에 원문+번역 듀얼 자막을 표시하고, 자막 속 단어·표현을 AI로 해설해 어학 학습을 돕는다."
+> EN: "Display dual-language (source + translation) subtitles on YouTube videos, with AI explanations of words and phrases to support language learning."
+
+(Notion 내보내기·여러 BYOK 백엔드 권한은 모두 이 "자막 기반 어학 학습" 하나의 목적 아래 있다는 것을 심사관이 알 수 있게, 문구에 해설 기능을 명시.)
+
+## 1-b. 확장 이름 검토 (YouTube 상표 리스크)
+
+현재 `manifest.ts`의 `name`은 `'YouTube Dual Subtitle'` — Google 자사 상표(`YouTube`)를 이름 맨 앞에 그대로 씁니다. 완전 금지는 아니지만(비슷한 패턴의 확장이 다수 통과), "공식 제휴처럼 보이지 않는가"가 심사관 재량 판단이라 리네임 요청을 받을 가능성이 있습니다.
+
+| 후보 | 장점 | 단점 |
+|---|---|---|
+| **`Dual Subtitle for YouTube`**(추천) | 상표가 뒤로 가고 `for`로 비공식임이 명확 — 통과 가능성 가장 높음. 영문 검색 노출 유지 | 국문 사용자에게는 살짝 덜 직관적 |
+| `YouTube Dual Subtitle`(현재 유지) | 검색어 매칭 최상단(앞자리 일치) | 상표 리스크 잔존 — 심사관에 따라 수정 요청 가능 |
+| `듀얼 자막` (YouTube 단어 제거) | 상표 리스크 최소 | 검색 노출 가장 약함(사용자가 "youtube 자막"으로 검색해도 안 걸릴 수 있음) |
+
+**추천:** `Dual Subtitle for YouTube` — 리스크와 검색 노출의 균형이 가장 낫습니다. 결정되면 `manifest.ts`의 `name` 필드와 이 문서 전체의 표기를 함께 바꿔야 합니다(아직 미적용).
 
 ## 2. 카테고리
 
@@ -19,9 +33,9 @@ Web Store는 확장이 **단일 목적**을 가져야 합니다. 심사 시 입�
 
 ### 짧은 설명 (~132자, Search snippet)
 
-**한**: "YouTube 영상에 원문과 번역 자막을 듀얼로. 단어 단위 노래방 자막, 위치 드래그, Shorts 지원. Chrome 내장 번역으로 오프라인도."
+**한**: "YouTube 영상에 원문+번역 듀얼 자막. AI 단어·표현 해설, 노래방 자막, 위치 드래그, Shorts 지원. Chrome 내장 번역으로 오프라인도."
 
-**EN**: "Dual-language subtitles on YouTube — source + translation. Karaoke-style word reveal, draggable position, Shorts support, optional offline translation."
+**EN**: "Dual-language YouTube subtitles: source + translation, plus AI word/phrase explanations. Draggable, Shorts support, offline option."
 
 ### 긴 설명 (~16000자, Description)
 
@@ -41,7 +55,10 @@ YouTube Dual Subtitle은 영상에 원문 자막과 번역 자막을 동시에 �
 - 자막 스타일: 폰트 크기·색·굵기·줄 높이·배경 투명도 모두 조정
 - Shorts 자막 크기 배율 별도 조정 (좁은 세로 화면 대응)
 - 번역 캐시: 같은 영상 다시 볼 때 즉시 표시. 30일 / 200개 자동 정리
-- 단축키 Alt+C로 듀얼자막 토글(C는 YouTube 네이티브 자막 토글 그대로, 서로 독립)
+- 단축키로 듀얼자막 켜기/끄기(기본 G, 옵션에서 원하는 키로 재지정 가능). C는 YouTube 네이티브 자막 그대로 두어 서로 완전히 독립
+- 💡 단어·표현 해설: 자막을 드래그하면 예문·어원·뉘앙스까지 AI가 설명 (내 Gemini/Mindlogic 키 필요)
+- ❓ 자유 질문 + Alt+Q 어디서나 질문: 궁금한 부분을 직접 물어보기. Alt+Q는 YouTube뿐 아니라 어느 웹사이트에서도 동작
+- 📝 Notion 저장: 해설/답변을 내 Notion 데이터베이스에 한 번에 정리 (내 Notion 연동 토큰 필요)
 
 ■ 데이터·프라이버시
 - 광고, 분석, 트래커 없음
@@ -79,30 +96,7 @@ YouTube Dual Subtitle은 영상에 원문 자막과 번역 자막을 동시에 �
 
 ## 5. 아이콘
 
-필요 사이즈 (PNG, 투명 배경 권장):
-- 16×16, 32×32, 48×48, 128×128
-- Web Store 등록용 추가: 128×128 PNG, 스토어 페이지 대표 이미지
-
-위치: `public/icons/` 디렉토리 만들고 manifest의 `icons` 필드 추가 권장.
-
-```ts
-// manifest.ts 추가 예시
-icons: {
-  16: 'icons/icon-16.png',
-  32: 'icons/icon-32.png',
-  48: 'icons/icon-48.png',
-  128: 'icons/icon-128.png',
-},
-action: {
-  default_popup: 'src/popup/index.html',
-  default_icon: {
-    16: 'icons/icon-16.png',
-    32: 'icons/icon-32.png',
-    48: 'icons/icon-48.png',
-    128: 'icons/icon-128.png',
-  },
-},
-```
+✓ 완료 — `public/icons/`에 16/32/48/128 4종 모두 있고 `manifest.ts`의 `icons`/`action.default_icon`에도 등록돼 있음(`npm run icons`로 재생성 가능).
 
 ## 6. 스크린샷
 
@@ -130,13 +124,14 @@ action: {
 
 - [ ] manifest version, description, default_locale 확인
 - [ ] dist를 zip으로 압축 (dist 폴더 자체가 아닌 그 안의 파일들이 zip 루트)
-- [ ] 개발자 계정 1회성 $5 등록비 결제 확인
-- [ ] Privacy Policy URL 호스팅 완료
+- [x] 개발자 계정 등록 완료
+- [ ] Privacy Policy URL 호스팅 완료 (`docs/PRIVACY.md` → GitHub Pages 등)
 - [ ] 스크린샷 5장 준비
-- [ ] 아이콘 4종 (16/32/48/128) 준비
-- [ ] 단일 목적 문구 작성
+- [x] 아이콘 4종 (16/32/48/128) — `public/icons/`에 이미 존재
+- [x] 단일 목적 문구 작성 완료 (위 1번)
 - [ ] 카테고리 / 언어 / 지역 선택
-- [ ] 권한별 정당화 작성
+- [x] 권한별 정당화 작성 완료 (위 4번)
+- [ ] 확장 이름 최종 결정 (`YouTube` 상표 리스크 검토 — 아래 별도 메모)
 
 ## 10. 등록 후 심사
 

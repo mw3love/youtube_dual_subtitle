@@ -1,6 +1,6 @@
 # Privacy Policy — YouTube Dual Subtitle
 
-_Last updated: 2026-08-12 (Ask AI now works on any website via `Alt+Q`, not just YouTube; documented the pre-existing Explain/Ask and Notion export features)_
+_Last updated: 2026-08-18 (corrected the dual-subtitles toggle key, which is now user-configurable — default `G`, not `C`)_
 
 YouTube Dual Subtitle ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
 
@@ -79,7 +79,7 @@ The Extension does **not** request the broad `tabs`, `history`, `cookies`, or `w
 
 ## 4. Your controls
 
-- **Disable subtitles**: Toggle from the popup, or press `C` on a YouTube page.
+- **Disable subtitles**: Toggle from the popup, or press your configured toggle key on a YouTube page (default `G`; changeable in Options — this key only controls the Extension's dual subtitles, not YouTube's own native captions).
 - **Clear translation cache**: Options page → Management → Clear cache.
 - **Reset all settings**: Options page → Management → Reset to defaults.
 - **Remove your Gemini API key**: Options page → Gemini settings → clear the API key field. The key is then removed from `chrome.storage.local`.
