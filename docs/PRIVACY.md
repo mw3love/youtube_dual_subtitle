@@ -1,8 +1,8 @@
-# Privacy Policy — YouTube Dual Subtitle
+# Privacy Policy — Dual Subtitle for YouTube
 
 _Last updated: 2026-08-18 (corrected the dual-subtitles toggle key, which is now user-configurable — default `G`, not `C`)_
 
-YouTube Dual Subtitle ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
+Dual Subtitle for YouTube ("the Extension") is a Chrome extension that overlays dual-language subtitles (source + translation) on YouTube videos. This policy explains what data the Extension touches, where it goes, and what control you have.
 
 ## 1. Data we collect
 
@@ -101,4 +101,4 @@ Open an issue on the project's GitHub repository:
 
 ---
 
-이 문서는 YouTube Dual Subtitle 확장의 데이터 처리 정책입니다. 영문 원문이 정본이며, 한국어 안내가 필요하면 동일 내용을 번역하여 별도 페이지로 게시할 수 있습니다.
+이 문서는 Dual Subtitle for YouTube 확장의 데이터 처리 정책입니다. 영문 원문이 정본이며, 한국어 안내가 필요하면 동일 내용을 번역하여 별도 페이지로 게시할 수 있습니다.

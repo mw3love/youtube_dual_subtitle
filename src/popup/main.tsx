@@ -300,7 +300,7 @@ function Popup() {
         opacity: loaded ? 1 : 0.5,
       }}
     >
-      <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>YouTube Dual Subtitle</h3>
+      <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Dual Subtitle for YouTube</h3>
 
       <StatusLine status={status} />
 

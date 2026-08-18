@@ -3,7 +3,7 @@ import pkg from '../package.json';
 
 export default defineManifest({
   manifest_version: 3,
-  name: 'YouTube Dual Subtitle',
+  name: 'Dual Subtitle for YouTube',
   description: pkg.description,
   version: pkg.version,
   action: {

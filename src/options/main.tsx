@@ -917,7 +917,7 @@ function Options() {
       }}
     >
       <h1 style={{ fontSize: 22, margin: '0 0 24px', display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span>YouTube Dual Subtitle</span>
+        <span>Dual Subtitle for YouTube</span>
         <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>
           v{chrome.runtime.getManifest().version}
         </span>

@@ -1,4 +1,4 @@
-# YouTube Dual Subtitle
+# Dual Subtitle for YouTube
 
 YouTube 영상에 **원문 + 번역 자막을 동시에** 표시하는 Chrome 확장. 일반 영상과 Shorts 모두 지원. 자동자막(ASR)에는 단어 단위 점진 표시(노래방형) 옵션 제공.
 
