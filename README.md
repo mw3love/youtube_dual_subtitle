@@ -2,6 +2,12 @@
 
 YouTube 영상에 **원문 + 번역 자막을 동시에** 표시하는 Chrome 확장. 일반 영상과 Shorts 모두 지원. 자동자막(ASR)에는 단어 단위 점진 표시(노래방형) 옵션 제공.
 
+## 스크린샷
+
+| 드래그로 해설/질문 호출 | AI 해설 패널 (문법 분석·표) | Chrome 웹 스토어 등록 |
+|---|---|---|
+| ![드래그한 자막 표현에 해설·질문 버튼이 뜬 화면](photo/readme/explain-toolbar.png) | ![선택한 표현을 문법·의미 표로 풀어주는 해설 패널](photo/readme/explain-panel.png) | ![Chrome 웹 스토어에 등록된 확장 페이지](photo/readme/chrome-web-store.png) |
+
 ## 주요 기능
 
 - 원문 자막(영어 등) + 번역 자막(한국어 등) 듀얼 표시
