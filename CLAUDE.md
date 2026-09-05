@@ -122,14 +122,14 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 
 YouTube는 `yt-navigate-finish` 이벤트로 영상 전환을 알림. 단순히 매 navigate마다 cue를 비우면 새 cue가 동시에 도착할 때 파괴됨. 해결: `mountedVideoId`에 현재 cue가 어느 영상 것인지 기록해두고, navigate 시 `currentVideoId() !== mountedVideoId`일 때만 `clearCues`(`content/index.ts:201-207`). 번역 mid-flight 응답도 `currentVideoId()` 비교로 drop(같은 파일의 `translateCues`).
 
-### 10. 'C'·`V` 단축키 (A16 → A62로 분리 → A63에서 `Alt+C`→`V`로 변경)
+### 10. 'C'·듀얼자막 토글 키 완전 분리
 
 **A62(섹션 38)부터 네이티브 자막과 듀얼자막은 완전히 독립된 컨트롤이다.**
 
 - `'C'` 단독: 더 이상 가로채지 않는다. YouTube native `'c'` 핸들러에 그대로 맡겨 **네이티브 CC만** on/off(우리 `subtitlesEnabled` 무관).
-- `V` 단독(**A63부터, 이전엔 `Alt+C`** — 섹션 39): **듀얼자막만** on/off(`subtitlesEnabled` 토글). 네이티브 CC 버튼은 건드리지 않음. 수정키(Alt/Ctrl/Shift/Meta)가 하나라도 눌려 있으면 통과 — `Ctrl+V`(붙여넣기) 등과 충돌 방지.
+- **듀얼자막 토글 키**(`settings.subtitlesToggleKey`, 기본값 `'g'`, 옵션 페이지에서 사용자 재지정 가능 — A69/섹션 45. 그 전엔 A63~A68 구간 하드코딩 `V`, A62~A62 구간 `Alt+C`였다): **듀얼자막만** on/off(`subtitlesEnabled` 토글). 네이티브 CC 버튼은 건드리지 않음. 수정키(Alt/Ctrl/Shift/Meta)가 하나라도 눌려 있으면 통과 — 저장된 키가 우연히 `v`면 `Ctrl+V`(붙여넣기) 등과 충돌 방지.
 
-키 판별은 물리 키 `ev.code === 'KeyC'`(`V`는 `'KeyV'`) 우선(+ `ev.key` 폴백) — `ev.key`만 보면 CapsLock 시 대문자, 한글 IME 시 자음으로 바뀌어 새는 문제를 방지(같은 견고성 패턴을 `V` 핸들러도 공유). input/textarea/contenteditable focus 시는 통과(검색창 입력 보호).
+키 판별은 물리 키 `ev.code === 'KeyC'`(토글 키는 `Key${toggleKey.toUpperCase()}`, 섹션 45) 우선(+ `ev.key` 폴백) — `ev.key`만 보면 CapsLock 시 대문자, 한글 IME 시 자음으로 바뀌어 새는 문제를 방지(같은 견고성 패턴을 토글 키 핸들러도 공유). input/textarea/contenteditable focus 시는 통과(검색창 입력 보호).
 
 A16~A61까지는 `'C'`가 `subtitlesEnabled`를 토글하면서 CC 버튼도 프로그램적으로 `click()`해 시각 동기했다(옛 방식 — 지금은 없음). 분리 이유: 네이티브 자막이 꺼진 채였던 이유는 섹션 8의 강제숨김 CSS가 `subtitlesEnabled` 조건부로 바뀌어(A62), 듀얼자막을 꺼두면 네이티브 CC를 `'C'`로 직접 켜서 원래 자막을 볼 수 있게 하기 위함 — 하나의 키로 묶여 있으면 이게 불가능했다.
 
