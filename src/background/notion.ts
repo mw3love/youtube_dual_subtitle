@@ -18,6 +18,7 @@
 
 import { getNotionToken } from '../shared/secrets';
 import { markdownToBlocks, type NotionBlock, type RichText } from './notion-blocks';
+import { t as tr } from '../shared/i18n';
 
 const ENDPOINT = 'https://api.notion.com/v1';
 const NOTION_VERSION = '2022-06-28';
@@ -65,7 +66,7 @@ function pickNotionTitle(term: string, context: string | undefined, markdown: st
     return sentence; // 예문도 없으면 어쩔 수 없이(caller가 truncate)
   }
   if (example) return example;
-  return t || '(제목 없음)';
+  return t || tr('notion.untitled');
 }
 
 // 여러 문장일 수 있는 자막 문맥에서 선택 표현(term)이 든 한 문장만 고른다(없으면 첫 문장).
@@ -89,9 +90,9 @@ function splitSentences(text: string): string[] {
 // prevPageId가 오면 재저장 — 새 페이지를 만든 뒤 옛 페이지를 휴지통으로 보낸다(위 주석 참조).
 export async function saveToNotion(params: NotionSaveParams): Promise<NotionSaveOutcome> {
   const token = await getNotionToken();
-  if (!token) throw new Error('Notion 토큰이 없음 (옵션 페이지에서 입력 필요)');
+  if (!token) throw new Error(tr('err.notion.noToken'));
   const dbId = normalizeId(params.databaseId);
-  if (!dbId) throw new Error('Notion 데이터베이스 ID 형식이 올바르지 않음');
+  if (!dbId) throw new Error(tr('err.notion.badDbId'));
 
   // 1) DB 스키마 조회 — title 속성 이름 + (있으면) url/date 속성 이름.
   const schema = await getDatabaseSchema(token, dbId);
@@ -115,7 +116,7 @@ export async function saveToNotion(params: NotionSaveParams): Promise<NotionSave
   // URL 속성이 있으면 영상 링크는 거기로 들어가므로 본문 맨 윗줄 링크는 생략(중복 제거).
   // URL 속성이 없는 DB에서만 링크를 잃지 않게 본문에 fallback으로 넣는다.
   if (params.videoUrl && !schema.urlProp) {
-    const label = params.videoTitle?.trim() || '영상';
+    const label = params.videoTitle?.trim() || tr('notion.video');
     children.push({
       type: 'paragraph',
       paragraph: {
@@ -165,7 +166,7 @@ export async function saveToNotion(params: NotionSaveParams): Promise<NotionSave
       try {
         await archivePage(token, prevPageId);
       } catch (e) {
-        console.warn('[YDT] 옛 Notion 페이지 정리 실패:', e);
+        console.warn('[YDT] failed to archive the old Notion page:', e);
         oldKept = true;
       }
     }
@@ -191,9 +192,9 @@ async function archivePage(token: string, pageId: string): Promise<void> {
 // 옵션 "테스트" 버튼용 — 토큰+DB 공유+ID를 한 번에 검증. DB 제목 반환.
 export async function testNotion(token: string, databaseId: string): Promise<string> {
   const dbId = normalizeId(databaseId);
-  if (!dbId) throw new Error('데이터베이스 ID 형식이 올바르지 않음 (32자리 ID 또는 DB URL)');
+  if (!dbId) throw new Error(tr('err.notion.badDbIdLong'));
   const schema = await getDatabaseSchema(token, dbId);
-  return schema.title || '(제목 없음)';
+  return schema.title || tr('notion.untitled');
 }
 
 interface DbSchema {
@@ -219,7 +220,7 @@ async function getDatabaseSchema(token: string, dbId: string): Promise<DbSchema>
     else if (def.type === 'url' && !urlProp) urlProp = name;
     else if (def.type === 'date' && !dateProp) dateProp = name;
   }
-  if (!titleProp) throw new Error('데이터베이스에 제목(title) 속성이 없음');
+  if (!titleProp) throw new Error(tr('err.notion.noTitleProp'));
   const title = (data.title ?? []).map((t) => t.plain_text ?? '').join('');
   return { title, titleProp, urlProp, dateProp };
 }
@@ -252,12 +253,14 @@ async function notionError(res: Response): Promise<Error> {
   } catch {
     msg = body;
   }
-  if (res.status === 401) return new Error('Notion 토큰 인증 실패 (HTTP 401) — 토큰 확인');
+  if (res.status === 401) return new Error(tr('err.notion.auth'));
   if (res.status === 404) {
-    return new Error('DB를 못 찾음 (HTTP 404) — ID가 맞는지, integration에 DB를 연결(share)했는지 확인');
+    return new Error(tr('err.notion.notFound'));
   }
-  if (res.status === 429) return new Error('Notion 요청 한도 초과 (HTTP 429) — 잠시 후 다시');
-  return new Error(`Notion 오류 (HTTP ${res.status})${msg ? `: ${truncate(msg, 200)}` : ''}`);
+  if (res.status === 429) return new Error(tr('err.notion.rateLimit'));
+  return new Error(
+    tr('err.notion.generic', { status: res.status, detail: msg ? `: ${truncate(msg, 200)}` : '' }),
+  );
 }
 
 function truncate(s: string, n: number): string {

@@ -21,6 +21,13 @@
 import { getMindlogicApiKey } from '../../shared/secrets';
 import { getMindlogicBaseUrl } from '../../shared/settings';
 import type { MindlogicModel } from '../../shared/settings';
+import { t } from '../../shared/i18n';
+
+// 길이 불일치 에러 식별자 — 메시지 문구는 번역되므로 code로 구분한다.
+const LENGTH_MISMATCH = 'YDT_LENGTH_MISMATCH';
+
+// 에러 문구에 쓰는 제공자 이름 — 브랜드가 아니라 "게이트웨이"로 부른다(조직마다 다름).
+const GW = 'Gateway';
 
 const TAG = '[YDT/mindlogic]';
 
@@ -55,15 +62,15 @@ export async function translateBatch(
   const now = Date.now();
   if (rateLimitedUntil > now) {
     const wait = Math.ceil((rateLimitedUntil - now) / 1000);
-    throw new Error(`Mindlogic 한도 초과로 대기 중 (${wait}초 남음)`);
+    throw new Error(t('err.cooldown', { name: GW, sec: wait }));
   }
   const apiKey = opts?.apiKey ?? (await getMindlogicApiKey());
   if (!apiKey) {
-    throw new Error('Mindlogic API 키가 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
+    throw new Error(t('err.mindlogic.noKey'));
   }
   const baseUrl = opts?.baseUrl ?? (await getMindlogicBaseUrl());
   if (!baseUrl) {
-    throw new Error('Mindlogic Base URL이 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
+    throw new Error(t('err.mindlogic.noBaseUrl'));
   }
   const chatUrl = `${baseUrl}/chat/completions`;
   const model = opts?.model ?? (await readModel());
@@ -107,19 +114,20 @@ export async function listMindlogicModels(
   baseUrl?: string,
 ): Promise<MindlogicModelInfo[]> {
   const key = apiKey || (await getMindlogicApiKey());
-  if (!key) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  if (!key) throw new Error(t('err.mindlogic.noKey'));
   const url = baseUrl || (await getMindlogicBaseUrl());
-  if (!url) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
+  if (!url) throw new Error(t('err.mindlogic.noBaseUrl'));
   const res = await fetch(`${url}/models`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
-    throw new Error(`모델 목록 실패 (HTTP ${res.status})`);
+    if (res.status === 401 || res.status === 403)
+      throw new Error(t('err.keyAuth', { status: res.status }));
+    throw new Error(t('err.modelListFailed', { status: res.status }));
   }
   const data = (await res.json()) as { data?: Array<{ id?: string; owned_by?: string }> };
   const models = (data.data ?? [])
     .filter((m): m is { id: string; owned_by?: string } => typeof m.id === 'string' && !!m.id)
     .map((m) => ({ id: m.id, ownedBy: m.owned_by ?? 'other' }));
-  if (models.length === 0) throw new Error('모델 목록이 비어 있음 (응답 형식 변경?)');
+  if (models.length === 0) throw new Error(t('err.modelListEmpty'));
   return models;
 }
 
@@ -148,9 +156,10 @@ export async function getMindlogicCredits(
   if (!url) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
   const res = await fetch(`${url}/credits/`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
-    if (res.status === 404) throw new Error('크레딧 조회 미지원 (HTTP 404) — 이 게이트웨이 버전엔 없을 수 있음');
-    throw new Error(`크레딧 조회 실패 (HTTP ${res.status})`);
+    if (res.status === 401 || res.status === 403)
+      throw new Error(t('err.keyAuth', { status: res.status }));
+    if (res.status === 404) throw new Error(t('err.creditsUnsupported'));
+    throw new Error(t('err.creditsFailed', { status: res.status }));
   }
   const data = (await res.json()) as {
     monthly_allocated?: {
@@ -257,7 +266,7 @@ async function callWithRetry(
   try {
     return await callMindlogic(texts, src, tgt, apiKey, chatUrl, model, title);
   } catch (e) {
-    if (e instanceof Error && e.message.startsWith('Mindlogic 응답 길이 불일치')) {
+    if (e instanceof Error && (e as { code?: string }).code === LENGTH_MISMATCH) {
       console.warn(TAG, `${e.message} — retry once`);
       return await callMindlogic(texts, src, tgt, apiKey, chatUrl, model, title);
     }
@@ -313,18 +322,18 @@ async function callMindlogic(
       continue;
     }
     if (status === 401 || status === 403) {
-      throw new Error(`Mindlogic API 키 인증 실패 (HTTP ${status})`);
+      throw new Error(t('err.auth', { name: GW, status }));
     }
     if (status === 400) {
-      throw new Error(`Mindlogic 요청 형식 오류 (HTTP 400): ${truncate(errText, 200)}`);
+      throw new Error(t('err.badRequest', { name: GW, detail: truncate(errText, 200) }));
     }
     if (status === 429) {
       rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
       throw new Error(
-        `Mindlogic 한도 초과 (HTTP 429) — ${RATE_LIMIT_COOLDOWN_MS / 1000}초 대기`,
+        t('err.rateLimitCooldown', { name: GW, sec: RATE_LIMIT_COOLDOWN_MS / 1000 }),
       );
     }
-    throw new Error(`Mindlogic 서버 오류 (HTTP ${status}): ${truncate(errText, 200)}`);
+    throw new Error(t('err.server', { name: GW, status, detail: truncate(errText, 200) }));
   }
 }
 
@@ -336,11 +345,14 @@ function parseResponse(data: unknown, expectedLen: number): string[] {
   const text = choice?.message?.content;
   if (!text || typeof text !== 'string') {
     const reason = choice?.finish_reason ?? 'unknown';
-    throw new Error(`Mindlogic 응답에 번역 결과 없음 (finish_reason=${reason})`);
+    throw new Error(t('err.noTranslation', { name: GW, reason }));
   }
   const parts = splitSegments(text);
   if (parts.length !== expectedLen) {
-    throw new Error(`Mindlogic 응답 길이 불일치 (예상 ${expectedLen}, 받음 ${parts.length})`);
+    throw Object.assign(
+      new Error(t('err.lengthMismatch', { name: GW, expected: expectedLen, got: parts.length })),
+      { code: LENGTH_MISMATCH },
+    );
   }
   return parts;
 }

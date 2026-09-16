@@ -1,8 +1,8 @@
 import { StrictMode, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  DEFAULT_EXPLAIN_PROMPT,
   DEFAULT_SETTINGS,
+  defaultExplainPrompt,
   loadSettings,
   saveSettings,
   type BackendId,
@@ -12,12 +12,8 @@ import {
   type Settings,
   type TargetLang,
 } from '../shared/settings';
-import {
-  DISPLAY_MODES,
-  GEMINI_MODELS,
-  MINDLOGIC_MODELS,
-  TARGET_LANGS,
-} from '../shared/lang-options';
+import { displayModes, GEMINI_MODELS, MINDLOGIC_MODELS, TARGET_LANGS } from '../shared/lang-options';
+import { setUiLang, t, type MsgKey, type UiLang } from '../shared/i18n';
 import { clearCache, getCacheStats } from '../shared/cache/idb-cache';
 import {
   getGeminiApiKey,
@@ -28,10 +24,10 @@ import {
   setNotionToken,
 } from '../shared/secrets';
 
-const WEIGHTS: Array<{ value: 400 | 500 | 700; label: string }> = [
-  { value: 400, label: '보통' },
-  { value: 500, label: '약간 굵게' },
-  { value: 700, label: '굵게' },
+const weights = (): Array<{ value: 400 | 500 | 700; label: string }> => [
+  { value: 400, label: t('weight.400') },
+  { value: 500, label: t('weight.500') },
+  { value: 700, label: t('weight.700') },
 ];
 
 // 하위 항목 계층 마커. 옛 `·`(middle dot)는 13px 텍스트에 껴서 안 보여 `•`(bullet)로 키움.
@@ -109,7 +105,7 @@ function ResetIcon({ onClick, title }: { onClick: () => void; title: string }) {
         fontWeight: 400,
       }}
     >
-      ↻ 초기화
+      {t('opt.reset')}
     </button>
   );
 }
@@ -157,7 +153,7 @@ function StyleEditor({
       </div>
       {/* 크기·색·굵기는 위 그룹 라벨(1.원문/2.번역)의 하위 — 한 단계 더 들여쓰기(각 행 앞 불릿). */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
-        <Row label="크기">
+        <Row label={t('style.size')}>
           <input
             type="number"
             min={8}
@@ -168,7 +164,7 @@ function StyleEditor({
           />
           <span style={{ fontSize: 12, color: '#999' }}>px</span>
         </Row>
-        <Row label="색">
+        <Row label={t('style.color')}>
           <input
             type="color"
             value={style.color}
@@ -181,14 +177,14 @@ function StyleEditor({
             style={{ width: 100, fontFamily: 'monospace' }}
           />
         </Row>
-        <Row label="굵기">
+        <Row label={t('style.weight')}>
           <select
             value={style.fontWeight}
             onChange={(e) =>
               onChange({ ...style, fontWeight: Number(e.target.value) as CueStyle['fontWeight'] })
             }
           >
-            {WEIGHTS.map((w) => (
+            {weights().map((w) => (
               <option key={w.value} value={w.value}>
                 {w.label}
               </option>
@@ -381,11 +377,11 @@ function Preview({ settings }: { settings: Settings }) {
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <div style={labelStyle}>이중 자막</div>
+          <div style={labelStyle}>{t('opt.preview.dual')}</div>
           <PreviewBox settings={settings} displayMode={settings.displayMode} />
         </div>
         <div>
-          <div style={labelStyle}>이중 자막이 아닐때</div>
+          <div style={labelStyle}>{t('opt.preview.single')}</div>
           <PreviewBox settings={settings} displayMode="source-only" />
         </div>
       </div>
@@ -395,6 +391,9 @@ function Preview({ settings }: { settings: Settings }) {
 
 function Options() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // 이 렌더에서 t()가 쓸 언어를 먼저 맞춘다(모듈 전역). settings가 바뀌면 리렌더되므로
+  // 언어 전환이 그 즉시 화면 전체에 반영된다 — shared/i18n.ts 참조.
+  setUiLang(settings.uiLang);
   const [loaded, setLoaded] = useState(false);
   const [cacheCount, setCacheCount] = useState<number | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'pending' | 'saved'>('idle');
@@ -541,7 +540,7 @@ function Options() {
         apiKey: apiKeyVal.trim(),
         ...(isGemini ? {} : { baseUrl: settings.mindlogicBaseUrl.trim() }),
       })) as { ok: true; models: ModelInfo[] } | { ok: false; error: string } | undefined;
-      if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+      if (!res) return { kind: 'err', error: t('err.noBgResponse') };
       if (res.ok) {
         await chrome.storage.local.set({ [cacheKey]: res.models });
         setModels(res.models);
@@ -561,14 +560,14 @@ function Options() {
     onChange: (v: string) => void,
     forExplain: boolean,
     dynamic: ModelInfo[] | null,
-    curated: Array<{ value: string; transHint?: string; explainHint?: string }>,
+    curated: Array<{ value: string; transHint?: MsgKey; explainHint?: MsgKey }>,
   ): React.ReactNode => {
     const known = new Map(curated.map((m) => [m.value, m]));
     let base: ModelInfo[] =
       dynamic && dynamic.length
         ? dynamic
-        : curated.map((m) => ({ id: m.value, ownedBy: '추천' }));
-    if (!base.some((x) => x.id === value)) base = [{ id: value, ownedBy: '현재' }, ...base];
+        : curated.map((m) => ({ id: m.value, ownedBy: t('opt.group.recommended') }));
+    if (!base.some((x) => x.id === value)) base = [{ id: value, ownedBy: t('opt.group.current') }, ...base];
     const groups = new Map<string, ModelInfo[]>();
     for (const it of base) {
       const arr = groups.get(it.ownedBy) ?? [];
@@ -584,7 +583,7 @@ function Options() {
               return (
                 <option key={it.id} value={it.id}>
                   {it.id}
-                  {hint ? ` — ${hint}` : ''}
+                  {hint ? ` — ${t(hint)}` : ''}
                 </option>
               );
             })}
@@ -609,7 +608,7 @@ function Options() {
   // 자막 전체를 번역하는 용도라 "많은 문장 = 가성비" 관점을 강조. Gemini/Mindlogic 공용.
   const transModelHint = (
     <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
-      영상 자막 전체를 번역할 때 쓰는 모델이에요. 문장이 많으니 빠르고 저렴한 모델이 잘 맞아요.
+      {t('hint.transModel')}
     </p>
   );
 
@@ -618,7 +617,7 @@ function Options() {
   // provider마다 렌더되지만 화면엔 활성 섹션 하나만 떠서 중복 노출 없음.
   const renderExplainBlock = (provider: 'gemini' | 'mindlogic'): React.ReactNode => (
     <>
-      <Row label="해설 모델">
+      <Row label={t('row.explainModel')}>
         {provider === 'gemini'
           ? renderGeminiSelect(
               settings.explainGeminiModel,
@@ -632,12 +631,15 @@ function Options() {
             )}
       </Row>
       <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
-        영상에서 자막을 드래그하면 <b style={{ color: '#3ea6ff' }}>💡 해설</b> ·{' '}
-        <b style={{ color: '#3ea6ff' }}>❓ 질문</b> 버튼이 떠요. 가끔 한 번씩만 부르니 조금 느려도 똑똑한 모델이 잘 맞아요.
+        {t('hint.explainModelPre')}
+        <b style={{ color: '#3ea6ff' }}>{t('panel.explain')}</b> ·{' '}
+        <b style={{ color: '#3ea6ff' }}>{t('panel.question')}</b>
+        {t('hint.explainModelPost')}
       </p>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
         <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
-          <Bullet />해설 프롬프트
+          <Bullet />
+          {t('row.explainPrompt')}
         </label>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
           <textarea
@@ -661,12 +663,12 @@ function Options() {
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
-              onClick={() => update({ explainPrompt: DEFAULT_EXPLAIN_PROMPT })}
-              disabled={settings.explainPrompt === DEFAULT_EXPLAIN_PROMPT}
+              onClick={() => update({ explainPrompt: defaultExplainPrompt(settings.uiLang) })}
+              disabled={settings.explainPrompt === defaultExplainPrompt(settings.uiLang)}
               style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
-              기본값으로
+              {t('btn.restoreDefault')}
             </button>
           </div>
         </div>
@@ -808,7 +810,7 @@ function Options() {
         token: notionToken.trim(),
         databaseId: settings.notionDatabaseId.trim(),
       })) as { ok: true; dbTitle: string } | { ok: false; error: string } | undefined;
-      if (!res) setNotionTestState({ kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' });
+      if (!res) setNotionTestState({ kind: 'err', error: t('err.noBgResponse') });
       else if (res.ok) setNotionTestState({ kind: 'ok', dbTitle: res.dbTitle });
       else setNotionTestState({ kind: 'err', error: res.error });
     } catch (e) {
@@ -832,15 +834,25 @@ function Options() {
     }, 250);
   };
 
+  // 표시 언어 전환 — 손대지 않은 해설 프롬프트는 새 언어의 기본값으로 갈아끼운다.
+  // 사용자가 편집한 프롬프트는 그대로 둔다(그쪽이 사용자 자산).
+  const onUiLangChange = (uiLang: UiLang): void => {
+    const patch: Partial<Settings> = { uiLang };
+    if (settings.explainPrompt === defaultExplainPrompt(settings.uiLang)) {
+      patch.explainPrompt = defaultExplainPrompt(uiLang);
+    }
+    update(patch);
+  };
+
   const onClearCache = async (): Promise<void> => {
-    if (!confirm('저장된 번역을 모두 비울까요? 다음에 같은 영상을 봐도 다시 번역됨.')) return;
+    if (!confirm(t('confirm.clearCache'))) return;
     const n = await clearCache();
     setCacheCount(0);
-    alert(`${n}개 영상의 번역을 비움.`);
+    alert(t('alert.cacheCleared', { count: n }));
   };
 
   const onResetSettings = async (): Promise<void> => {
-    if (!confirm('모든 옵션을 처음으로 되돌릴까요? 저장된 번역은 그대로 유지됨.')) return;
+    if (!confirm(t('confirm.resetAll'))) return;
     // 보류 중인 디바운스 저장이 있다면 리셋 직후 덮어쓰지 못하도록 취소.
     if (saveTimerRef.current !== null) {
       clearTimeout(saveTimerRef.current);
@@ -863,12 +875,9 @@ function Options() {
     update(patch);
   };
   const onResetTextStyle = (): void =>
-    resetKeys(TEXT_STYLE_KEYS, '원문·번역 자막 스타일(크기·색·굵기)을 기본값으로 되돌릴까요?');
+    resetKeys(TEXT_STYLE_KEYS, t('confirm.resetTextStyle'));
   const onResetLayout = (): void =>
-    resetKeys(
-      LAYOUT_KEYS,
-      '쇼츠 자막 크기·배경 진하기·줄 간격·자막 위치를 기본값으로 되돌릴까요?',
-    );
+    resetKeys(LAYOUT_KEYS, t('confirm.resetLayout'));
 
   const dangerButtonStyle: React.CSSProperties = {
     padding: '4px 10px',
@@ -904,7 +913,7 @@ function Options() {
   const showMindlogic =
     settings.backend === 'mindlogic' || settings.explainBackend === 'mindlogic';
 
-  if (!loaded) return <div style={{ padding: 24 }}>옵션 불러오는 중…</div>;
+  if (!loaded) return <div style={{ padding: 24 }}>{t('opt.loading')}</div>;
 
   return (
     <div
@@ -922,10 +931,10 @@ function Options() {
           v{chrome.runtime.getManifest().version}
         </span>
         {saveState === 'pending' && (
-          <span style={{ fontSize: 11, color: '#888', fontWeight: 400 }}>저장 중…</span>
+          <span style={{ fontSize: 11, color: '#888', fontWeight: 400 }}>{t('opt.saving')}</span>
         )}
         {saveState === 'saved' && (
-          <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>● 저장됨</span>
+          <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>{t('opt.saved')}</span>
         )}
       </h1>
 
@@ -939,8 +948,17 @@ function Options() {
       >
         <div>
 
-      <Section title="이중 자막 설정">
-        <Row label="자막 켜기">
+      <Section title={t('sec.dual')}>
+        <Row label={t('row.uiLang')} hint={t('hint.uiLang')}>
+          <select
+            value={settings.uiLang}
+            onChange={(e) => onUiLangChange(e.target.value as UiLang)}
+          >
+            <option value="en">English</option>
+            <option value="ko">한국어</option>
+          </select>
+        </Row>
+        <Row label={t('row.subtitlesOn')}>
           <input
             type="checkbox"
             checked={settings.subtitlesEnabled}
@@ -948,12 +966,8 @@ function Options() {
           />
         </Row>
         <Row
-          label="켜기/끄기 단축키"
-          hint={
-            recordingKey
-              ? '키를 눌러 지정 (Esc로 취소)'
-              : '수정키 없는 알파벳 1개 · c/f/j/k/l/m/n/i/t/w 등은 YouTube 자체 단축키와 겹침'
-          }
+          label={t('row.toggleKey')}
+          hint={recordingKey ? t('hint.recordingKey') : t('hint.toggleKey')}
         >
           <button
             onClick={() => setRecordingKey(true)}
@@ -966,10 +980,10 @@ function Options() {
               color: recordingKey ? '#000' : undefined,
             }}
           >
-            {recordingKey ? '키 입력 대기…' : settings.subtitlesToggleKey.toUpperCase()}
+            {recordingKey ? t('btn.recordingKey') : settings.subtitlesToggleKey.toUpperCase()}
           </button>
         </Row>
-        <Row label="번역 언어" hint="원문 언어는 영상마다 자동 감지">
+        <Row label={t('row.targetLang')} hint={t('hint.targetLang')}>
           <select
             value={settings.targetLang}
             onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
@@ -981,19 +995,19 @@ function Options() {
             ))}
           </select>
         </Row>
-        <Row label="표시 모드">
+        <Row label={t('row.displayMode')}>
           <select
             value={settings.displayMode}
             onChange={(e) => update({ displayMode: e.target.value as DisplayMode })}
           >
-            {DISPLAY_MODES.map((m) => (
+            {displayModes().map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
               </option>
             ))}
           </select>
         </Row>
-        <Row label="노래방 모드">
+        <Row label={t('row.wordReveal')}>
           <input
             type="checkbox"
             checked={settings.wordRevealEnabled}
@@ -1002,37 +1016,37 @@ function Options() {
         </Row>
       </Section>
 
-      <Section title="이중 자막이 아닐때">
-        <Row label="표시 자막 수">
+      <Section title={t('sec.single')}>
+        <Row label={t('row.contextLines')}>
           <select
             value={settings.singleContextLines}
             onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
           >
-            <option value={1}>한 줄만</option>
-            <option value={2}>두 줄 (지금 + 바로 앞)</option>
-            <option value={3}>세 줄 (지금 + 앞 두 줄)</option>
+            <option value={1}>{t('lines.1')}</option>
+            <option value={2}>{t('lines.2')}</option>
+            <option value={3}>{t('lines.3')}</option>
           </select>
         </Row>
         {settings.singleContextLines > 1 && (
           <>
-            <Row label="쌓는 방식">
+            <Row label={t('row.historyLayout')}>
               <select
                 value={settings.historyLayout}
                 onChange={(e) => update({ historyLayout: e.target.value as HistoryLayout })}
               >
-                <option value="stacked">줄로 쌓기</option>
-                <option value="inline">한 문단처럼 이어 보기</option>
+                <option value="stacked">{t('layout.stacked')}</option>
+                <option value="inline">{t('layout.inline')}</option>
               </select>
             </Row>
             {settings.historyLayout === 'stacked' && (
-              <Row label="지난 줄 흐리게 표시">
+              <Row label={t('row.dimHistory')}>
                 <input
                   type="checkbox"
                   checked={settings.dimHistory}
                   onChange={(e) => update({ dimHistory: e.target.checked })}
                 />
                 <span style={{ fontSize: 12, color: '#999' }}>
-                  지금 말하는 줄이 더 잘 보이게 설정
+                  {t('hint.dimHistory')}
                 </span>
               </Row>
             )}
@@ -1041,36 +1055,28 @@ function Options() {
       </Section>
 
       <Section
-        title="자막 스타일"
-        action={
-          <ResetIcon
-            onClick={onResetTextStyle}
-            title="원문·번역 텍스트 스타일(크기·색·굵기)을 기본값으로"
-          />
+        title={t('sec.style')}
+        action={<ResetIcon onClick={onResetTextStyle} title={t('reset.textStyle.title')} />
         }
       >
         <StyleEditor
-          label="1. 원문 자막"
+          label={t('style.source')}
           style={settings.sourceStyle}
           onChange={(sourceStyle) => update({ sourceStyle })}
         />
         <StyleEditor
-          label="2. 번역 자막"
+          label={t('style.target')}
           style={settings.targetStyle}
           onChange={(targetStyle) => update({ targetStyle })}
         />
       </Section>
 
       <Section
-        title="자막 배치 · 배경"
-        action={
-          <ResetIcon
-            onClick={onResetLayout}
-            title="쇼츠 크기·배경·줄 간격·자막 위치를 기본값으로"
-          />
+        title={t('sec.layout')}
+        action={<ResetIcon onClick={onResetLayout} title={t('reset.layout.title')} />
         }
       >
-            <Row label="쇼츠 자막 크기" hint="100%면 일반 영상이랑 같음">
+            <Row label={t('row.shortsScale')} hint={t('hint.shortsScale')}>
               <input
                 type="range"
                 min={0.5}
@@ -1084,7 +1090,7 @@ function Options() {
                 {Math.round(settings.shortsFontScale * 100)}%
               </span>
             </Row>
-            <Row label="자막 배경 진하기" hint="올릴수록 진해짐">
+            <Row label={t('row.bgOpacity')} hint={t('hint.bgOpacity')}>
               <input
                 type="range"
                 min={0}
@@ -1098,7 +1104,7 @@ function Options() {
                 {Math.round(settings.backgroundOpacity * 100)}%
               </span>
             </Row>
-            <Row label="원문과 번역 사이">
+            <Row label={t('row.lineHeight')}>
               <input
                 type="range"
                 min={1}
@@ -1114,7 +1120,8 @@ function Options() {
                 위치 초기화는 섹션 제목 옆 ↻(자막 배치·배경 그룹)에 통합. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <label style={{ minWidth: 140, fontSize: 13 }}>
-                <Bullet />자막 위치
+                <Bullet />
+                {t('row.position')}
               </label>
               <div
                 style={{
@@ -1125,13 +1132,13 @@ function Options() {
                   color: '#999',
                 }}
               >
-                <div>• 자막 드래그 = 이동</div>
-                <div>• 마우스 휠 = 크기 조절</div>
+                <div>{t('hint.positionDrag')}</div>
+                <div>{t('hint.positionWheel')}</div>
               </div>
             </div>
       </Section>
 
-      <Section title="번역 방식">
+      <Section title={t('sec.backend')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
             <input
@@ -1142,11 +1149,13 @@ function Options() {
             />
             <span>
               <div>
-                Google 무료{' '}
-                <span style={{ fontSize: 11, color: '#3ea6ff', marginLeft: 2 }}>추천</span>
+                {t('backend.googleFree.title')}{' '}
+                <span style={{ fontSize: 11, color: '#3ea6ff', marginLeft: 2 }}>
+                  {t('backend.recommended')}
+                </span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                온라인 번역. 너무 자주 쓰면 잠깐 끊길 수 있음
+                {t('backend.googleFree.desc')}
               </div>
             </span>
           </label>
@@ -1158,9 +1167,9 @@ function Options() {
               style={{ marginTop: 2 }}
             />
             <span>
-              <div>Chrome 내장 (오프라인)</div>
+              <div>{t('backend.chrome.title')}</div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                오프라인 번역. 긴 문장은 살짝 어색할 수 있음
+                {t('backend.chrome.desc')}
               </div>
             </span>
           </label>
@@ -1173,10 +1182,13 @@ function Options() {
             />
             <span>
               <div>
-                Gemini (내 API 키){' '}
-                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
+                {t('backend.gemini.title')}{' '}
+                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>
+                  {t('backend.aiBadge')}
+                </span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                {t('backend.gemini.descPre')}
                 <a
                   href="https://aistudio.google.com/apikey"
                   target="_blank"
@@ -1186,7 +1198,7 @@ function Options() {
                 >
                   Google AI Studio
                 </a>
-                에서 무료 발급 가능
+                {t('backend.gemini.descPost')}
               </div>
             </span>
           </label>
@@ -1199,11 +1211,13 @@ function Options() {
             />
             <span>
               <div>
-                Mindlogic Gateway (학교/조직 키){' '}
-                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>AI 번역</span>
+                {t('backend.mindlogic.title')}{' '}
+                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>
+                  {t('backend.aiBadge')}
+                </span>
               </div>
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
-                학교/조직 계정으로 발급된 키 하나로 Claude · GPT · Gemini 등 여러 모델 사용 가능
+                {t('backend.mindlogic.desc')}
               </div>
             </span>
           </label>
@@ -1211,8 +1225,8 @@ function Options() {
       </Section>
 
       {showGemini && (
-        <Section title="Gemini 설정">
-          <Row label="API 키">
+        <Section title={t('sec.gemini')}>
+          <Row label={t('row.apiKey')}>
             <input
               type={showKey ? 'text' : 'password'}
               value={apiKey}
@@ -1227,7 +1241,7 @@ function Options() {
               style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
-              {showKey ? '🙈 숨김' : '👁 보기'}
+              {showKey ? t('btn.hide') : t('btn.show')}
             </button>
             <button
               onClick={() => void onTestGemini()}
@@ -1235,11 +1249,11 @@ function Options() {
               style={testButtonStyle}
               type="button"
             >
-              {testState.kind === 'pending' ? '테스트 중…' : '🧪 테스트'}
+              {testState.kind === 'pending' ? t('btn.testing') : t('btn.test')}
             </button>
             {testState.kind === 'ok' && (
               <span style={{ fontSize: 12, color: '#9eff9e' }}>
-                ✓ 동작함 (예: "Hello, world." → "{testState.translation}")
+                {t('test.ok', { translation: testState.translation })}
               </span>
             )}
             {testState.kind === 'err' && (
@@ -1247,24 +1261,24 @@ function Options() {
             )}
             {geminiModelsFetch.kind === 'ok' && (
               <span style={{ fontSize: 11, color: '#9eff9e' }}>
-                · 모델 목록 {geminiModelsFetch.count}개 확인
+                {t('test.models.ok', { count: geminiModelsFetch.count })}
               </span>
             )}
             {geminiModelsFetch.kind === 'err' && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                · 모델 목록 갱신 실패: {geminiModelsFetch.error}
+                {t('test.models.err', { error: geminiModelsFetch.error })}
               </span>
             )}
             {!apiKey.trim() && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                키 없으면 Google 무료로 자동 fallback
+                {t('warn.noGeminiKey')}
               </span>
             )}
           </Row>
           <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-            가입만 하면 무료로 발급되고 신용카드도 필요 없어요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
+            {t('hint.geminiKey')}
           </p>
-          <Row label="번역 모델">
+          <Row label={t('row.transModel')}>
             {renderGeminiSelect(settings.geminiModel, (v) => update({ geminiModel: v }), false)}
           </Row>
           {transModelHint}
@@ -1273,8 +1287,8 @@ function Options() {
       )}
 
       {showMindlogic && (
-        <Section title="Mindlogic Gateway 설정">
-          <Row label="Base URL">
+        <Section title={t('sec.mindlogic')}>
+          <Row label={t('row.baseUrl')}>
             <input
               type="text"
               value={settings.mindlogicBaseUrl}
@@ -1286,14 +1300,14 @@ function Options() {
             />
           </Row>
           <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-            소속 조직(학교/회사)에서 안내받은 게이트웨이 주소를 붙여넣으세요. 조직마다 도메인이 달라요 — 다른 조직 계정으로 바꾸려면 이 값도 함께 바꾸면 됩니다.
+            {t('hint.baseUrl')}
           </p>
-          <Row label="API 키">
+          <Row label={t('row.apiKey')}>
             <input
               type={showMindlogicKey ? 'text' : 'password'}
               value={mindlogicApiKey}
               onChange={(e) => onMindlogicKeyChange(e.target.value)}
-              placeholder="sk-... 또는 발급받은 키"
+              placeholder={t('ph.mindlogicKey')}
               style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
               autoComplete="off"
               spellCheck={false}
@@ -1303,7 +1317,7 @@ function Options() {
               style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
-              {showMindlogicKey ? '🙈 숨김' : '👁 보기'}
+              {showMindlogicKey ? t('btn.hide') : t('btn.show')}
             </button>
             <button
               onClick={() => void onTestMindlogic()}
@@ -1315,11 +1329,11 @@ function Options() {
               style={testButtonStyle}
               type="button"
             >
-              {mindlogicTestState.kind === 'pending' ? '테스트 중…' : '🧪 테스트'}
+              {mindlogicTestState.kind === 'pending' ? t('btn.testing') : t('btn.test')}
             </button>
             {mindlogicTestState.kind === 'ok' && (
               <span style={{ fontSize: 12, color: '#9eff9e' }}>
-                ✓ 동작함 (예: "Hello, world." → "{mindlogicTestState.translation}")
+                {t('test.ok', { translation: mindlogicTestState.translation })}
               </span>
             )}
             {mindlogicTestState.kind === 'err' && (
@@ -1329,40 +1343,44 @@ function Options() {
             )}
             {modelsFetch.kind === 'ok' && (
               <span style={{ fontSize: 11, color: '#9eff9e' }}>
-                · 모델 목록 {modelsFetch.count}개 확인
+                {t('test.models.ok', { count: modelsFetch.count })}
               </span>
             )}
             {modelsFetch.kind === 'err' && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                · 모델 목록 갱신 실패: {modelsFetch.error}
+                {t('test.models.err', { error: modelsFetch.error })}
               </span>
             )}
             {creditsState.kind === 'ok' && (
               <span style={{ fontSize: 11, color: '#9eff9e' }}>
-                · 잔여 {creditsState.credits.monthlyRemaining.toLocaleString()} /{' '}
-                {creditsState.credits.monthlyQuota.toLocaleString()} 크레딧
+                {t('credits.ok', {
+                  remaining: creditsState.credits.monthlyRemaining.toLocaleString(),
+                  quota: creditsState.credits.monthlyQuota.toLocaleString(),
+                })}
                 {creditsState.credits.renewalDate
-                  ? ` (갱신 ${creditsState.credits.renewalDate.slice(0, 10)})`
+                  ? t('credits.renewal', { date: creditsState.credits.renewalDate.slice(0, 10) })
                   : ''}
                 {creditsState.credits.purchasedQuota > 0 &&
-                  ` · 구매 잔여 ${creditsState.credits.purchasedRemaining.toLocaleString()} 크레딧`}
+                  t('credits.purchased', {
+                    remaining: creditsState.credits.purchasedRemaining.toLocaleString(),
+                  })}
               </span>
             )}
             {creditsState.kind === 'err' && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                · 크레딧 확인 실패: {creditsState.error}
+                {t('credits.err', { error: creditsState.error })}
               </span>
             )}
             {(!mindlogicApiKey.trim() || !settings.mindlogicBaseUrl.trim()) && (
               <span style={{ fontSize: 11, color: '#ff7777' }}>
-                Base URL·키 없으면 Google 무료로 자동 fallback
+                {t('warn.noMindlogicKey')}
               </span>
             )}
           </Row>
           <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-            학교/조직에서 발급받은 키를 붙여넣으세요. 키는 이 PC에만 저장돼요(다른 기기로 동기화 안 됨).
+            {t('hint.mindlogicKey')}
           </p>
-          <Row label="번역 모델">
+          <Row label={t('row.transModel')}>
             {renderMindlogicSelect(settings.mindlogicModel, (v) => update({ mindlogicModel: v }), false)}
           </Row>
           {transModelHint}
@@ -1370,12 +1388,15 @@ function Options() {
         </Section>
       )}
 
-      <Section title="Notion 저장 (해설 패널)">
+      <Section title={t('sec.notion')}>
         <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
-          <b style={{ color: '#3ea6ff' }}>📝 Notion</b> 버튼으로 DB에 바로 저장하려면 아래를 설정하세요.
+          {t('notion.introPre')}
+          <b style={{ color: '#3ea6ff' }}>{t('panel.notion')}</b>
+          {t('notion.introPost')}
         </p>
         <ol style={{ fontSize: 11, color: '#999', margin: '2px 0 6px', paddingLeft: 18, lineHeight: 1.7 }}>
           <li>
+            {t('notion.step1Pre')}
             <a
               href="https://www.notion.so/my-integrations"
               target="_blank"
@@ -1384,12 +1405,16 @@ function Options() {
             >
               notion.so/my-integrations
             </a>
-            에서 integration 만들고 <b>Internal Integration Secret</b> 복사
+            {t('notion.step1Post')}
+            <b>{t('notion.step1Bold')}</b>
           </li>
-          <li>저장할 데이터베이스 페이지 → 우측 ⋯ → <b>연결(Connections)</b>에 그 integration 추가</li>
-          <li>그 데이터베이스의 URL을 아래 "DB ID/URL"에 붙여넣기</li>
+          <li>
+            {t('notion.step2Pre')}
+            <b>{t('notion.step2Bold')}</b>
+          </li>
+          <li>{t('notion.step3')}</li>
         </ol>
-        <Row label="Integration 토큰">
+        <Row label={t('row.notionToken')}>
           <input
             type={showNotionToken ? 'text' : 'password'}
             value={notionToken}
@@ -1404,27 +1429,27 @@ function Options() {
             style={{ padding: '4px 10px', fontSize: 12 }}
             type="button"
           >
-            {showNotionToken ? '🙈 숨김' : '👁 보기'}
+            {showNotionToken ? t('btn.hide') : t('btn.show')}
           </button>
         </Row>
         <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-          위 1번에서 복사한 Internal Integration Secret을 붙여넣으세요. 토큰은 이 PC에만 저장돼요.
+          {t('hint.notionToken')}
         </p>
-        <Row label="DB ID/URL">
+        <Row label={t('row.notionDb')}>
           <input
             type="text"
             value={settings.notionDatabaseId}
             onChange={(e) => update({ notionDatabaseId: e.target.value })}
-            placeholder="https://notion.so/...?v=... 또는 32자리 ID"
+            placeholder={t('ph.notionDb')}
             style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
             autoComplete="off"
             spellCheck={false}
           />
         </Row>
         <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
-          저장할 데이터베이스 페이지의 주소(URL)를 통째로 붙여넣어도 자동으로 ID를 인식해요.
+          {t('hint.notionDb')}
         </p>
-        <Row label="연결 확인">
+        <Row label={t('row.notionTest')}>
           <button
             onClick={() => void onTestNotion()}
             disabled={
@@ -1435,11 +1460,11 @@ function Options() {
             style={testButtonStyle}
             type="button"
           >
-            {notionTestState.kind === 'pending' ? '확인 중…' : '🧪 테스트'}
+            {notionTestState.kind === 'pending' ? t('btn.checking') : t('btn.test')}
           </button>
           {notionTestState.kind === 'ok' && (
             <span style={{ fontSize: 12, color: '#9eff9e' }}>
-              ✓ 연결됨 (DB: "{notionTestState.dbTitle}")
+              {t('test.notion.ok', { title: notionTestState.dbTitle })}
             </span>
           )}
           {notionTestState.kind === 'err' && (
@@ -1448,13 +1473,13 @@ function Options() {
         </Row>
       </Section>
 
-      <Section title="관리">
-        <Row label="저장된 번역">
+      <Section title={t('sec.manage')}>
+        <Row label={t('row.cache')}>
           <button onClick={onClearCache} style={{ padding: '4px 10px' }}>
-            캐시 비우기
+            {t('btn.clearCache')}
           </button>
           <span style={{ fontSize: 12, color: '#999' }}>
-            현재 {cacheCount ?? '…'}개 영상 저장
+            {t('cache.count', { count: cacheCount ?? '…' })}
           </span>
         </Row>
         <div
@@ -1464,9 +1489,9 @@ function Options() {
             borderTop: '1px dashed #3a2a2a',
           }}
         >
-          <Row label="옵션 초기화" hint="모든 옵션 초기화">
+          <Row label={t('row.resetAll')} hint={t('hint.resetAll')}>
             <button onClick={onResetSettings} style={dangerButtonStyle}>
-              초기화
+              {t('btn.reset')}
             </button>
           </Row>
         </div>
@@ -1474,7 +1499,7 @@ function Options() {
         </div>
         <div style={{ position: 'sticky', top: 24 }}>
           <div style={{ fontSize: 18, color: '#ffa200', fontWeight: 700, marginBottom: 10 }}>
-            미리보기
+            {t('opt.preview')}
           </div>
           <Preview settings={settings} />
         </div>

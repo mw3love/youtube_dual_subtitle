@@ -19,6 +19,10 @@
 
 import { getGeminiApiKey } from '../../shared/secrets';
 import type { GeminiModel } from '../../shared/settings';
+import { t } from '../../shared/i18n';
+
+// 길이 불일치 에러 식별자 — 메시지 문구는 번역되므로 code로 구분한다.
+const LENGTH_MISMATCH = 'YDT_LENGTH_MISMATCH';
 
 const TAG = '[YDT/gemini]';
 const ENDPOINT_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
@@ -62,11 +66,11 @@ export async function translateBatch(
   const now = Date.now();
   if (rateLimitedUntil > now) {
     const wait = Math.ceil((rateLimitedUntil - now) / 1000);
-    throw new Error(`Gemini 한도 초과로 대기 중 (${wait}초 남음)`);
+    throw new Error(t('err.cooldown', { name: 'Gemini', sec: wait }));
   }
   const apiKey = opts?.apiKey ?? (await getGeminiApiKey());
   if (!apiKey) {
-    throw new Error('Gemini API 키가 설정되어 있지 않음 (옵션 페이지에서 입력 필요)');
+    throw new Error(t('err.gemini.noKey'));
   }
   const model = opts?.model ?? (await readModel());
 
@@ -113,11 +117,12 @@ export interface GeminiModelInfo {
 
 export async function listGeminiModels(apiKey?: string): Promise<GeminiModelInfo[]> {
   const key = apiKey || (await getGeminiApiKey());
-  if (!key) throw new Error('Gemini API 키가 없음 (옵션 페이지에서 입력 필요)');
+  if (!key) throw new Error(t('err.gemini.noKey'));
   const res = await fetch(MODELS_ENDPOINT, { headers: { 'x-goog-api-key': key } });
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw new Error(`키 인증 실패 (HTTP ${res.status})`);
-    throw new Error(`모델 목록 실패 (HTTP ${res.status})`);
+    if (res.status === 401 || res.status === 403)
+      throw new Error(t('err.keyAuth', { status: res.status }));
+    throw new Error(t('err.modelListFailed', { status: res.status }));
   }
   const data = (await res.json()) as {
     models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
@@ -127,14 +132,14 @@ export async function listGeminiModels(apiKey?: string): Promise<GeminiModelInfo
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
     .filter((id) => id && !/embedding|aqa|imagen|veo|tts|image-generation/i.test(id))
     .map((id) => ({ id, ownedBy: geminiFamily(id) }));
-  if (models.length === 0) throw new Error('사용 가능한 모델이 없음 (응답 형식 변경?)');
+  if (models.length === 0) throw new Error(t('err.modelListEmpty'));
   return models;
 }
 
 // 모델 ID에서 세대 그룹 추출: gemini-2.5-flash → "gemini-2.5", gemma-3-1b → "gemma". 그 외 "기타".
 function geminiFamily(id: string): string {
   const m = id.match(/^(gemini-\d+(?:\.\d+)?|gemma)/);
-  return m ? m[1] : '기타';
+  return m ? m[1] : t('model.group.other');
 }
 
 function systemInstruction(src: string, tgt: string, count: number): string {
@@ -163,7 +168,7 @@ async function callGeminiWithRetry(
     return await callGemini(texts, src, tgt, apiKey, model);
   } catch (e) {
     // 길이 불일치만 1회 재시도. 인증·한도 오류는 재시도 무의미 → 즉시 throw.
-    if (e instanceof Error && e.message.startsWith('Gemini 응답 길이 불일치')) {
+    if (e instanceof Error && (e as { code?: string }).code === LENGTH_MISMATCH) {
       console.warn(TAG, `${e.message} — retry once`);
       return await callGemini(texts, src, tgt, apiKey, model);
     }
@@ -230,17 +235,19 @@ async function callGemini(
       continue;
     }
     if (status === 401 || status === 403) {
-      throw new Error(`Gemini API 키 인증 실패 (HTTP ${status})`);
+      throw new Error(t('err.auth', { name: 'Gemini', status }));
     }
     if (status === 400) {
-      throw new Error(`Gemini 요청 형식 오류 (HTTP 400): ${truncate(errText, 200)}`);
+      throw new Error(t('err.badRequest', { name: 'Gemini', detail: truncate(errText, 200) }));
     }
     if (status === 429) {
       // 한도 도달 → cooldown 설정. 다음 호출들은 즉시 skip됨.
       rateLimitedUntil = Date.now() + RATE_LIMIT_COOLDOWN_MS;
-      throw new Error(`Gemini 한도 초과 (HTTP 429) — ${RATE_LIMIT_COOLDOWN_MS / 1000}초 대기`);
+      throw new Error(
+        t('err.rateLimitCooldown', { name: 'Gemini', sec: RATE_LIMIT_COOLDOWN_MS / 1000 }),
+      );
     }
-    throw new Error(`Gemini 서버 오류 (HTTP ${status}): ${truncate(errText, 200)}`);
+    throw new Error(t('err.server', { name: 'Gemini', status, detail: truncate(errText, 200) }));
   }
 }
 
@@ -255,17 +262,22 @@ function parseResponse(data: unknown, expectedLen: number): string[] {
   const text = candidate?.content?.parts?.[0]?.text;
   if (!text) {
     const reason = candidate?.finishReason ?? 'unknown';
-    throw new Error(`Gemini 응답에 번역 결과 없음 (finishReason=${reason})`);
+    throw new Error(t('err.noTranslation', { name: 'Gemini', reason }));
   }
   let arr: unknown;
   try {
     arr = JSON.parse(text);
   } catch {
-    throw new Error('Gemini 응답을 JSON 배열로 파싱 못함');
+    throw new Error(t('err.notJsonArray', { name: 'Gemini' }));
   }
-  if (!Array.isArray(arr)) throw new Error('Gemini 응답이 배열이 아님');
+  if (!Array.isArray(arr)) throw new Error(t('err.notArray', { name: 'Gemini' }));
   if (arr.length !== expectedLen) {
-    throw new Error(`Gemini 응답 길이 불일치 (예상 ${expectedLen}, 받음 ${arr.length})`);
+    // 길이 불일치는 호출 측이 1회 재시도로 잡는다 — 문구가 UI 언어를 따라가므로
+    // 메시지 문자열이 아니라 code로 식별한다(예전엔 startsWith로 판별했다).
+    throw Object.assign(
+      new Error(t('err.lengthMismatch', { name: 'Gemini', expected: expectedLen, got: arr.length })),
+      { code: LENGTH_MISMATCH },
+    );
   }
   return arr.map((v) => String(v));
 }

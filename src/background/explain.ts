@@ -9,10 +9,11 @@
 // user = 선택 표현 + 자막 문맥. 응답 markdown 문자열을 그대로 content로 돌려 패널이 렌더한다.
 
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
-import { getMindlogicBaseUrl, QUESTION_SYSTEM_PROMPT } from '../shared/settings';
+import { getMindlogicBaseUrl, questionSystemPrompt } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import type { ChatTurn } from '../shared/types';
 import { resolveGeminiModelId } from './translators/gemini';
+import { getUiLang, t as tr } from '../shared/i18n';
 
 const TAG = '[YDT/explain]';
 
@@ -45,7 +46,7 @@ export async function explain(params: ExplainParams): Promise<ExplainOutput> {
   // 질문이 있으면(=후속 포함) 기본은 가벼운 질문 프롬프트. 단 Alt+Q "직접 질문"(isAsk)은 자막 문맥이
   // 없어 답이 얇아지므로 해설 프롬프트(params.prompt)로 풍부하게 — 프롬프트가 비면 질문 프롬프트로 폴백.
   const useExplainForAsk = params.isAsk === true && !!params.prompt?.trim();
-  const systemPrompt = q ? (useExplainForAsk ? params.prompt : QUESTION_SYSTEM_PROMPT) : params.prompt;
+  const systemPrompt = q ? (useExplainForAsk ? params.prompt : questionSystemPrompt(getUiLang())) : params.prompt;
   const userMsg = buildUserMessage(params.text, params.context, q);
   const history = params.history ?? [];
   const markdown =
@@ -62,15 +63,15 @@ function buildUserMessage(text: string, context?: string, question?: string): st
   if (q) {
     const lines: string[] = [];
     // 자막 선택 없이 연 "직접 질문"(Alt+Q)이면 t가 비어 "고른 부분" 줄은 생략 → 순수 질문만.
-    if (t) lines.push(`자막에서 고른 부분: "${t}"`);
-    if (ctx && ctx !== t) lines.push(`자막 문장: ${ctx}`);
-    lines.push(`질문: ${q}`);
+    if (t) lines.push(tr('msg.selected', { text: t }));
+    if (ctx && ctx !== t) lines.push(tr('msg.sentence', { context: ctx }));
+    lines.push(tr('msg.question', { question: q }));
     return lines.join('\n');
   }
   if (ctx && ctx !== t) {
-    return `아래 자막 문장에서 "${t}" 부분을 설명해줘.\n자막 문장: ${ctx}`;
+    return tr('msg.explainWithContext', { text: t, context: ctx });
   }
-  return `"${t}"를 설명해줘.`;
+  return tr('msg.explainPlain', { text: t });
 }
 
 async function explainGemini(
@@ -80,7 +81,7 @@ async function explainGemini(
   model: GeminiModel,
 ): Promise<string> {
   const apiKey = await getGeminiApiKey();
-  if (!apiKey) throw new Error('Gemini API 키가 없음 (옵션 페이지에서 입력 필요)');
+  if (!apiKey) throw new Error(tr('err.gemini.noKey'));
   const url = `${GEMINI_ENDPOINT_BASE}/${resolveGeminiModelId(model)}:generateContent`;
   // history의 role('user'/'model')은 gemini 규약과 동일 → 그대로 매핑, 끝에 이번 user 메시지.
   const contents = [
@@ -109,7 +110,9 @@ async function explainGemini(
   const candidate = data.candidates?.[0];
   const text = candidate?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
   if (!text.trim()) {
-    throw new Error(`Gemini 해설 응답 없음 (finishReason=${candidate?.finishReason ?? 'unknown'})`);
+    throw new Error(
+      tr('err.noExplainResponse', { name: 'Gemini', reason: candidate?.finishReason ?? 'unknown' }),
+    );
   }
   return text;
 }
@@ -121,9 +124,9 @@ async function explainMindlogic(
   model: MindlogicModel,
 ): Promise<string> {
   const apiKey = await getMindlogicApiKey();
-  if (!apiKey) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  if (!apiKey) throw new Error(tr('err.mindlogic.noKey'));
   const baseUrl = await getMindlogicBaseUrl();
-  if (!baseUrl) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
+  if (!baseUrl) throw new Error(tr('err.mindlogic.noBaseUrl'));
   // OpenAI 호환: system 다음에 history(model→assistant 매핑), 끝에 이번 user 메시지.
   const messages = [
     { role: 'system', content: prompt },
@@ -143,14 +146,16 @@ async function explainMindlogic(
     body: JSON.stringify(body),
   });
 
-  if (!res.ok) throw httpError('Mindlogic', res.status, await res.text().catch(() => ''));
+  if (!res.ok) throw httpError('Gateway', res.status, await res.text().catch(() => ''));
   const data = (await res.json()) as {
     choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
   };
   const choice = data.choices?.[0];
   const text = choice?.message?.content ?? '';
   if (!text.trim()) {
-    throw new Error(`Mindlogic 해설 응답 없음 (finish_reason=${choice?.finish_reason ?? 'unknown'})`);
+    throw new Error(
+      tr('err.noExplainResponse', { name: 'Gateway', reason: choice?.finish_reason ?? 'unknown' }),
+    );
   }
   return text;
 }
@@ -167,8 +172,8 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
 }
 
 function httpError(name: string, status: number, body: string): Error {
-  if (status === 401 || status === 403) return new Error(`${name} 키 인증 실패 (HTTP ${status})`);
-  if (status === 429) return new Error(`${name} 한도 초과 (HTTP 429) — 잠시 후 다시`);
+  if (status === 401 || status === 403) return new Error(tr('err.auth', { name, status }));
+  if (status === 429) return new Error(tr('err.rateLimit', { name }));
   const detail = body.length > 200 ? body.slice(0, 200) + '…' : body;
-  return new Error(`${name} 오류 (HTTP ${status})${detail ? `: ${detail}` : ''}`);
+  return new Error(tr('err.generic', { name, status, detail: detail ? `: ${detail}` : '' }));
 }

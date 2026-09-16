@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { tl, type UiLang } from './i18n';
 
 // zod로 검증해 손상된 storage 값이 runtime을 부수지 않게 한다.
 // 새 필드는 default가 있어서 옛 사용자의 storage에도 안전하게 마이그레이션됨.
@@ -36,28 +37,25 @@ export type DisplayMode = z.infer<typeof DisplayModeSchema>;
 export const ExplainBackendSchema = z.enum(['gemini', 'mindlogic']);
 export type ExplainBackend = z.infer<typeof ExplainBackendSchema>;
 
-// 해설 기본 프롬프트 — 사용자의 Gemini "영어 선생님" Gem 프롬프트를 기본값으로 박는다.
-// 옵션 페이지에서 자유 편집 가능(explainPrompt). system 메시지로 그대로 전달된다.
-export const DEFAULT_EXPLAIN_PROMPT = `너는 나의 영어 선생님이야. 내가 영어를 잘 할 수 있도록 최선을 다해. 답변할 때 정보 전달 외 불필요한 인삿말은 하지 마.
+// UI 표시 언어 (A70). 기본값은 영어 — 웹스토어 공개 배포 기준. 옵션 페이지에서 한국어로 전환
+// 가능하다(chrome.i18n은 브라우저 언어만 따르고 런타임 전환 API가 없어 자체 사전을 쓴다 —
+// shared/i18n.ts 참조).
+export const UiLangSchema = z.enum(['en', 'ko']);
 
-답변은 다음과 같이 할것
-- 답변은 한국말로
-- 답변 최상단에는 질문에 적합한 영어예문을 인라인 코드로 작성
-- 예문 아래에 한글 해석 작성
-- 영어 예문들만 인라인 코드로 작성할것
-- 관용어(idiom)의 경우 어원 설명
-- 표로 만들 수 있는건 되도록 표로 제작
-- 의미가 다양할 경우 관통하는 하나의 이미지 표현을 제시, 유연하게 해석할 수 있도록 한다.`;
+// 해설 기본 프롬프트 — 사용자의 Gemini "영어 선생님" Gem 프롬프트가 원형이고, UI 언어별로
+// 답변 언어가 다른 두 벌을 i18n 사전이 들고 있다. 옵션 페이지에서 자유 편집 가능(explainPrompt).
+// system 메시지로 그대로 전달된다.
+export function defaultExplainPrompt(lang: UiLang): string {
+  return tl(lang, 'prompt.explainDefault');
+}
 
 // 질문 전용 시스템 프롬프트 — "❓ 질문" 경로에서 쓴다(해설 프롬프트와 분리).
 // 해설은 고정 표 형식의 "영어 선생님"이라 "who 빼면 이상한가?" 같은 자유 질문엔 형식이
 // 끼어들어 어색하다. 질문은 형식 강제 없이 자막 문맥을 참고해 핵심만 답하는 가벼운 튜터로.
 // (사용자 편집 대상 아님 — 코드 상수. 자유 질문이라 영어/한글 영상 모두 동작.)
-export const QUESTION_SYSTEM_PROMPT = `너는 나의 언어 학습 도우미야. 사용자가 자막에서 고른 표현과 그 문맥을 참고해 사용자의 질문에 답해.
-- 답변은 한국어로, 핵심만 간결하게.
-- 영어 예문이나 단어는 인라인 코드(\`backtick\`)로 표시.
-- 표로 정리하는 게 더 명확하면 표로.
-- 정보 전달 외 불필요한 인삿말은 하지 마.`;
+export function questionSystemPrompt(lang: UiLang): string {
+  return tl(lang, 'prompt.question');
+}
 
 // 누적 표시 레이아웃 — cue마다 한 줄(stacked) vs 한 문단처럼 이어 흘림(inline).
 export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
@@ -92,6 +90,8 @@ export const SubtitlesToggleKeySchema = z.string().regex(/^[a-z]$/);
 export type SubtitlesToggleKey = z.infer<typeof SubtitlesToggleKeySchema>;
 
 export const SettingsSchema = z.object({
+  // 확장 UI 표시 언어 — 이 값이 AI 기본 프롬프트(해설/질문)의 언어도 정한다.
+  uiLang: UiLangSchema,
   subtitlesEnabled: z.boolean(),
   subtitlesToggleKey: SubtitlesToggleKeySchema,
   backend: BackendIdSchema,
@@ -145,6 +145,7 @@ export const SettingsSchema = z.object({
 export type Settings = z.infer<typeof SettingsSchema>;
 
 export const DEFAULT_SETTINGS: Settings = {
+  uiLang: 'en',
   subtitlesEnabled: true,
   subtitlesToggleKey: 'g',
   backend: 'google-free',
@@ -173,7 +174,7 @@ export const DEFAULT_SETTINGS: Settings = {
   explainBackend: 'gemini',
   explainGeminiModel: 'gemini-3.5-flash',
   explainMindlogicModel: 'claude-sonnet-4-6',
-  explainPrompt: DEFAULT_EXPLAIN_PROMPT,
+  explainPrompt: defaultExplainPrompt('en'),
   notionEnabled: false,
   notionDatabaseId: '',
 };

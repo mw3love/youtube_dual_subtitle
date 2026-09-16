@@ -12,6 +12,7 @@ import { loadSettings, saveSettings, type BackendId, type Settings } from '../sh
 import { makeKey } from '../shared/cache/idb-cache';
 import { getVideoIdFromLocation } from '../shared/url';
 import { explainModelLabel } from '../shared/lang-options';
+import { setUiLang, t } from '../shared/i18n';
 
 const TAG = '[YDT]';
 
@@ -73,9 +74,9 @@ renderer.setOnFontSizeChange((sourceSize, targetSize) => {
 // 현재 settings에서 가져옴(키는 background가 secrets.ts에서 읽음).
 async function requestExplain(text: string, context: string): Promise<ExplainResult> {
   const s = currentSettings;
-  if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
+  if (!s) return { ok: false, error: t('err.settingsLoading') };
   if (!s.explainPrompt.trim()) {
-    return { ok: false, error: '해설 프롬프트가 비어 있어요 (옵션에서 입력하거나 "기본값으로").' };
+    return { ok: false, error: t('err.emptyExplainPrompt') };
   }
   const model = s.explainBackend === 'gemini' ? s.explainGeminiModel : s.explainMindlogicModel;
   try {
@@ -87,7 +88,7 @@ async function requestExplain(text: string, context: string): Promise<ExplainRes
       model,
       prompt: s.explainPrompt,
     })) as ExplainResult | undefined;
-    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    if (!res) return { ok: false, error: t('err.noBgResponse') };
     return res;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -104,7 +105,7 @@ async function requestQuestion(
   isAsk: boolean,
 ): Promise<ExplainResult> {
   const s = currentSettings;
-  if (!s) return { ok: false, error: '설정 로드 전입니다. 잠시 후 다시 시도하세요.' };
+  if (!s) return { ok: false, error: t('err.settingsLoading') };
   const model = s.explainBackend === 'gemini' ? s.explainGeminiModel : s.explainMindlogicModel;
   try {
     const res = (await chrome.runtime.sendMessage({
@@ -118,7 +119,7 @@ async function requestQuestion(
       model,
       prompt: s.explainPrompt,
     })) as ExplainResult | undefined;
-    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    if (!res) return { ok: false, error: t('err.noBgResponse') };
     return res;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -135,9 +136,9 @@ async function requestNotionSave(
   prev?: { pageId: string; dbId: string; title: string },
 ): Promise<NotionSaveResult> {
   const s = currentSettings;
-  if (!s) return { ok: false, error: '설정 로드 전입니다.' };
+  if (!s) return { ok: false, error: t('err.settingsLoadingShort') };
   if (!s.notionDatabaseId.trim()) {
-    return { ok: false, error: 'Notion 데이터베이스 ID가 비어 있어요 (옵션에서 입력).' };
+    return { ok: false, error: t('err.emptyNotionDb') };
   }
   try {
     const res = (await chrome.runtime.sendMessage({
@@ -152,7 +153,7 @@ async function requestNotionSave(
       prevDatabaseId: prev?.dbId,
       prevTitle: prev?.title,
     })) as NotionSaveResult | undefined;
-    if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+    if (!res) return { ok: false, error: t('err.noBgResponse') };
     return res.ok ? { ...res, dbId: s.notionDatabaseId } : res;
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -664,6 +665,9 @@ document.addEventListener(
 // 호출 흐름: boot 시 1회, storage.onChanged 시마다.
 function applySettings(s: Settings): void {
   currentSettings = s;
+  // UI 표시 언어 — 해설 패널 버튼/에러 문구가 이 값을 따라간다(shared/i18n.ts).
+  setUiLang(s.uiLang);
+  explainUI.relabel();
   renderer.setUserVisible(s.subtitlesEnabled);
   // 네이티브 자막 강제숨김(styles.ts)은 우리 듀얼자막이 켜져 있을 때만 — 꺼두면 native CC가
   // 사용자 자기 제어(C 키)로 그대로 보여야 한다(A62: C/Alt+C 분리).

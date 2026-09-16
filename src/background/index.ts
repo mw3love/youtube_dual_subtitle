@@ -12,6 +12,11 @@ import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/sett
 import type { ChatTurn } from '../shared/types';
 import { setLastBackend } from '../shared/secrets';
 import { getCached, setCached } from '../shared/cache/idb-cache';
+import { initUiLang } from '../shared/i18n';
+
+// UI 언어를 SW 부팅 시 한 번 읽고 이후 변경도 추적 — 여기서 만들어지는 에러 문구/프롬프트가
+// 사용자 표시 언어를 따라가게 한다(shared/i18n.ts).
+void initUiLang();
 
 const TAG = '[YDT/bg]';
 console.log(TAG, 'background service worker started');

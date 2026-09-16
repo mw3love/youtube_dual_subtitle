@@ -16,6 +16,7 @@ import { injectStyles } from '../content/renderer/styles';
 import { loadSettings, type Settings } from '../shared/settings';
 import { explainModelLabel } from '../shared/lang-options';
 import type { ChatTurn } from '../shared/types';
+import { setUiLang, t } from '../shared/i18n';
 
 // 재주입 가드 — 이미 이 페이지에 떠 있으면 새 인스턴스를 만들지 않고 openAsk()만 재호출
 // (새 탭으로 누적, 기존 패널·탭은 그대로 보존).
@@ -31,13 +32,23 @@ if (window.__YDT_ASK_OPEN__) {
   void initAskAnywhere();
 }
 
+// 설정 리스너가 패널 생성보다 먼저 등록되므로(아래 loadSettings 직후) 선언만 위에 둔다.
+let explainUI: ExplainUI | null = null;
+
 async function initAskAnywhere(): Promise<void> {
   injectStyles();
 
   let currentSettings: Settings = await loadSettings();
+  setUiLang(currentSettings.uiLang);
   chrome.storage.onChanged.addListener((_changes, area) => {
     if (area !== 'sync') return;
-    void loadSettings().then((s) => (currentSettings = s));
+    void loadSettings().then((s) => {
+      currentSettings = s;
+      setUiLang(s.uiLang);
+      // 이 스크립트는 패널을 먼저 만들고 나서 설정 변경을 받으므로, 언어가 바뀌면 이미 만들어진
+      // 버튼 라벨도 다시 찍어야 한다(content/index.ts의 applySettings와 같은 처리).
+      explainUI?.relabel();
+    });
   });
 
   // content/index.ts의 requestExplain/requestQuestion/requestNotionSave와 동일 배선
@@ -45,7 +56,7 @@ async function initAskAnywhere(): Promise<void> {
   async function requestExplain(text: string, context: string): Promise<ExplainResult> {
     const s = currentSettings;
     if (!s.explainPrompt.trim()) {
-      return { ok: false, error: '해설 프롬프트가 비어 있어요 (옵션에서 입력하거나 "기본값으로").' };
+      return { ok: false, error: t('err.emptyExplainPrompt') };
     }
     const model = s.explainBackend === 'gemini' ? s.explainGeminiModel : s.explainMindlogicModel;
     try {
@@ -57,7 +68,7 @@ async function initAskAnywhere(): Promise<void> {
         model,
         prompt: s.explainPrompt,
       })) as ExplainResult | undefined;
-      return res ?? { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+      return res ?? { ok: false, error: t('err.noBgResponse') };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -84,7 +95,7 @@ async function initAskAnywhere(): Promise<void> {
         model,
         prompt: s.explainPrompt,
       })) as ExplainResult | undefined;
-      return res ?? { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+      return res ?? { ok: false, error: t('err.noBgResponse') };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -98,7 +109,7 @@ async function initAskAnywhere(): Promise<void> {
   ): Promise<NotionSaveResult> {
     const s = currentSettings;
     if (!s.notionDatabaseId.trim()) {
-      return { ok: false, error: 'Notion 데이터베이스 ID가 비어 있어요 (옵션에서 입력).' };
+      return { ok: false, error: t('err.emptyNotionDb') };
     }
     try {
       const res = (await chrome.runtime.sendMessage({
@@ -113,7 +124,7 @@ async function initAskAnywhere(): Promise<void> {
         prevDatabaseId: prev?.dbId,
         prevTitle: prev?.title,
       })) as NotionSaveResult | undefined;
-      if (!res) return { ok: false, error: '백그라운드 응답 없음 — 확장 재로드' };
+      if (!res) return { ok: false, error: t('err.noBgResponse') };
       return res.ok ? { ...res, dbId: s.notionDatabaseId } : res;
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -125,7 +136,7 @@ async function initAskAnywhere(): Promise<void> {
     return explainModelLabel(s.explainBackend, s.explainGeminiModel, s.explainMindlogicModel);
   }
 
-  const explainUI = new ExplainUI(
+  explainUI = new ExplainUI(
     requestExplain,
     requestQuestion,
     requestNotionSave,
@@ -135,5 +146,5 @@ async function initAskAnywhere(): Promise<void> {
   explainUI.setNotionEnabled(true);
   explainUI.openAsk();
 
-  window.__YDT_ASK_OPEN__ = () => explainUI.openAsk();
+  window.__YDT_ASK_OPEN__ = () => explainUI?.openAsk();
 }

@@ -11,6 +11,7 @@ YouTube 영상에 **원문 + 번역 자막을 동시에** 표시하는 Chrome �
 ## 주요 기능
 
 - 원문 자막(영어 등) + 번역 자막(한국어 등) 듀얼 표시
+- 화면 표시 언어: 기본 영어, 옵션에서 한국어로 전환 가능
 - 표시 모드: 듀얼 / 번역만 / 원문만
 - 싱글 자막(번역만·원문만·모국어 영상) 누적 표시 — 현재 줄 + 직전 줄을 함께 쌓아 맥락 보강 (1~3줄)
 - 단어 단위 점진 표시 (자동자막에서 가장 정확)
@@ -18,7 +19,7 @@ YouTube 영상에 **원문 + 번역 자막을 동시에** 표시하는 Chrome �
   - **Google 무료**: 클라우드 번역, 품질 상위
   - **Chrome 내장**: 로컬 모델, 오프라인·프라이버시
   - **Gemini (BYOK)**: 본인 Google AI Studio 키로 AI 번역. 더 자연스러운 한국어, Flash·Flash-Lite 모델 선택
-  - **Mindlogic Gateway (BYOK)**: 학교/조직 발급 키 하나로 Claude Haiku · GPT-5.4 mini/nano · Gemini Flash 등 가성비 라인 선택. 통합 크레딧 방식 게이트웨이
+  - **OpenAI 호환 게이트웨이 (BYOK)**: 학교/조직 발급 키 하나로 Claude Haiku · GPT-5.4 mini/nano · Gemini Flash 등 가성비 라인 선택. OpenAI 호환 Chat Completions 경로를 쓰는 통합 크레딧 게이트웨이(Mindlogic/FactChat 등)
 - 자막 위치를 마우스 드래그로 직접 조정 (일반/Shorts 좌표 별도 저장)
 - 스타일 커스터마이즈: 폰트 크기·색·굵기·줄 높이·배경 투명도
 - Shorts 자막 크기 배율 별도 조정
@@ -64,7 +65,7 @@ dev 빌드는 디버그 콘솔 로그(`[YDT/...]`) 유지. production 빌드는 
 | `host: youtube.com` | 자막 트랙 가로채기 + 자막 오버레이 |
 | `host: translate.googleapis.com` | Google 무료 백엔드 호출 |
 | `host: generativelanguage.googleapis.com` | Gemini (BYOK) 백엔드 호출. 사용자가 본인 키 입력 시에만 사용 |
-| `host: factchat-cloud.mindlogic.ai` | Mindlogic Gateway (BYOK) 백엔드 호출. 사용자가 학교/조직 키 입력 시에만 사용 |
+| `host: factchat-cloud.mindlogic.ai` | OpenAI 호환 게이트웨이 (BYOK) 백엔드 호출. 사용자가 학교/조직 키 입력 시에만 사용 |
 
 데이터 처리 상세는 [docs/PRIVACY.md](docs/PRIVACY.md) 참고.
 

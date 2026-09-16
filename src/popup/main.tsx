@@ -9,7 +9,14 @@ import {
   type Settings,
   type TargetLang,
 } from '../shared/settings';
-import { BACKENDS, DISPLAY_MODES, GEMINI_MODELS, MINDLOGIC_MODELS, TARGET_LANGS } from '../shared/lang-options';
+import {
+  backends,
+  displayModes,
+  GEMINI_MODELS,
+  MINDLOGIC_MODELS,
+  TARGET_LANGS,
+} from '../shared/lang-options';
+import { setUiLang, t } from '../shared/i18n';
 import {
   getGeminiApiKey,
   getLastBackend,
@@ -44,27 +51,27 @@ function StatusLine({ status }: { status: TabStatus }) {
   switch (status.kind) {
     case 'loading':
       color = '#666';
-      text = '확인 중…';
+      text = t('status.checking');
       break;
     case 'not-youtube':
       color = '#888';
-      text = 'YouTube 화면이 아님';
+      text = t('status.notYoutube');
       break;
     case 'unreachable':
       color = '#aa6633';
-      text = '페이지에 연결할 수 없음 · 새로고침 필요';
+      text = t('status.unreachable');
       break;
     case 'subtitles-off':
       color = '#888';
-      text = '자막 꺼짐';
+      text = t('status.off');
       break;
     case 'no-cues':
       color = '#aa6633';
-      text = '이 영상에는 자막 없음';
+      text = t('status.noCues');
       break;
     case 'active':
       color = '#3ea6ff';
-      text = `자막 켜짐 · ${status.cueCount}줄`;
+      text = t('status.active', { count: status.cueCount });
       break;
   }
   return (
@@ -84,13 +91,19 @@ function StatusLine({ status }: { status: TabStatus }) {
   );
 }
 
-// 백엔드 식별자 → 사용자에게 보여줄 짧은 이름.
-const BACKEND_LABEL: Record<BackendId, string> = {
-  'google-free': 'Google 무료',
-  'chrome-builtin': 'Chrome 내장',
-  gemini: 'Gemini',
-  mindlogic: 'Mindlogic',
-};
+// 백엔드 식별자 → 사용자에게 보여줄 짧은 이름(표시 언어를 따라가므로 함수).
+function backendLabel(id: BackendId): string {
+  switch (id) {
+    case 'google-free':
+      return t('backend.googleFree.name');
+    case 'chrome-builtin':
+      return t('backend.chrome.name');
+    case 'gemini':
+      return t('backend.gemini.name');
+    case 'mindlogic':
+      return t('backend.mindlogic.name');
+  }
+}
 
 // gemini/mindlogic 모델 ID → 사람용 라벨(목록에 없으면 raw ID 그대로).
 function modelLabel(backend: BackendId, model?: string): string | null {
@@ -102,13 +115,13 @@ function modelLabel(backend: BackendId, model?: string): string | null {
 
 function formatAgo(at: number): string {
   const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
-  if (sec < 60) return `${sec}초 전`;
+  if (sec < 60) return t('ago.sec', { n: sec });
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}분 전`;
+  if (min < 60) return t('ago.min', { n: min });
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
+  if (hr < 24) return t('ago.hour', { n: hr });
   const day = Math.floor(hr / 24);
-  return `${day}일 전`;
+  return t('ago.day', { n: day });
 }
 
 // "최근 번역" 한 줄 — preferred ≠ used면 fallback 발생을 빨갛게 노출.
@@ -135,16 +148,19 @@ function LastBackendLine({ info, preferred }: { info: LastBackendInfo; preferred
       }}
       title={
         fellBack
-          ? `${BACKEND_LABEL[info.preferred]} 호출 실패 → ${BACKEND_LABEL[info.used]}로 자동 fallback`
-          : `${BACKEND_LABEL[info.used]}로 처리 완료`
+          ? t('pop.fellBack.title', {
+              preferred: backendLabel(info.preferred),
+              used: backendLabel(info.used),
+            })
+          : t('pop.used.title', { used: backendLabel(info.used) })
       }
     >
-      최근 번역: {BACKEND_LABEL[info.used]}
+      {t('pop.lastBackend', { backend: backendLabel(info.used) })}
       {modelLabel(info.used, info.model) ? ` (${modelLabel(info.used, info.model)})` : ''} ·{' '}
       {formatAgo(info.at)}
       {fellBack && (
         <span style={{ marginLeft: 6, fontSize: 10 }}>
-          ⚠ {BACKEND_LABEL[preferred]} 실패 → fallback
+          {t('pop.fellBack', { backend: backendLabel(preferred) })}
         </span>
       )}
     </p>
@@ -153,6 +169,8 @@ function LastBackendLine({ info, preferred }: { info: LastBackendInfo; preferred
 
 function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // 이 렌더에서 t()가 쓸 언어를 먼저 맞춘다(옵션 페이지와 같은 패턴 — shared/i18n.ts).
+  setUiLang(settings.uiLang);
   const [loaded, setLoaded] = useState(false);
   const [status, setStatus] = useState<TabStatus>({ kind: 'loading' });
   // BYOK 백엔드의 키 설정 여부 — 키 없는데 해당 백엔드 선택했을 때만 안내 표시.
@@ -280,11 +298,11 @@ function Popup() {
     <div style={rowStyle}>
       <span>{label}</span>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(-2)} title="작게">
+        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(-2)} title={t('pop.smaller')}>
           −
         </button>
         <span style={{ fontSize: 12, minWidth: 26, textAlign: 'center', color: '#ccc' }}>{value}</span>
-        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(2)} title="크게">
+        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(2)} title={t('pop.larger')}>
           +
         </button>
       </span>
@@ -309,17 +327,17 @@ function Popup() {
           onClick={() => void openAskOnPage()}
           disabled={!loaded}
           style={{ width: '100%', marginBottom: 10, padding: '6px', fontSize: 12, cursor: 'pointer' }}
-          title="자막 선택 없이 AI에게 바로 질문 (단축키 Alt+Q)"
+          title={t('pop.newQuestion.title')}
         >
-          ➕ 새 질문
+          {t('pop.newQuestion')}
         </button>
       )}
 
       <label style={rowStyle}>
         <span>
-          자막 켜기
+          {t('pop.subtitlesOn')}
           <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>
-            단축키 {settings.subtitlesToggleKey.toUpperCase()}
+            {t('pop.shortcut', { key: settings.subtitlesToggleKey.toUpperCase() })}
           </span>
         </span>
         <input
@@ -330,8 +348,8 @@ function Popup() {
         />
       </label>
 
-      <label style={rowStyle} title="노래방처럼 말하는 단어가 또렷해짐 (영어 자막)">
-        <span>노래방 모드</span>
+      <label style={rowStyle} title={t('pop.wordReveal.title')}>
+        <span>{t('pop.wordReveal')}</span>
         <input
           type="checkbox"
           checked={settings.wordRevealEnabled}
@@ -341,14 +359,14 @@ function Popup() {
       </label>
 
       <label style={rowStyle}>
-        <span>표시 모드</span>
+        <span>{t('pop.displayMode')}</span>
         <select
           value={settings.displayMode}
           onChange={(e) => update({ displayMode: e.target.value as DisplayMode })}
           disabled={!loaded}
           style={selectStyle}
         >
-          {DISPLAY_MODES.map((m) => (
+          {displayModes().map((m) => (
             <option key={m.value} value={m.value}>
               {m.label}
             </option>
@@ -357,7 +375,7 @@ function Popup() {
       </label>
 
       <label style={rowStyle}>
-        <span>바꿀 언어</span>
+        <span>{t('pop.targetLang')}</span>
         <select
           value={settings.targetLang}
           onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
@@ -373,14 +391,14 @@ function Popup() {
       </label>
 
       <label style={rowStyle}>
-        <span>번역 방식</span>
+        <span>{t('pop.backend')}</span>
         <select
           value={settings.backend}
           onChange={(e) => update({ backend: e.target.value as BackendId })}
           disabled={!loaded}
           style={selectStyle}
         >
-          {BACKENDS.map((b) => (
+          {backends().map((b) => (
             <option key={b.value} value={b.value}>
               {b.label}
             </option>
@@ -400,7 +418,7 @@ function Popup() {
             borderRadius: 3,
           }}
         >
-          Gemini API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
+          {t('pop.noGeminiKey')}
         </p>
       )}
 
@@ -416,7 +434,7 @@ function Popup() {
             borderRadius: 3,
           }}
         >
-          Mindlogic API 키가 설정되지 않음 — 옵션에서 키 입력 필요 (안 하면 Google 무료로 fallback)
+          {t('pop.noMindlogicKey')}
         </p>
       )}
 
@@ -424,20 +442,18 @@ function Popup() {
 
       {/* 크기/위치 미세조정 — 한 번 맞춰두는 값이라 자주 바꾸는 언어·백엔드 아래(맨 하단)로.
           "자세히 설정하기" 바로 위 배치. */}
-      <SizeRow label="원문 크기" value={settings.sourceStyle.fontSize} bump={bumpSource} />
-      <SizeRow label="번역 크기" value={settings.targetStyle.fontSize} bump={bumpTarget} />
+      <SizeRow label={t('pop.sourceSize')} value={settings.sourceStyle.fontSize} bump={bumpSource} />
+      <SizeRow label={t('pop.targetSize')} value={settings.targetStyle.fontSize} bump={bumpTarget} />
 
       <div style={rowStyle}>
-        <span title="Shorts 하단 제목 등으로 자막이 흐려져 드래그/휠이 막힐 때 위치를 기본값으로 되돌림">
-          자막 위치
-        </span>
+        <span title={t('pop.position.title')}>{t('pop.position')}</span>
         <button
           style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}
           disabled={!loaded}
           onClick={resetPosition}
-          title="일반 영상/Shorts 위치를 모두 기본값으로 초기화"
+          title={t('pop.resetPosition.title')}
         >
-          위치 초기화
+          {t('pop.resetPosition')}
         </button>
       </div>
 
@@ -450,7 +466,7 @@ function Popup() {
           fontSize: 12,
         }}
       >
-        자세히 설정하기
+        {t('pop.openOptions')}
       </button>
 
       <p style={{ margin: '8px 0 0', fontSize: 11, color: '#999' }}>

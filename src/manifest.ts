@@ -56,7 +56,7 @@ export default defineManifest({
   commands: {
     'open-ask': {
       suggested_key: { default: 'Alt+Q', mac: 'Alt+Q' },
-      description: '자막 직접 질문 패널 열기 (AI에게 물어보기)',
+      description: 'Open the ask-AI panel (no subtitle selection needed)',
     },
   },
   // activeTab: 'open-ask' 단축키(사용자 제스처)로 그 순간의 탭 하나에만 ask-anywhere를 주입하기

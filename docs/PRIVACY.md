@@ -53,7 +53,7 @@ You can switch backends or disable the Extension at any time from the popup or o
 
 ### AI Explain / Ask a question (Gemini / Mindlogic Gateway)
 
-Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, or the `Alt+Q` keyboard shortcut. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for "해설" in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
+Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, or the `Alt+Q` keyboard shortcut. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for explanations in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
 
 **As of this version, `Alt+Q` works on any website, not only YouTube.** Pressing it injects a small answer panel into the current tab **only for that one keypress** (Chrome's `activeTab` permission — the Extension does not run on other websites otherwise, and stops having any special access to that tab once you navigate away or close the panel). On non-YouTube pages there is no subtitle context to send — only the text you select or type.
 
@@ -83,7 +83,7 @@ The Extension does **not** request the broad `tabs`, `history`, `cookies`, or `w
 - **Clear translation cache**: Options page → Management → Clear cache.
 - **Reset all settings**: Options page → Management → Reset to defaults.
 - **Remove your Gemini API key**: Options page → Gemini settings → clear the API key field. The key is then removed from `chrome.storage.local`.
-- **Remove your Mindlogic API key**: Options page → Mindlogic Gateway settings → clear the API key field. The key is then removed from `chrome.storage.local`.
+- **Remove your Mindlogic API key**: Options page → OpenAI-compatible gateway settings → clear the API key field. The key is then removed from `chrome.storage.local`.
 - **Uninstall**: `chrome://extensions` → remove. This also clears `chrome.storage.sync` and `chrome.storage.local` data tied to the Extension (subject to Chrome's sync cleanup behavior on your account).
 
 ## 5. Children's privacy

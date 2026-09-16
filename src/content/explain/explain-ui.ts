@@ -19,6 +19,7 @@
 
 import { renderMarkdown, domToMarkdown } from './markdown';
 import type { ChatTurn } from '../../shared/types';
+import { t as tr } from '../../shared/i18n';
 
 const TAG = '[YDT/explain]';
 
@@ -266,18 +267,18 @@ export class ExplainUI {
       const hlBtn = document.createElement('button');
       hlBtn.className = 'ydt-explain-btn';
       hlBtn.type = 'button';
-      hlBtn.textContent = '🖍️ 형광펜';
+      hlBtn.textContent = tr('panel.highlight');
       hlBtn.addEventListener('click', this.onToolbarHighlightClick);
       this.hlToolbarBtn = hlBtn;
       const explainBtn = document.createElement('button');
       explainBtn.className = 'ydt-explain-btn';
       explainBtn.type = 'button';
-      explainBtn.textContent = '💡 해설';
+      explainBtn.textContent = tr('panel.explain');
       explainBtn.addEventListener('click', this.onExplainClick);
       const questionBtn = document.createElement('button');
       questionBtn.className = 'ydt-explain-btn';
       questionBtn.type = 'button';
-      questionBtn.textContent = '❓ 질문';
+      questionBtn.textContent = tr('panel.question');
       questionBtn.addEventListener('click', this.onQuestionClick);
       this.toolbar.append(hlBtn, explainBtn, questionBtn);
     }
@@ -310,7 +311,7 @@ export class ExplainUI {
   // term='직접 질문'은 표시 라벨일 뿐, isAsk=true라 백엔드엔 선택 텍스트를 안 보낸다(제출 시 라벨은 질문으로 교체).
   openAsk(): void {
     if (!this.enabled) return;
-    this.openTab('직접 질문', '', true, true);
+    this.openTab(tr('panel.directAsk'), '', true, true);
     // 새 질문은 빈 입력창으로 시작 — 입력창은 패널 공용(§28)이라 이전 탭의 미제출 초안이
     // 남는데, 새로 물으려고 연 탭엔 잔여 텍스트가 혼란스러워 비운다(탭 전환 시 draft 공유는 유지).
     if (this.chatInput) this.chatInput.value = '';
@@ -375,18 +376,17 @@ export class ExplainUI {
     const newQBtn = document.createElement('button');
     newQBtn.className = 'ydt-explain-action ydt-explain-action-newq';
     newQBtn.type = 'button';
-    newQBtn.textContent = '➕ 새 질문';
-    newQBtn.title = '자막 선택 없이 새 질문 탭 열기 (단축키 Alt+Q)';
+    newQBtn.textContent = tr('panel.newQuestion');
+    newQBtn.title = tr('panel.newQuestion.title');
     newQBtn.addEventListener('click', () => this.openAsk());
 
     // ✏️ 형광펜(백틱) — 모드 토글. 결과 도착 전엔 비활성.
     this.highlightBtn = document.createElement('button');
     this.highlightBtn.className = 'ydt-explain-action';
     this.highlightBtn.type = 'button';
-    this.highlightBtn.textContent = '🖍️ 형광펜';
+    this.highlightBtn.textContent = tr('panel.highlight');
     this.highlightBtn.disabled = true;
-    this.highlightBtn.title =
-      '드래그 후 누르면 그 부분을 형광펜 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`';
+    this.highlightBtn.title = tr('panel.highlight.title');
     // mousedown 기본 동작(본문 선택 collapse)을 막아야 "드래그 후 버튼 클릭"에서 선택이 살아있음.
     this.highlightBtn.addEventListener('mousedown', (e) => e.preventDefault());
     this.highlightBtn.addEventListener('click', () => this.onHighlightClick());
@@ -395,7 +395,7 @@ export class ExplainUI {
     this.copyBtn = document.createElement('button');
     this.copyBtn.className = 'ydt-explain-action';
     this.copyBtn.type = 'button';
-    this.copyBtn.textContent = '📋 복사';
+    this.copyBtn.textContent = tr('panel.copy');
     this.copyBtn.disabled = true;
     this.copyBtn.addEventListener('click', () => void this.onCopy());
 
@@ -404,7 +404,7 @@ export class ExplainUI {
     this.notionBtn = document.createElement('button');
     this.notionBtn.className = 'ydt-explain-action ydt-explain-action-notion';
     this.notionBtn.type = 'button';
-    this.notionBtn.textContent = '📝 Notion';
+    this.notionBtn.textContent = tr('panel.notion');
     this.notionBtn.disabled = true;
     this.notionBtn.style.display = this.notionEnabled ? '' : 'none';
     this.notionBtn.addEventListener('click', () => void this.onNotionClick());
@@ -414,14 +414,14 @@ export class ExplainUI {
     min.className = 'ydt-explain-close';
     min.type = 'button';
     min.textContent = '–';
-    min.title = '최소화 (탭 유지)';
+    min.title = tr('panel.minimize.title');
     min.addEventListener('click', () => this.minimize());
 
     const close = document.createElement('button');
     close.className = 'ydt-explain-close';
     close.type = 'button';
     close.textContent = '✕';
-    close.title = '패널 닫기 (모든 탭)';
+    close.title = tr('panel.close.title');
     close.addEventListener('click', () => this.closePanel());
 
     // 헤더(제목바)엔 제목 + 우상단 구석의 – 최소화 · ✕ 닫기만. 백틱·복사·Notion은 아래 별도 툴바로.
@@ -460,7 +460,7 @@ export class ExplainUI {
     const cinput = document.createElement('textarea');
     cinput.className = 'ydt-explain-qinput';
     cinput.rows = 1;
-    cinput.placeholder = '이어서 질문… (예: 더 쉽게, 예문 보여줘)';
+    cinput.placeholder = tr('panel.chat.followup');
     cinput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -472,7 +472,7 @@ export class ExplainUI {
     csend.type = 'button';
     // 후속 탭 앞 마커와 같은 ⏎(return) 기호로 통일.
     csend.textContent = '⏎';
-    csend.title = '보내기 (Enter)';
+    csend.title = tr('panel.send.title');
     csend.addEventListener('click', () => this.submitChat());
     chatbar.append(cinput, csend);
     this.chatInput = cinput;
@@ -524,15 +524,15 @@ export class ExplainUI {
     body.className = 'ydt-explain-body';
     if (isFollowup) {
       // 후속 질문 탭 — 곧바로 실행되므로 로딩 표시.
-      body.appendChild(this.loadingEl('답변 생성 중…'));
+      body.appendChild(this.loadingEl(tr('panel.loading.answer')));
     } else if (question) {
       // 빈 질문/직접질문 탭 — 맨 아래 입력창에 첫 질문을 기다린다.
       const hint = document.createElement('div');
       hint.className = 'ydt-explain-loading';
-      hint.append('맨 아래 입력창에 질문을 입력하고 Enter.');
+      hint.append(tr('panel.ask.hint'));
       body.appendChild(hint);
     } else {
-      body.appendChild(this.loadingEl('해설 생성 중…'));
+      body.appendChild(this.loadingEl(tr('panel.loading.explain')));
     }
     contentEl.appendChild(body);
 
@@ -646,7 +646,7 @@ export class ExplainUI {
         const mark = document.createElement('span');
         mark.className = 'ydt-explain-tab-saved';
         mark.textContent = '✓';
-        mark.title = 'Notion 저장됨';
+        mark.title = tr('panel.notion.savedTab.title');
         chip.appendChild(mark);
       }
       // 클릭은 칩 전체가 받는다(라벨만 받으면 살짝 드러난 칩의 테두리·패딩을 눌러도 안 먹음).
@@ -689,6 +689,39 @@ export class ExplainUI {
     else if (c.right > s.right - PAD) strip.scrollLeft += c.right - (s.right - PAD);
   }
 
+  // public — UI 표시 언어가 바뀌면 content(applySettings)가 호출. 이미 만들어진 셸/툴바의
+  // "정적 라벨"만 새 언어로 다시 찍는다. 탭 본문(받은 답변)은 모델이 만든 내용이라 대상 아님.
+  relabel(): void {
+    if (this.toolbar) {
+      const btns = this.toolbar.querySelectorAll('button');
+      if (btns[0]) btns[0].textContent = tr('panel.highlight');
+      if (btns[1]) btns[1].textContent = tr('panel.explain');
+      if (btns[2]) btns[2].textContent = tr('panel.question');
+    }
+    if (this.fab) this.fab.title = tr('panel.fab.title');
+    const panel = this.panel;
+    if (panel) {
+      const newQ = panel.querySelector<HTMLElement>('.ydt-explain-action-newq');
+      if (newQ) {
+        newQ.textContent = tr('panel.newQuestion');
+        newQ.title = tr('panel.newQuestion.title');
+      }
+      if (this.highlightBtn) {
+        this.highlightBtn.textContent = tr('panel.highlight');
+        this.highlightBtn.title = tr('panel.highlight.title');
+      }
+      if (this.copyBtn) this.copyBtn.textContent = tr('panel.copy');
+      const corner = panel.querySelectorAll<HTMLElement>('.ydt-explain-corner button');
+      if (corner[0]) corner[0].title = tr('panel.minimize.title');
+      if (corner[1]) corner[1].title = tr('panel.close.title');
+      const send = panel.querySelector<HTMLElement>('.ydt-explain-qsend');
+      if (send) send.title = tr('panel.send.title');
+      // 입력창 placeholder·Notion 버튼 문구·알림 줄은 활성 탭 상태에 따라 달라 refreshActions가 담당.
+      this.refreshActions();
+      this.renderTabstrip();
+    }
+  }
+
   // 활성 탭 상태(결과 유무·Notion 저장 여부)를 헤더 버튼에 반영.
   private refreshActions(): void {
     const tab = this.activeTab();
@@ -696,8 +729,8 @@ export class ExplainUI {
     // 맨 아래 입력창 안내 — 답이 있으면 "이어서 질문", 아직 없으면(빈 질문 탭) 첫 질문 안내.
     if (this.chatInput) {
       this.chatInput.placeholder = has
-        ? '이어서 질문… (예: 더 쉽게, 예문 보여줘)'
-        : '질문을 입력하고 Enter…';
+        ? tr('panel.chat.followup')
+        : tr('panel.chat.new');
     }
     if (this.copyBtn) this.copyBtn.disabled = !has;
     if (this.highlightBtn) this.highlightBtn.disabled = !has;
@@ -705,14 +738,16 @@ export class ExplainUI {
       this.notionBtn.style.display = this.notionEnabled ? '' : 'none';
       this.notionBtn.disabled = !has;
       if (tab?.notionSaved) {
-        this.notionBtn.textContent = tab.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
-        this.notionBtn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
+        this.notionBtn.textContent = tab.notionPageUrl
+          ? tr('panel.notion.savedOpen')
+          : tr('panel.notion.saved');
+        this.notionBtn.title = tab.notionPageUrl ? tr('panel.notion.open.title') : '';
       } else if (tab?.notionPageId) {
         // 저장했다가 형광펜을 고친 탭 — 누르면 새 페이지로 갈아끼운다(옛 페이지는 휴지통).
-        this.notionBtn.textContent = '♻ 업데이트';
-        this.notionBtn.title = 'Notion 페이지를 지금 내용으로 갈아끼우기';
+        this.notionBtn.textContent = tr('panel.notion.update');
+        this.notionBtn.title = tr('panel.notion.update.title');
       } else {
-        this.notionBtn.textContent = '📝 Notion';
+        this.notionBtn.textContent = tr('panel.notion');
         this.notionBtn.title = '';
       }
     }
@@ -727,15 +762,15 @@ export class ExplainUI {
   private showNotice(title: string, url: string | null, oldKept = false): void {
     const el = this.noticeEl;
     if (!el) return;
-    const suffix = oldKept ? ' · ⚠ 옛 페이지 남음' : '';
-    el.replaceChildren(document.createTextNode(`📝 Notion 저장됨: 「${title}」${suffix}`));
+    const suffix = oldKept ? tr('panel.notice.oldKept') : '';
+    el.replaceChildren(document.createTextNode(tr('panel.notice.saved', { title, suffix })));
     if (url) {
       el.append('  ');
       const a = document.createElement('a');
       a.href = url;
       a.target = '_blank';
       a.rel = 'noopener';
-      a.textContent = '열기 ↗';
+      a.textContent = tr('panel.notice.open');
       el.append(a);
     }
     el.hidden = false;
@@ -773,7 +808,7 @@ export class ExplainUI {
     }
     const fab = document.createElement('div');
     fab.className = 'ydt-explain-fab';
-    fab.title = '해설 패널 펼치기 (드래그로 이동)';
+    fab.title = tr('panel.fab.title');
     // 미니버튼은 전체가 드래그 핸들. 안 움직이고 떼면 클릭 = 펼치기.
     this.enableDrag(fab, fab, null, () => this.restore());
     this.fab = fab;
@@ -922,7 +957,7 @@ export class ExplainUI {
     } else {
       const err = document.createElement('div');
       err.className = 'ydt-explain-error';
-      err.textContent = `해설을 불러오지 못했어요: ${res.error}`;
+      err.textContent = tr('panel.err.explain', { error: res.error });
       body.appendChild(err);
       console.warn(TAG, 'explain error:', res.error);
     }
@@ -966,7 +1001,7 @@ export class ExplainUI {
   ): Promise<void> {
     const body = tab.bodyEl;
     body.textContent = '';
-    body.appendChild(this.loadingEl('답변 생성 중…'));
+    body.appendChild(this.loadingEl(tr('panel.loading.answer')));
     if (this.activeTab() === tab) this.setActionsBusy();
 
     let res: ExplainResult;
@@ -981,7 +1016,7 @@ export class ExplainUI {
     body.textContent = '';
     if (res.ok) {
       // 질문을 답 위에 함께 렌더 → 패널에 Q/A가 같이 보이고, 복사/Notion에도 질문이 포함됨.
-      const md = `**질문:** ${question}\n\n${res.markdown}`;
+      const md = `${tr('panel.qPrefix')} ${question}\n\n${res.markdown}`;
       body.appendChild(renderMarkdown(md));
       // 복사/Notion 제목엔 표시 라벨(tab.term)을 쓴다 — 선택 탭은 text와 동일, 직접 질문 탭은 질문 텍스트.
       tab.result = { term: tab.term, markdown: md, context };
@@ -996,7 +1031,7 @@ export class ExplainUI {
     } else {
       const err = document.createElement('div');
       err.className = 'ydt-explain-error';
-      err.textContent = `답변을 불러오지 못했어요: ${res.error}`;
+      err.textContent = tr('panel.err.answer', { error: res.error });
       body.appendChild(err);
       // 에러 시 액션은 비활성 유지(setActionsBusy 상태 그대로) — 본문이 에러라 복사/저장 대상 없음.
       // 해설 에러 경로와 동일. refreshActions를 부르면 옛 result로 버튼이 켜져 에러 텍스트를 복사하게 됨.
@@ -1113,15 +1148,15 @@ export class ExplainUI {
     const title = pickTitle(term, context, markdown);
     const parts = [`## ${title}`, '', markdown];
     if (context && context.trim() !== term.trim() && context.trim() !== title.trim())
-      parts.push('', `> 자막: ${context}`);
+      parts.push('', tr('panel.copy.quote', { context }));
     const text = parts.join('\n');
     const btn = this.copyBtn;
     try {
       await navigator.clipboard.writeText(text);
-      flash(btn, '✓ 복사됨', '📋 복사');
+      flash(btn, tr('panel.copied'), tr('panel.copy'));
     } catch (e) {
       console.warn(TAG, 'clipboard failed:', e);
-      flash(btn, '✗ 실패', '📋 복사');
+      flash(btn, tr('panel.copyFailed'), tr('panel.copy'));
     }
   }
 
@@ -1143,7 +1178,7 @@ export class ExplainUI {
         ? { pageId: tab.notionPageId, dbId: tab.notionDbId, title: tab.notionTitle ?? '' }
         : undefined;
     btn.disabled = true;
-    btn.textContent = prev ? '업데이트 중…' : '저장 중…';
+    btn.textContent = prev ? tr('panel.notion.updating') : tr('panel.notion.saving');
     let res: NotionSaveResult;
     try {
       res = await this.requestNotionSave(term, markdown, context, prev);
@@ -1162,16 +1197,18 @@ export class ExplainUI {
       tab.notionDbId = res.dbId ?? null;
       tab.notionOldKept = res.oldKept ?? false;
       if (this.activeTab() === tab) {
-        btn.textContent = tab.notionPageUrl ? '✓ 저장됨 ↗' : '✓ 저장됨';
+        btn.textContent = tab.notionPageUrl
+          ? tr('panel.notion.savedOpen')
+          : tr('panel.notion.saved');
         btn.disabled = false;
-        btn.title = tab.notionPageUrl ? 'Notion에서 열기' : '';
+        btn.title = tab.notionPageUrl ? tr('panel.notion.open.title') : '';
         this.showNotice(tab.notionTitle, tab.notionPageUrl, tab.notionOldKept);
       }
       this.renderTabstrip(); // 탭 칩에 ✓ 저장 표시 반영
     } else {
       console.warn(TAG, 'notion save error:', res.error);
       if (this.activeTab() === tab) {
-        btn.textContent = '✗ 저장 실패';
+        btn.textContent = tr('panel.notion.failed');
         btn.disabled = false;
         btn.title = res.error;
         // 잠시 후 다시 시도할 수 있게 원복(재저장 대기 중이면 '♻ 업데이트'로).
@@ -1200,7 +1237,7 @@ function pickTitle(term: string, context: string | undefined, markdown: string):
     return sentence;
   }
   if (example) return example;
-  return t || '(제목 없음)';
+  return t || tr('notion.untitled');
 }
 
 // 여러 문장일 수 있는 자막 문맥에서 선택 표현(term)이 든 한 문장만 고른다(없으면 첫 문장).

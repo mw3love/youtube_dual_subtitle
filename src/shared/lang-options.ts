@@ -6,6 +6,7 @@ import type {
   MindlogicModel,
   TargetLang,
 } from './settings';
+import { t, type MsgKey } from './i18n';
 
 export const TARGET_LANGS: Array<{ value: TargetLang; label: string }> = [
   { value: 'ko', label: '한국어' },
@@ -17,18 +18,24 @@ export const TARGET_LANGS: Array<{ value: TargetLang; label: string }> = [
   { value: 'de', label: 'Deutsch' },
 ];
 
-export const DISPLAY_MODES: Array<{ value: DisplayMode; label: string }> = [
-  { value: 'dual', label: '원문 + 번역 같이' },
-  { value: 'translation-only', label: '번역만' },
-  { value: 'source-only', label: '원문만' },
-];
+// 라벨은 UI 언어를 따라가야 하므로 상수가 아니라 함수 — 호출 측(React 페이지)이 렌더할 때마다
+// 현재 언어로 만든다(i18n.setUiLang이 렌더 직전에 동기화됨).
+export function displayModes(): Array<{ value: DisplayMode; label: string }> {
+  return [
+    { value: 'dual', label: t('mode.dual') },
+    { value: 'translation-only', label: t('mode.translationOnly') },
+    { value: 'source-only', label: t('mode.sourceOnly') },
+  ];
+}
 
-export const BACKENDS: Array<{ value: BackendId; label: string }> = [
-  { value: 'google-free', label: 'Google 무료 (추천)' },
-  { value: 'chrome-builtin', label: 'Chrome 내장 (오프라인)' },
-  { value: 'gemini', label: 'Gemini (내 키)' },
-  { value: 'mindlogic', label: 'Mindlogic Gateway (학교/조직)' },
-];
+export function backends(): Array<{ value: BackendId; label: string }> {
+  return [
+    { value: 'google-free', label: `${t('backend.googleFree.short')} (${t('backend.recommended')})` },
+    { value: 'chrome-builtin', label: t('backend.chrome.short') },
+    { value: 'gemini', label: t('backend.gemini.short') },
+    { value: 'mindlogic', label: t('backend.mindlogic.short') },
+  ];
+}
 
 // 모델 선택지 — 옵션 페이지(드롭다운/라디오)와 content(해설 로딩 라벨)가 공유.
 // transHint=번역 관점, explainHint=해설 관점 추천 마커. 번역(자막 수백 cue)과 해설(드래그 1회)은
@@ -36,17 +43,18 @@ export const BACKENDS: Array<{ value: BackendId; label: string }> = [
 export interface ModelOption<V> {
   value: V;
   label: string;
-  transHint?: string;
-  explainHint?: string;
+  // 추천 힌트는 UI 언어를 따라야 하므로 문자열이 아니라 사전 키 — 옵션 페이지가 t()로 푼다.
+  transHint?: MsgKey;
+  explainHint?: MsgKey;
 }
 
 // Gemini 직접 API. 2.5 세대는 번역 가성비, 3.5 Flash는 최신 세대로 자유서술 해설 품질이 큼.
 // value는 실제 모델 ID — 옵션 페이지가 /models 동적 목록(같은 id)에 이 힌트를 오버레이하고,
 // 새로고침 전 fallback 목록으로도 쓴다(Mindlogic의 MINDLOGIC_MODELS와 동일 역할).
 export const GEMINI_MODELS: Array<ModelOption<GeminiModel>> = [
-  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', transHint: '균형 (번역 추천)' },
-  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', transHint: '한도·속도' },
-  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', transHint: '최신·고품질', explainHint: '해설 추천' },
+  { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', transHint: 'model.balanced' },
+  { value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', transHint: 'model.quota' },
+  { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', transHint: 'model.newest', explainHint: 'model.explainRec' },
 ];
 
 // Mindlogic gateway. gateway가 ID를 그대로 upstream에 전달하므로 권한 없는 모델은 401/403
@@ -73,5 +81,5 @@ export function explainModelLabel(
     return GEMINI_MODELS.find((m) => m.value === geminiModel)?.label ?? geminiModel;
   }
   const label = MINDLOGIC_MODELS.find((m) => m.value === mindlogicModel)?.label ?? mindlogicModel;
-  return `${label} · Mindlogic`;
+  return `${label} · ${t('backend.mindlogic.name')}`;
 }
