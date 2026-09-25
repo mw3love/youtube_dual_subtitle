@@ -151,9 +151,9 @@ export async function getMindlogicCredits(
   baseUrl?: string,
 ): Promise<MindlogicCredits> {
   const key = apiKey || (await getMindlogicApiKey());
-  if (!key) throw new Error('Mindlogic API 키가 없음 (옵션 페이지에서 입력 필요)');
+  if (!key) throw new Error(t('err.mindlogic.noKey'));
   const url = baseUrl || (await getMindlogicBaseUrl());
-  if (!url) throw new Error('Mindlogic Base URL이 없음 (옵션 페이지에서 입력 필요)');
+  if (!url) throw new Error(t('err.mindlogic.noBaseUrl'));
   const res = await fetch(`${url}/credits/`, { headers: { Authorization: `Bearer ${key}` } });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403)

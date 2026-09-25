@@ -57,6 +57,26 @@ export function questionSystemPrompt(lang: UiLang): string {
   return tl(lang, 'prompt.question');
 }
 
+// AI 답변 언어 = 번역 언어(A73). 기본 프롬프트의 {answerLang} 자리를 호출 시점(background)에
+// targetLang 이름으로 채운다 — 표시 언어(uiLang)는 en/ko뿐이라, 예전처럼 답변 언어를 표시 언어에
+// 묶으면 일본어 사용자(표시 en·번역 ja)가 영어 해설을 받는다. 이름은 프롬프트 언어(lang) 기준
+// ('Japanese' / '일본어'). 사용자가 {answerLang}을 지운 프롬프트는 그대로 둔다(사용자 자산).
+export function fillAnswerLang(prompt: string, target: TargetLang, lang: UiLang): string {
+  return prompt.split('{answerLang}').join(tl(lang, `lang.name.${target}`));
+}
+
+// A73 이전 기본 프롬프트는 답변 언어가 고정 문구였다('English' / '한국말'). 그 값이 그대로 저장돼 있으면
+// 새 기본값(자리표시자판)으로 읽는다 — 안 그러면 "기본값으로" 버튼이 켜지고, 언어 전환 시 자동 교체도
+// 안 된다. 저장값은 건드리지 않고 로드할 때만 정규화(사용자가 편집한 프롬프트는 일치하지 않아 통과).
+const LEGACY_ANSWER_LANG: Record<UiLang, string> = { en: 'English', ko: '한국말' };
+function normalizeLegacyPrompt(prompt: string): string {
+  for (const lang of ['en', 'ko'] as const) {
+    const tpl = defaultExplainPrompt(lang);
+    if (prompt === tpl.split('{answerLang}').join(LEGACY_ANSWER_LANG[lang])) return tpl;
+  }
+  return prompt;
+}
+
 // 누적 표시 레이아웃 — cue마다 한 줄(stacked) vs 한 문단처럼 이어 흘림(inline).
 export const HistoryLayoutSchema = z.enum(['stacked', 'inline']);
 export type HistoryLayout = z.infer<typeof HistoryLayoutSchema>;
@@ -203,7 +223,7 @@ export async function loadSettings(): Promise<Settings> {
     console.warn('[YDT/settings] invalid, falling back to defaults:', parsed.error.message);
     return DEFAULT_SETTINGS;
   }
-  return parsed.data;
+  return { ...parsed.data, explainPrompt: normalizeLegacyPrompt(parsed.data.explainPrompt) };
 }
 
 // mindlogic.ts(번역)·explain.ts(해설) 공용 — 매 호출마다 fresh read해서 옵션 페이지의

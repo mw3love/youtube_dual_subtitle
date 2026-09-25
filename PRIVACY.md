@@ -1,8 +1,10 @@
 # Dual Subtitle for YouTube — 개인정보처리방침
 
-최종 수정일: 2026-08-19
+최종 수정일: 2026-09-25
 
-**Dual Subtitle for YouTube**(이하 "확장 프로그램")는 유튜브 영상에 원문과 한국어 번역 이중 자막을 표시하고, 사용자가 선택한 표현에 대한 AI 해설을 제공하는 Chrome 확장 프로그램입니다.
+English: [docs/PRIVACY.md](docs/PRIVACY.md) — 영문판이 정본입니다.
+
+**Dual Subtitle for YouTube**(이하 "확장 프로그램")는 유튜브 영상에 원문과 번역(사용자가 고른 언어) 이중 자막을 표시하고, 사용자가 선택한 표현에 대한 AI 해설을 제공하는 Chrome 확장 프로그램입니다.
 
 ## 수집하는 개인 정보
 

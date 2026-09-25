@@ -157,6 +157,7 @@ const EN = {
   'notion.step2Bold': 'Connections',
   'notion.step3': 'Paste that database URL into "DB ID/URL" below',
   'row.notionToken': 'Integration token',
+  'opt.notionToken.placeholder': 'ntn_... or secret_...',
   'hint.notionToken':
     'Paste the Internal Integration Secret from step 1. The token is stored on this computer only.',
   'row.notionDb': 'DB ID/URL',
@@ -254,10 +255,19 @@ const EN = {
   'panel.qPrefix': '**Question:**',
 
   // ── AI 프롬프트 (기본값) ───────────────────────────────────
+  // 해설/질문 프롬프트의 {answerLang} 자리에 들어가는 번역 언어 이름(프롬프트 언어 기준).
+  'lang.name.ko': 'Korean',
+  'lang.name.en': 'English',
+  'lang.name.ja': 'Japanese',
+  'lang.name.zh': 'Chinese',
+  'lang.name.es': 'Spanish',
+  'lang.name.fr': 'French',
+  'lang.name.de': 'German',
+  'opt.explainPrompt.langHint': '{answerLang} is replaced with your translation language, so answers come in the language you read.',
   'prompt.explainDefault': `You are my language teacher. Do your best to help me improve. Skip greetings and filler — give information only.
 
 Answer like this:
-- Answer in English
+- Answer in {answerLang}
 - Put an example sentence that fits the question at the very top, as inline code
 - Write the meaning right under the example
 - Only example sentences go in inline code
@@ -265,7 +275,7 @@ Answer like this:
 - Use a table whenever the content fits one
 - When a word has several senses, give the one image that ties them together so it can be applied flexibly.`,
   'prompt.question': `You are my language-learning assistant. Use the expression the user selected in the subtitles and its context to answer their question.
-- Answer in English, briefly and to the point.
+- Answer in {answerLang}, briefly and to the point.
 - Put example sentences and words in inline code (\`backtick\`).
 - Use a table when that is clearer.
 - Skip greetings and filler.`,
@@ -454,6 +464,7 @@ const KO: Record<MsgKey, string> = {
   'notion.step2Bold': '연결(Connections)',
   'notion.step3': '그 데이터베이스의 URL을 아래 "DB ID/URL"에 붙여넣기',
   'row.notionToken': 'Integration 토큰',
+  'opt.notionToken.placeholder': 'ntn_... 또는 secret_...',
   'hint.notionToken':
     '위 1번에서 복사한 Internal Integration Secret을 붙여넣으세요. 토큰은 이 PC에만 저장돼요.',
   'row.notionDb': 'DB ID/URL',
@@ -549,10 +560,18 @@ const KO: Record<MsgKey, string> = {
   'panel.copy.quote': '> 자막: {context}',
   'panel.qPrefix': '**질문:**',
 
+  'lang.name.ko': '한국어',
+  'lang.name.en': '영어',
+  'lang.name.ja': '일본어',
+  'lang.name.zh': '중국어',
+  'lang.name.es': '스페인어',
+  'lang.name.fr': '프랑스어',
+  'lang.name.de': '독일어',
+  'opt.explainPrompt.langHint': '{answerLang} 자리는 번역 언어로 바뀌어, 답변이 내가 읽는 언어로 나와요.',
   'prompt.explainDefault': `너는 나의 영어 선생님이야. 내가 영어를 잘 할 수 있도록 최선을 다해. 답변할 때 정보 전달 외 불필요한 인삿말은 하지 마.
 
 답변은 다음과 같이 할것
-- 답변은 한국말로
+- 답변은 {answerLang}로
 - 답변 최상단에는 질문에 적합한 영어예문을 인라인 코드로 작성
 - 예문 아래에 한글 해석 작성
 - 영어 예문들만 인라인 코드로 작성할것
@@ -560,7 +579,7 @@ const KO: Record<MsgKey, string> = {
 - 표로 만들 수 있는건 되도록 표로 제작
 - 의미가 다양할 경우 관통하는 하나의 이미지 표현을 제시, 유연하게 해석할 수 있도록 한다.`,
   'prompt.question': `너는 나의 언어 학습 도우미야. 사용자가 자막에서 고른 표현과 그 문맥을 참고해 사용자의 질문에 답해.
-- 답변은 한국어로, 핵심만 간결하게.
+- 답변은 {answerLang}로, 핵심만 간결하게.
 - 영어 예문이나 단어는 인라인 코드(\`backtick\`)로 표시.
 - 표로 정리하는 게 더 명확하면 표로.
 - 정보 전달 외 불필요한 인삿말은 하지 마.`,

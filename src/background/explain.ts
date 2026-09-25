@@ -9,7 +9,7 @@
 // user = 선택 표현 + 자막 문맥. 응답 markdown 문자열을 그대로 content로 돌려 패널이 렌더한다.
 
 import { getGeminiApiKey, getMindlogicApiKey } from '../shared/secrets';
-import { getMindlogicBaseUrl, questionSystemPrompt } from '../shared/settings';
+import { fillAnswerLang, getMindlogicBaseUrl, loadSettings, questionSystemPrompt } from '../shared/settings';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import type { ChatTurn } from '../shared/types';
 import { resolveGeminiModelId } from './translators/gemini';
@@ -46,7 +46,11 @@ export async function explain(params: ExplainParams): Promise<ExplainOutput> {
   // 질문이 있으면(=후속 포함) 기본은 가벼운 질문 프롬프트. 단 Alt+Q "직접 질문"(isAsk)은 자막 문맥이
   // 없어 답이 얇아지므로 해설 프롬프트(params.prompt)로 풍부하게 — 프롬프트가 비면 질문 프롬프트로 폴백.
   const useExplainForAsk = params.isAsk === true && !!params.prompt?.trim();
-  const systemPrompt = q ? (useExplainForAsk ? params.prompt : questionSystemPrompt(getUiLang())) : params.prompt;
+  const rawPrompt = q ? (useExplainForAsk ? params.prompt : questionSystemPrompt(getUiLang())) : params.prompt;
+  // 답변 언어 = 번역 언어(settings.ts:fillAnswerLang). storage에서 매 호출 fresh read — content와
+  // ask-anywhere(유튜브 밖) 두 호출 경로를 한 곳에서 처리.
+  const { targetLang } = await loadSettings();
+  const systemPrompt = fillAnswerLang(rawPrompt, targetLang, getUiLang());
   const userMsg = buildUserMessage(params.text, params.context, q);
   const history = params.history ?? [];
   const markdown =

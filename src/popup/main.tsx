@@ -275,7 +275,7 @@ function Popup() {
     gap: 10,
   };
 
-  const selectStyle: React.CSSProperties = { fontSize: 12, padding: '2px 4px', maxWidth: 170 };
+  const selectStyle: React.CSSProperties = { fontSize: 12, padding: '2px 4px', maxWidth: 200 };
 
   const sizeBtnStyle: React.CSSProperties = {
     width: 26,

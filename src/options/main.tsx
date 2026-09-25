@@ -671,6 +671,7 @@ function Options() {
             >
               {t('btn.restoreDefault')}
             </button>
+            <span style={{ fontSize: 11, opacity: 0.6 }}>{t('opt.explainPrompt.langHint')}</span>
           </div>
         </div>
       </div>
@@ -709,7 +710,7 @@ function Options() {
           apiKey: apiKey.trim(),
           model: settings.geminiModel,
         })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
-        if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+        if (!res) return { kind: 'err', error: t('err.noBgResponse') };
         if (res.ok) return { kind: 'ok', translation: res.translation };
         return { kind: 'err', error: res.error };
       } catch (e) {
@@ -748,7 +749,7 @@ function Options() {
           model: settings.mindlogicModel,
           baseUrl: settings.mindlogicBaseUrl.trim(),
         })) as { ok: true; translation: string } | { ok: false; error: string } | undefined;
-        if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+        if (!res) return { kind: 'err', error: t('err.noBgResponse') };
         if (res.ok) return { kind: 'ok', translation: res.translation };
         return { kind: 'err', error: res.error };
       } catch (e) {
@@ -778,7 +779,7 @@ function Options() {
         apiKey: mindlogicApiKey.trim(),
         baseUrl: settings.mindlogicBaseUrl.trim(),
       })) as { ok: true; credits: MindlogicCredits } | { ok: false; error: string } | undefined;
-      if (!res) return { kind: 'err', error: '백그라운드 응답 없음 — 확장 재로드' };
+      if (!res) return { kind: 'err', error: t('err.noBgResponse') };
       if (res.ok) return { kind: 'ok', credits: res.credits };
       return { kind: 'err', error: res.error };
     } catch (e) {
@@ -1422,7 +1423,7 @@ function Options() {
             type={showNotionToken ? 'text' : 'password'}
             value={notionToken}
             onChange={(e) => onNotionTokenChange(e.target.value)}
-            placeholder="ntn_... 또는 secret_..."
+            placeholder={t('opt.notionToken.placeholder')}
             style={{ width: 280, fontFamily: 'monospace', fontSize: 12 }}
             autoComplete="off"
             spellCheck={false}

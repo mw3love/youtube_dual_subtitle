@@ -25,9 +25,11 @@ Web Store는 확장이 **단일 목적**을 가져야 합니다. 심사 시 입�
 
 ### 짧은 설명 (~132자, Search snippet)
 
-**한**: "YouTube 영상에 원문+번역 듀얼 자막. AI 단어·표현 해설, 노래방 자막, 위치 드래그, Shorts 지원. Chrome 내장 번역으로 오프라인도."
+스토어 목록의 요약은 **패키지의 manifest `description`** 을 언어별로 그대로 쓴다(A72부터 `public/_locales/{en,ko}/messages.json`의 `extDescription`). 대시보드에서 따로 입력하는 칸이 아니므로 문구를 바꾸려면 그 파일을 고치고 재업로드.
 
-**EN**: "Dual-language YouTube subtitles: source + translation, plus AI word/phrase explanations. Draggable, Shorts support, offline option."
+**EN**: "Dual subtitles (original + translation) for YouTube, with AI explanations"
+
+**한**: "YouTube에 원문+번역 듀얼 자막을 표시하고, 자막 속 단어·표현을 AI로 해설합니다"
 
 ### 긴 설명 (~16000자, Description)
 
@@ -49,7 +51,7 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 - Shorts 자막 크기 배율 별도 조정 (좁은 세로 화면 대응)
 - 번역 캐시: 같은 영상 다시 볼 때 즉시 표시. 30일 / 200개 자동 정리
 - 단축키로 듀얼자막 켜기/끄기(기본 G, 옵션에서 원하는 키로 재지정 가능). C는 YouTube 네이티브 자막 그대로 두어 서로 완전히 독립
-- 💡 단어·표현 해설: 자막을 드래그하면 예문·어원·뉘앙스까지 AI가 설명 (내 Gemini/Mindlogic 키 필요)
+- 💡 단어·표현 해설: 자막을 드래그하면 예문·어원·뉘앙스까지 AI가 설명 — 답변은 번역 언어로 (내 Gemini 또는 게이트웨이 키 필요)
 - ❓ 자유 질문 + Alt+Q 어디서나 질문: 궁금한 부분을 직접 물어보기. Alt+Q는 YouTube뿐 아니라 어느 웹사이트에서도 동작
 - 📝 Notion 저장: 해설/답변을 내 Notion 데이터베이스에 한 번에 정리 (내 Notion 연동 토큰 필요)
 
@@ -69,7 +71,49 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 - 그 외에는 Chrome 88+ (Manifest V3 기준)
 ```
 
-영문 버전도 같은 구조로 작성. 필요 시 자동 번역 후 수동 검수.
+위 한국어 설명은 대시보드에서 **한국어(ko) 로캘**을 골라 입력한다. 기본(영어) 로캘에는 아래 영문판.
+
+### Detailed description — English (default locale)
+
+```
+Dual Subtitle for YouTube shows the original captions and a translation at the same time, right on the video. Understand foreign-language videos without losing the original — ideal for language learners.
+
+■ Features
+- Dual subtitles: original line + translated line, shown together
+- Automatic language detection: picks the video's own spoken-language track, including Shorts and auto-generated captions
+- Translate into Korean, English, Japanese, Chinese, Spanish, French or German — set on first install from your browser language
+- Interface in English or Korean (follows your browser language on install; switch anytime in Options)
+- Single-subtitle modes (translation only / original only) with a rolling window of the previous 1–3 lines for context
+- Karaoke-style word reveal: words light up as they are spoken (most accurate on auto-generated captions)
+- Drag the subtitles anywhere on the player; normal videos and Shorts remember separate positions
+- Four translation engines
+  • Google (free): cloud translation, no setup
+  • Chrome built-in: on-device model — offline, no rate limits, captions never leave your device (Chrome 138+)
+  • Gemini (your own key): natural AI translation with a free Google AI Studio key
+  • OpenAI-compatible gateway (your own key): for school/organization-issued gateway keys on supported domains
+- Full styling: font size, color, weight, line height, background opacity, Shorts size scale
+- Translation cache: rewatching a video shows subtitles instantly (auto-pruned at 30 days / 200 videos)
+- Keyboard toggle for dual subtitles (default G, rebindable). YouTube's own C key keeps controlling native captions — the two are independent
+
+■ AI explanations (bring your own Gemini or gateway key)
+- 💡 Explain: select any words in the subtitles for example sentences, meaning, origin and nuance — answered in your translation language
+- ❓ Ask: type your own question about the selected phrase; follow-up questions keep the conversation
+- Alt+Q: open the Ask panel on any website, not only YouTube
+- 🖍️ Highlight parts of an answer, 📋 copy it as Markdown, or 📝 save it to your own Notion database
+
+■ Privacy
+- No ads, no analytics, no trackers, no account
+- Settings sync through your Chrome profile; API keys stay on this device only
+- Caption text is sent only to the translation/AI service you choose (nothing is sent with Chrome built-in)
+- Full policy: see the Privacy Policy link
+
+■ Works on
+- Regular YouTube videos and YouTube Shorts
+- Both manual and auto-generated (ASR) captions
+
+■ Requirements
+- Chrome 138+ for the Chrome built-in translator; any recent Chrome (Manifest V3) otherwise
+```
 
 ## 4. 권한 사용 정당화 (Permission justification)
 
@@ -78,7 +122,7 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 | 권한 | 정당화 |
 |---|---|
 | `storage` | Save user preferences (languages, styles, subtitle position) to chrome.storage.sync and cache translations in IndexedDB. |
-| `scripting` | Listed in `content_scripts` to inject the subtitle renderer into YouTube pages. |
+| `scripting` | Inject the "Ask AI" panel into the active tab (together with `activeTab`) when the user presses the `Alt+Q` shortcut on a non-YouTube page. The YouTube subtitle renderer itself is declared statically in `content_scripts`. |
 | `offscreen` | The Chrome Built-in Translator API requires a DOM context; we host it in an offscreen document. |
 | `host_permissions: https://www.youtube.com/*` | Intercept YouTube caption track responses and overlay our dual subtitle container on the player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the user-selected Google free translation endpoint. Not used when Chrome Built-in backend is selected. |
@@ -93,7 +137,10 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 
 ## 6. 스크린샷
 
-필요 사양: 1280×800 또는 640×400 (PNG/JPG), 최소 1장 최대 5장.
+필요 사양: 1280×800 또는 640×400 (PNG/JPG), 최소 1장 최대 5장. **로캘별로 따로 올릴 수 있다**(대시보드에서 로캘 선택 → Localized screenshots).
+
+- 한국어(ko) 로캘: `photo/store/` 4장(한국어 UI·한국어 번역) 그대로.
+- 영어(기본) 로캘: `photo/store/en/` — 옵션 화면은 자동 캡처 완료(`screenshot_5_options.png`, 표시 English·번역 Español). 영상·Shorts·해설 화면은 자동화 Chromium에서 유튜브 재생이 막혀("Something went wrong") 실제 Chrome에서 수동 캡처 필요 — 권장: 외국어(스페인어 등) 영상 + 번역 English, 표시 언어 English.
 
 권장 구성:
 1. 일반 영상에 듀얼 자막 표시 (원문/번역 시각적 강조)
@@ -109,7 +156,7 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 
 ## 8. 호스팅할 페이지
 
-- **Privacy Policy URL**: `docs/PRIVACY.md`를 GitHub Pages, Gist, 또는 본인 사이트에 호스팅 후 URL 입력. Web Store 필수 항목.
+- **Privacy Policy URL**: 영문 정본 `docs/PRIVACY.md`의 GitHub URL(`https://github.com/mw3love/youtube_dual_subtitle/blob/master/docs/PRIVACY.md`). 한국어판 루트 `PRIVACY.md`는 서로 링크돼 있음. Web Store 필수 항목.
 - **Support URL**: GitHub 이슈 트래커 URL.
 - **Homepage URL**: GitHub repo URL.
 
