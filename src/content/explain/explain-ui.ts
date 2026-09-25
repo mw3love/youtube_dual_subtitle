@@ -339,6 +339,7 @@ export class ExplainUI {
     if (!this.pending) return;
     const { text, context } = this.pending;
     this.hideToolbar();
+    releaseSubtitleSelection();
     const tab = this.openTab(text, context, false);
     void this.runExplain(tab, text, context);
   };
@@ -350,6 +351,7 @@ export class ExplainUI {
     if (!this.pending) return;
     const { text, context } = this.pending;
     this.hideToolbar();
+    releaseSubtitleSelection();
     // 선택 텍스트를 문맥으로 든 빈 질문 탭 → 맨 아래 입력창에 포커스(첫 질문 입력).
     this.openTab(text, context, true);
     this.chatInput?.focus();
@@ -1309,6 +1311,13 @@ function textNodesInRange(root: HTMLElement, range: Range): Text[] {
   let n: Node | null;
   while ((n = walker.nextNode())) out.push(n as Text);
   return out;
+}
+
+// 자막 박스 안 선택을 해제 — 렌더러는 그 선택이 남아 있는 동안 자막을 현재 문장에 고정하므로,
+// 해설/질문으로 넘긴 뒤엔 풀어줘야 자막이 영상 시각을 따라잡는다. 해설 본문 선택은 건드리지 않음.
+function releaseSubtitleSelection(): void {
+  const sel = window.getSelection();
+  if (sel?.anchorNode && closestContainer(sel.anchorNode)) sel.removeAllRanges();
 }
 
 function closestContainer(node: Node): HTMLElement | null {

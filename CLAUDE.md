@@ -116,7 +116,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 - `findMountTarget`(`container.ts`): YouTube DOM 셀렉터에 최소 의존. **video element 기반 탐지**로 active 영상(Shorts 다중 reel 포함) 찾음.
 - `styles.ts`: 사용자 조절 값은 모두 CSS 변수로 `:root`에 박아 `:fullscreen` / `[data-mode="shorts"]` 보정까지 한 번에 적용. native YouTube 자막은 `html[data-ydt-active="true"] .ytp-caption-window-container { display: none !important }`로 숨김 — **A62(섹션 38)부터 조건부**: 듀얼자막이 켜져 있을 때만 숨기고, 꺼두면 네이티브 자막이 그대로 보임.
 - **드래그 UX**: DOM 핸들 없음(A13에서 제거). `.ydt-container` 자체가 `pointerdown` 타겟이고, `::before`(`inset: -6px`)가 hit-area 확장 + cyan halo 시각 affordance 둘 다 담당. 텍스트 선택이 1순위라 `e.target`이 `.ydt-cue-text` 또는 `.ydt-history`(누적 윗줄) 안이면 pointerdown은 early-return — native 선택에 완전 양보. 같은 두 셀렉터에 `cursor: text`도 매칭. 드래그 가능 영역은 행 padding + 두 행 사이 4px gap + 외곽 6px halo 띠. `clampPosition`은 좌우 대칭(예전 `HANDLE_MARGIN_PX` 없음). **위치(%) 좌표계 기준은 컨테이너의 CSS offset parent(= mount host `#movie_player`)이지 `video` 요소가 아니다(A28)** — YouTube는 레터박스(상하 검은 띠) 영상에서 `<video>`를 콘텐츠 크기로 축소·중앙배치해 player보다 세로로 작고 위치가 다른데, CSS `left/bottom %`는 offset parent 기준으로 풀리므로 드래그/clamp 계산도 같은 박스를 써야 한다. `positioningRect()`(`offsetParent ?? host`)가 `clampPosition`·`onPointerDown`·`onMove` 공통 기준. 옛 코드가 `video` rect를 써서 폭은 우연히 일치(좌우 정상)하나 세로가 어긋나 레터박스 영상 맨 아래에서 세로 드래그가 0에 고착되던 버그를 수정.
-- **누적(rolling) 윈도우**(A14): 싱글 자막 모드(translation-only / source-only / 모국어 영상)에서만 현재 cue(=문장) 위에 직전 `singleContextLines-1`개 cue(=문장)를 쌓아 맥락 보강. 듀얼 모드는 두 줄 이미 보이므로 누적 안 함. 행마다 `.ydt-history` div가 텍스트 span 위에 자리. `isRollingActive()`로 게이트, `renderHistory(idx)`가 윈도우 그림. Sticky gap-fill: 발화 사이 공백에서 cue가 -1이어도 직전 윈도우 유지(`update()`의 sticky 분기). `historyLayout: 'stacked'`는 cue마다 한 줄, `'inline'`은 현재 줄과 한 문단 흐름. `dimHistory`는 stacked일 때만 컨테이너 opacity로 적용 (inline은 한 문단 흐름이라 흐려지면 가독성↓ — A18에서 분기 추가). 번역 줄에서 history cue의 번역 아직 미도착이면 원문으로 임시 대체(setTargetTexts 도착 시 lastIdx=-2로 재렌더).
+- **누적(rolling) 윈도우**(A14): 싱글 자막 모드(translation-only / source-only / 모국어 영상)에서만 현재 cue(=문장) 위에 직전 `singleContextLines-1`개 cue(=문장)를 쌓아 맥락 보강. 듀얼 모드는 두 줄 이미 보이므로 누적 안 함. 행마다 `.ydt-history` div가 텍스트 span 위에 자리. `isRollingActive()`로 게이트, `renderHistory(idx)`가 윈도우 그림. Sticky gap-fill: 발화 사이 공백에서 cue가 -1이어도 직전 윈도우 유지(`update()`의 sticky 분기). `historyLayout: 'stacked'`는 cue마다 한 줄, `'inline'`은 현재 줄과 한 문단 흐름. `dimHistory`는 stacked일 때만 컨테이너 opacity로 적용 (inline은 한 문단 흐름이라 흐려지면 가독성↓ — A18에서 분기 추가). 번역 줄에서 history cue의 번역 아직 미도착이면 원문으로 임시 대체(setTargetTexts 도착 시 그 범위 번역이 바뀌었으면 윗줄만 제자리 재구성 — 원문 DOM은 안 건드림, 섹션 47).
 
 ### 9. SPA navigation race
 
@@ -535,6 +535,15 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **스토어 목록(manifest `name`/`description`, 커맨드 설명)은 이 설정으로 못 바꾼다** — 브라우저가 읽는 값이라 영어로 고정했다. 브라우저 언어별로 다르게 보이려면 `_locales` + `default_locale`을 따로 얹어야 하고, 그건 인앱 전환과 별개 채널이다(미구현).
 - **남은 불일치:** `targetLang` 기본값은 여전히 `'ko'`라 영어 UI로 처음 설치한 사용자도 번역 언어는 한국어로 시작한다. 웹스토어 공개 시엔 브라우저 언어 기반 초기값을 검토할 것(미적용 — 기존 사용자 설정을 건드리지 않으려고 보류).
 - **검증:** 옵션·팝업 페이지를 헤드리스로 렌더해 en/ko 양쪽 전체 문구와 **언어 전환 시 즉시 반영 + 미편집 프롬프트 자동 교체**까지 확인(chrome API 스텁 + 로컬 서버). 자막 위 해설 패널의 `relabel()`은 빌드·타입체크만 통과(프록시검증) — Chrome 실사용 확인 대상.
+
+### 47. 자막 드래그 선택 안정화 — 번역 도착 재렌더 제거 + 선택 박스 가두기 + 선택 중 자막 고정 (A71)
+
+**증상(사용자 리포트):** 해설/질문을 띄우려 자막을 드래그하면 ⓐ 한글 번역이 다 나오기 전까지 선택이 계속 풀리고 ⓑ 조금만 끌어도 너무 많이 잡혀 툴바가 안 뜨며 ⓒ Shorts에서 자막이 아래에 있으면 특히 심함(위로 옮기면 해결).
+
+- **ⓐ 원인 — 번역 도착마다 원문 DOM 재생성** (`subtitle-renderer.ts:setTargetTexts`): 옛 코드는 `lastIdx = -2`로 강제 재렌더 → 다음 프레임 `renderSource`가 원문 DOM을 통째로 교체 + `onCueChange`가 툴바까지 닫음. per-sentence 백엔드(섹션 24)는 번역이 문장마다 도착해 **영상 전체 번역이 끝날 때까지** 계속 발생. 수정: 표시 중 cue의 번역 줄만, 값이 실제로 바뀐 경우에만 제자리 갱신(번역 누적 윗줄은 그 범위 번역이 바뀐 경우만 재구성). `-2`/`-1`이면 아무것도 안 하고 다음 cue 진입 때 `update()`가 그림.
+- **ⓑⓒ 원인 — 선택이 박스 밖으로 번짐** (실측: 실제 Shorts 페이지에 동일 구조 박스를 넣고 Playwright 실입력 드래그): 18%(옛 기본) 위치에서 아래로 끌면 선택이 채널바·제목 오버레이(`yt-reel-channel-bar-view-model`)까지 번지고, 좌우로 박스를 벗어나면 페이지 헤더까지 번짐 → 선택 공통조상이 `.ydt-container` 밖이라 `evaluateSelection`이 툴바를 안 띄움. 30%면 아래가 `<video>`라 아래 방향은 안 번짐(사용자 관찰과 일치). 수정: 텍스트에서 시작한 드래그 동안 `selectionchange`마다 focus가 박스 밖이면 **포인터 좌표를 박스 안으로 clamp한 지점의 `caretRangeFromPoint`**로 `sel.extend`(실패 시 첫/끝 텍스트 노드). DOM 순서 비교(`comparePoint`)만으로 방향을 정하면 오른쪽으로 끌었는데 focus가 DOM상 앞의 헤더로 튀어 시작점에 붙는 오류가 실측돼 좌표 기반으로 함. CSS `user-select: contain`은 Chrome 미지원이라 불가.
+- **선택 중 자막 고정** (`update()`의 `isHoldingSelection`): 드래그 중이거나 자막 안에서 시작한 비어있지 않은 선택이 남아 있으면 현재 문장에 고정(영상은 계속 재생, 일시정지 안 함 — 사용자 선택). 문장이 넘어가며 DOM이 교체돼 선택이 사라지는 것 방지. 선택이 풀리면 다음 프레임에 현재 시각으로 따라잡음. 해설/질문 버튼 클릭 시 `explain-ui.ts:releaseSubtitleSelection`이 자막 선택을 해제해 고정을 푼다(툴바 mousedown `preventDefault`로 선택이 남기 때문).
+- **검증:** 선택 가두기는 실제 Shorts 페이지에서 동일 로직 하네스로 실입력 드래그 확인(프록시검증 — 확장 자체 로드 아님). 번역 도착 재렌더 제거·자막 고정은 빌드·타입체크만(프록시검증) — Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 

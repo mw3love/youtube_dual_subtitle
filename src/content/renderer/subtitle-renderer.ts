@@ -76,10 +76,28 @@ export class SubtitleRenderer {
     this.mount();
   }
 
+  // 번역은 per-sentence 백엔드면 문장마다 도착해 영상 전체 번역 내내 호출된다. 예전처럼
+  // lastIdx=-2로 강제 재렌더하면 원문 DOM까지 갈아엎어 드래그 중 선택이 풀리고 onCueChange가
+  // 툴바도 닫았다 → 표시 중인 cue의 번역 줄(과 번역 누적 윗줄)만, 실제로 바뀐 경우에만 제자리 갱신.
   setTargetTexts(texts: string[]): void {
+    const prev = this.targetTexts;
     this.targetTexts = texts;
-    this.lastIdx = -2; // 다음 update에서 target 갱신
     console.log(TAG, 'target texts set:', texts.length, '/', this.cues.length);
+    const idx = this.lastIdx;
+    // -2(강제 첫 업데이트)·-1(자막 없음)은 다음 cue 진입 때 update()가 새 targetTexts로 그린다.
+    if (idx < 0 || idx >= this.cues.length || !this.targetTextEl) return;
+    const fallback = this.displayMode === 'dual' ? '' : this.cues[idx].text;
+    const next = texts[idx] || fallback;
+    if (this.targetTextEl.textContent !== next) this.targetTextEl.textContent = next;
+    if (this.isRollingActive() && this.visibleSingleRow() === 'target') {
+      const start = Math.max(0, idx - (this.singleContextLines - 1));
+      for (let k = start; k < idx; k++) {
+        if (prev[k] !== texts[k]) {
+          this.renderHistory(idx);
+          break;
+        }
+      }
+    }
   }
 
   // host/video가 아직 없을 수 있어 retry.
@@ -154,6 +172,7 @@ export class SubtitleRenderer {
 
   unmount(): void {
     this.stopLoop();
+    this.endTextSelect();
     this.detachDragHandlers();
     this.detachWheelHandler();
     if (this.mountRetryTimer !== null) {
@@ -359,6 +378,14 @@ export class SubtitleRenderer {
     }
 
     const t = this.video.currentTime;
+
+    // 자막 텍스트를 드래그 중이거나 그 선택이 남아 있으면 현재 문장에 고정(영상은 계속 재생).
+    // 문장이 넘어가면 DOM 교체로 선택이 사라져 해설/질문 툴바를 띄울 수 없기 때문.
+    // 선택이 풀리면(바깥 클릭 등) 다음 프레임에 현재 시각으로 따라잡는다.
+    if (this.lastIdx >= 0 && this.lastIdx < this.cues.length && this.isHoldingSelection()) {
+      return;
+    }
+
     const idx = this.findCueIndex(t);
     const rolling = this.isRollingActive();
 
@@ -556,7 +583,10 @@ export class SubtitleRenderer {
     // 텍스트 위 down은 native 선택에 전적으로 양보. 드래그는 행 padding/gap/halo 띠에서만.
     // 누적(롤링) 윗줄(.ydt-history)도 텍스트라 같이 양보 — 안 그러면 윗줄에서 선택이 막힌다.
     const target = ev.target as HTMLElement | null;
-    if (target?.closest('.ydt-cue-text, .ydt-history')) return;
+    if (target?.closest('.ydt-cue-text, .ydt-history')) {
+      this.beginTextSelect();
+      return;
+    }
 
     const parentRect = this.positioningRect();
     if (!parentRect || parentRect.width === 0 || parentRect.height === 0) return;
@@ -605,6 +635,77 @@ export class SubtitleRenderer {
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
   };
+
+  // ─── 자막 텍스트 선택 보호 ───
+  // 텍스트에서 시작한 드래그가 박스 밖으로 나가면 native 선택이 페이지의 다른 텍스트(Shorts 제목·
+  // 채널명 오버레이 등)까지 번져, 선택 공통조상이 .ydt-container 밖이 돼 해설 툴바가 안 뜬다.
+  // 드래그 동안 selectionchange마다 focus를 박스 경계로 되돌려 선택을 박스 안에 가둔다.
+  // (CSS user-select: contain은 Chrome 미지원.)
+  private selecting = false;
+  private lastPointer: { x: number; y: number } | null = null;
+
+  private trackPointer = (e: PointerEvent): void => {
+    this.lastPointer = { x: e.clientX, y: e.clientY };
+  };
+
+  private beginTextSelect(): void {
+    if (this.selecting) return;
+    this.selecting = true;
+    this.lastPointer = null;
+    document.addEventListener('pointermove', this.trackPointer, true);
+    document.addEventListener('selectionchange', this.clampSelection);
+    document.addEventListener('pointerup', this.endTextSelect, true);
+    document.addEventListener('pointercancel', this.endTextSelect, true);
+    window.addEventListener('blur', this.endTextSelect);
+  }
+
+  private endTextSelect = (): void => {
+    if (!this.selecting) return;
+    this.selecting = false;
+    document.removeEventListener('pointermove', this.trackPointer, true);
+    document.removeEventListener('selectionchange', this.clampSelection);
+    document.removeEventListener('pointerup', this.endTextSelect, true);
+    document.removeEventListener('pointercancel', this.endTextSelect, true);
+    window.removeEventListener('blur', this.endTextSelect);
+    this.clampSelection();
+  };
+
+  private clampSelection = (): void => {
+    const c = this.container;
+    const sel = window.getSelection();
+    if (!c || !sel || sel.rangeCount === 0 || !sel.anchorNode || !sel.focusNode) return;
+    if (!c.contains(sel.anchorNode)) return; // 자막에서 시작한 선택만 관여
+    const box = document.createRange();
+    box.selectNodeContents(c);
+    // -1: focus가 박스보다 앞, 1: 뒤, 0: 안.
+    const cmp = box.comparePoint(sel.focusNode, sel.focusOffset);
+    if (cmp === 0) return;
+    // DOM 순서는 화면 방향과 무관하다(오른쪽으로 끌어도 focus가 DOM상 앞쪽 헤더로 튈 수 있음).
+    // 그래서 포인터 좌표를 박스 안으로 끌어와 그 지점의 caret으로 붙인다 — 오른쪽 밖이면 그 줄 끝.
+    const p = this.lastPointer;
+    if (p) {
+      const r = c.getBoundingClientRect();
+      const x = Math.min(Math.max(p.x, r.left + 2), r.right - 2);
+      const y = Math.min(Math.max(p.y, r.top + 2), r.bottom - 2);
+      const caret = document.caretRangeFromPoint?.(x, y);
+      if (caret && c.contains(caret.startContainer) && caret.startContainer.nodeType === Node.TEXT_NODE) {
+        sel.extend(caret.startContainer, caret.startOffset);
+        return;
+      }
+    }
+    const texts = visibleTextNodes(c);
+    const edge = cmp < 0 ? texts[0] : texts[texts.length - 1];
+    if (!edge) return;
+    sel.extend(edge, cmp < 0 ? 0 : edge.length);
+  };
+
+  // 드래그 중이거나, 자막 안에서 시작한 비어있지 않은 선택이 남아 있는가.
+  private isHoldingSelection(): boolean {
+    if (this.selecting) return true;
+    const c = this.container;
+    const sel = window.getSelection();
+    return !!c && !!sel && !sel.isCollapsed && !!sel.anchorNode && c.contains(sel.anchorNode);
+  }
 
   // ─── 휠 폰트 크기 조절 ───
   // 자막 컨테이너 위에서 휠 → 폰트 크기를 1px씩 ±. passive:false로 페이지 스크롤 차단.
@@ -669,4 +770,21 @@ export class SubtitleRenderer {
     }
     return -1;
   }
+}
+
+// 화면에 실제로 그려진(숨김 행·빈 윗줄 제외) 텍스트 노드 — 선택 경계 클램프 기준점.
+function visibleTextNodes(root: HTMLElement): Text[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      if (!n.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      const el = n.parentElement;
+      return el && el.getClientRects().length > 0
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    },
+  });
+  const out: Text[] = [];
+  let n: Node | null;
+  while ((n = walker.nextNode())) out.push(n as Text);
+  return out;
 }
