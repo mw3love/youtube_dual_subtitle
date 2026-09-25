@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Dual Subtitle for YouTube",
+    "description": "Extension name shown in the Chrome Web Store and chrome://extensions."
+  },
+  "extDescription": {
+    "message": "Dual subtitles (original + translation) for YouTube, with AI explanations",
+    "description": "Short extension description (max 132 characters)."
+  },
+  "cmdOpenAsk": {
+    "message": "Open the ask-AI panel (no subtitle selection needed)",
+    "description": "Keyboard shortcut description shown in chrome://extensions/shortcuts."
+  }
+}

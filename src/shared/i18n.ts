@@ -3,8 +3,8 @@
 // 왜 chrome.i18n(_locales)이 아닌가 — chrome.i18n은 로케일을 "브라우저 UI 언어"로만 정하고
 // 런타임에 바꾸는 API가 없다(공식 문서 실확인: getMessage/getAcceptLanguages/getUILanguage/
 // detectLanguage 넷뿐). 이 확장의 요구는 "기본 영어 + 옵션에서 한국어로 전환"이라 사전을
-// 직접 들고 있어야 한다. 스토어 목록(manifest name/description)만 브라우저 언어를 따르므로
-// 그쪽은 별개 문제로 남긴다.
+// 직접 들고 있어야 한다. 스토어 목록(manifest name/description·커맨드 설명)만 브라우저 언어를
+// 따르는 별개 채널이라 public/_locales에 따로 있다(A72).
 //
 // 사용법 두 갈래:
 //  - React 페이지(옵션/팝업): settings를 들고 있으므로 렌더 직전에 setUiLang(s.uiLang) 후 t().

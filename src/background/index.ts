@@ -9,6 +9,7 @@ import { explain } from './explain';
 import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
+import { browserDefaults } from '../shared/settings';
 import type { ChatTurn } from '../shared/types';
 import { setLastBackend } from '../shared/secrets';
 import { getCached, setCached } from '../shared/cache/idb-cache';
@@ -380,4 +381,21 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
 chrome.runtime.onInstalled.addListener((details) => {
   console.log(TAG, 'onInstalled', details.reason);
+  if (details.reason === 'install') void seedInstallDefaults();
 });
+
+// 새 설치에만 브라우저 언어 기반 표시/번역 언어를 심는다(settings.ts:browserDefaults 주석 참고).
+// storage에 이미 값이 있으면(다른 PC에서 Chrome 동기화로 넘어온 설정 등) 그 키는 건드리지 않는다.
+// 해설 프롬프트는 표시 언어를 함께 심을 때만 — 동기화된 uiLang과 어긋난 언어의 프롬프트가 들어가지 않게.
+async function seedInstallDefaults(): Promise<void> {
+  const d = browserDefaults();
+  const stored = await chrome.storage.sync.get(['uiLang', 'targetLang', 'explainPrompt']);
+  const patch: Record<string, string> = {};
+  if (stored.uiLang === undefined) {
+    patch.uiLang = d.uiLang;
+    if (stored.explainPrompt === undefined) patch.explainPrompt = d.explainPrompt;
+  }
+  if (stored.targetLang === undefined) patch.targetLang = d.targetLang;
+  if (Object.keys(patch).length > 0) await chrome.storage.sync.set(patch);
+  console.log(TAG, 'install defaults', patch);
+}

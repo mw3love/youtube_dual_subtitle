@@ -19,7 +19,7 @@
 
 import { renderMarkdown, domToMarkdown } from './markdown';
 import type { ChatTurn } from '../../shared/types';
-import { t as tr } from '../../shared/i18n';
+import { t as tr, tl } from '../../shared/i18n';
 
 const TAG = '[YDT/explain]';
 
@@ -530,7 +530,8 @@ export class ExplainUI {
     } else if (question) {
       // 빈 질문/직접질문 탭 — 맨 아래 입력창에 첫 질문을 기다린다.
       const hint = document.createElement('div');
-      hint.className = 'ydt-explain-loading';
+      // ydt-explain-askhint: relabel()이 언어 전환 시 찾아 바꾸는 마커(스타일은 loading 공유).
+      hint.className = 'ydt-explain-loading ydt-explain-askhint';
       hint.append(tr('panel.ask.hint'));
       body.appendChild(hint);
     } else {
@@ -718,6 +719,17 @@ export class ExplainUI {
       if (corner[1]) corner[1].title = tr('panel.close.title');
       const send = panel.querySelector<HTMLElement>('.ydt-explain-qsend');
       if (send) send.title = tr('panel.send.title');
+      // 아직 질문을 안 보낸 직접 질문 탭은 라벨이 생성 시점 언어의 '직접 질문'으로 박혀 있다
+      // (제출하면 질문으로 교체되므로 그 전까지만 해당) — 새 언어 라벨로 바꾼다.
+      const askLabels = [tl('en', 'panel.directAsk'), tl('ko', 'panel.directAsk')];
+      for (const tab of this.tabs) {
+        if (tab.isAsk && askLabels.includes(tab.term)) tab.term = tr('panel.directAsk');
+      }
+      panel.querySelectorAll<HTMLElement>('.ydt-explain-askhint').forEach((h) => {
+        h.textContent = tr('panel.ask.hint');
+      });
+      const active = this.activeTab();
+      if (active) this.setTitle(active.term);
       // 입력창 placeholder·Notion 버튼 문구·알림 줄은 활성 탭 상태에 따라 달라 refreshActions가 담당.
       this.refreshActions();
       this.renderTabstrip();

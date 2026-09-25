@@ -518,7 +518,7 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **팝업·옵션 라벨 동기화**: 팝업 "자막 켜기" 행의 "단축키 V" 고정 문구, 옵션 "자막 켜기" 행의 동일 문구를 모두 `settings.subtitlesToggleKey.toUpperCase()`를 따라가도록 교체 — 사용자가 키를 바꾸면 두 표시도 즉시 갱신.
 - **검증 한계:** 브라우저 자동화 도구가 `chrome://extensions`/`chrome-extension://` 내부 URL 조작을 막아 이번 세션에서 옵션 페이지 레코더·실제 키 입력 반영을 직접 눌러보진 못했다(프록시검증 — 빌드·타입체크만 통과). 레코더 UI 동작·저장된 키로 실제 토글까지는 Chrome 실사용 확인 대상.
 
-### 46. UI 표시 언어 — 기본 영어 + 옵션에서 한국어 (A70, v0.24.0)
+### 46. UI 표시 언어 — 기본 영어 + 옵션에서 한국어 (A70, v0.24.0) + 새 설치 브라우저 언어 시드·`_locales` (A72, v0.24.1)
 
 **계기:** 웹스토어 공개 배포를 염두에 두고 화면 문구를 영어 기본으로 바꾸되, 한국어 사용자는 옵션에서 되돌릴 수 있게 한다.
 
@@ -532,9 +532,10 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **에러 문구에서 제공자 이름:** 번역/해설 백엔드 에러는 `{name}` 자리에 `'Gemini'`/`'Gateway'`를 넣어 조립한다. 게이트웨이를 브랜드명이 아니라 일반명으로 부르는 것은 위 라벨 정책과 같은 이유(섹션 5).
 - **길이 불일치 재시도는 code로 판별:** gemini·mindlogic의 1회 재시도가 예전엔 `e.message.startsWith('… 응답 길이 불일치')`였는데 문구가 번역되면 그대로 깨진다 → `Object.assign(new Error(t(...)), { code: LENGTH_MISMATCH })` + `code` 비교로 교체. **사용자에게 보이는 문자열로 제어 흐름을 분기하지 말 것** — i18n을 넣는 순간 전부 지뢰가 된다.
 - **번역 대상이 아닌 것:** 코드 주석(한국어 유지), `console.log`(개발자용), 옵션 미리보기 샘플 문장(그건 `targetLang`별 예시 데이터), 모델 ID.
-- **스토어 목록(manifest `name`/`description`, 커맨드 설명)은 이 설정으로 못 바꾼다** — 브라우저가 읽는 값이라 영어로 고정했다. 브라우저 언어별로 다르게 보이려면 `_locales` + `default_locale`을 따로 얹어야 하고, 그건 인앱 전환과 별개 채널이다(미구현).
-- **남은 불일치:** `targetLang` 기본값은 여전히 `'ko'`라 영어 UI로 처음 설치한 사용자도 번역 언어는 한국어로 시작한다. 웹스토어 공개 시엔 브라우저 언어 기반 초기값을 검토할 것(미적용 — 기존 사용자 설정을 건드리지 않으려고 보류).
-- **검증:** 옵션·팝업 페이지를 헤드리스로 렌더해 en/ko 양쪽 전체 문구와 **언어 전환 시 즉시 반영 + 미편집 프롬프트 자동 교체**까지 확인(chrome API 스텁 + 로컬 서버). 자막 위 해설 패널의 `relabel()`은 빌드·타입체크만 통과(프록시검증) — Chrome 실사용 확인 대상.
+- **스토어 목록(manifest `name`/`description`, 커맨드 설명)은 이 설정으로 못 바꾼다** — Chrome이 직접 읽는 값이라 **브라우저 UI 언어**를 따르는 별개 채널이다. A72부터 `public/_locales/{en,ko}/messages.json` + `default_locale: 'en'`으로 브라우저 언어별 표시(`__MSG_extName__`/`__MSG_extDescription__`/`__MSG_cmdOpenAsk__`). 이름은 두 언어 모두 `Dual Subtitle for YouTube`(상표 검토 결과 유지 — `docs/STORE_LISTING.md` 1-b). vite가 `public/`을 `dist/`로 복사하므로 crxjs 설정 변경 없음.
+- **새 설치는 브라우저 언어로 시작 (A72):** `background/index.ts:seedInstallDefaults`가 `onInstalled` reason `'install'`일 때만 `settings.ts:browserDefaults()`(`chrome.i18n.getUILanguage()` 기반)로 `uiLang`(ko면 ko, 그 외 en)·`targetLang`(지원 7개 언어면 그것, 아니면 en)·그 언어의 `explainPrompt`를 storage에 심는다. **`DEFAULT_SETTINGS`는 안 바꿨다** — `saveSettings`가 바꾼 필드만 쓰는 partial이라 한 번도 안 건드린 필드는 storage에 없고 기본값으로 채워지므로, 기본값을 바꾸면 기존 사용자의 번역 언어가 조용히 바뀐다. storage에 이미 있는 키(Chrome 동기화로 넘어온 설정)는 안 건드리고, 프롬프트는 `uiLang`을 함께 심을 때만 심는다. 옵션 "전체 초기화"도 `DEFAULT_SETTINGS + browserDefaults()`.
+- **`relabel()`은 아직 질문을 안 보낸 직접 질문 탭의 라벨·안내문도 바꾼다** — 둘 다 생성 시점 언어로 박히기 때문(안내문은 `.ydt-explain-askhint` 마커로 찾음). 제출한 탭은 라벨이 질문으로 바뀌어 대상 아님.
+- **검증:** 옵션·팝업 페이지를 헤드리스로 렌더해 en/ko 양쪽 전체 문구와 **언어 전환 시 즉시 반영 + 미편집 프롬프트 자동 교체**까지 확인(chrome API 스텁 + 로컬 서버). A72: `dist/`를 `--load-extension`으로 실제 Chromium에 올려 브라우저 언어 en-US/ko/ja 각각 설치 시드(`en/en`·`ko/ko`·`en/ja`)·`_locales` 설명·단축키 설명, 그리고 youtube.com에서 `OPEN_ASK` 패널을 띄운 뒤 `uiLang` 전환 시 `relabel()`로 버튼·툴팁·입력창·직접 질문 라벨·안내문이 양방향 전환되는 것 확인. 자막 드래그 툴바 라벨은 자막 영상이 필요해 코드 확인만. 동기화된 기존 설정 보존 분기는 코드 확인만.
 
 ### 47. 자막 드래그 선택 안정화 — 번역 도착 재렌더 제거 + 선택 박스 가두기 + 선택 중 자막 고정 (A71)
 

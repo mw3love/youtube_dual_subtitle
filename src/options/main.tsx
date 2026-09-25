@@ -5,6 +5,7 @@ import {
   defaultExplainPrompt,
   loadSettings,
   saveSettings,
+  browserDefaults,
   type BackendId,
   type CueStyle,
   type DisplayMode,
@@ -859,8 +860,10 @@ function Options() {
       saveTimerRef.current = null;
     }
     pendingPatchRef.current = {};
-    setSettings(DEFAULT_SETTINGS);
-    await saveSettings(DEFAULT_SETTINGS);
+    // 언어 3종은 설치 때처럼 브라우저 언어 기준으로(settings.ts:browserDefaults).
+    const fresh: Settings = { ...DEFAULT_SETTINGS, ...browserDefaults() };
+    setSettings(fresh);
+    await saveSettings(fresh);
     setSaveState('saved');
     if (savedFadeTimerRef.current !== null) clearTimeout(savedFadeTimerRef.current);
     savedFadeTimerRef.current = window.setTimeout(() => setSaveState('idle'), 2000);

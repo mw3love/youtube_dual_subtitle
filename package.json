@@ -1,7 +1,7 @@
 {
   "name": "youtube-dual-subtitle",
   "private": true,
-  "version": "0.24.0",
+  "version": "0.24.1",
   "type": "module",
   "description": "Dual subtitles (original + translation) for YouTube, with AI explanations",
   "scripts": {

@@ -179,6 +179,22 @@ export const DEFAULT_SETTINGS: Settings = {
   notionDatabaseId: '',
 };
 
+// 브라우저 UI 언어에서 뽑은 "새 설치" 기본값 — 표시 언어·번역 언어·그 언어의 해설 프롬프트.
+// DEFAULT_SETTINGS 자체를 바꾸지 않는 이유: saveSettings는 바꾼 필드만 저장하는 partial이라
+// 한 번도 안 건드린 필드는 storage에 없고 DEFAULT_SETTINGS로 채워진다 — 기본값을 바꾸면 기존
+// 사용자의 번역 언어가 조용히 바뀐다. 그래서 설치 시점(background onInstalled 'install')에만
+// storage에 직접 심고, 옵션 "전체 초기화"도 이 값을 얹는다.
+export function browserDefaults(): Pick<Settings, 'uiLang' | 'targetLang' | 'explainPrompt'> {
+  const base = (chrome.i18n?.getUILanguage?.() ?? 'en').toLowerCase().split(/[-_]/)[0];
+  const uiLang: UiLang = base === 'ko' ? 'ko' : 'en';
+  const parsed = TargetLangSchema.safeParse(base);
+  return {
+    uiLang,
+    targetLang: parsed.success ? parsed.data : 'en',
+    explainPrompt: defaultExplainPrompt(uiLang),
+  };
+}
+
 export async function loadSettings(): Promise<Settings> {
   const raw = await chrome.storage.sync.get(DEFAULT_SETTINGS);
   // 손상된 값이 들어와도 default로 회복 — partial 갱신은 마이그레이션처럼 동작.

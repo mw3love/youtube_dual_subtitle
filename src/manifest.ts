@@ -3,8 +3,12 @@ import pkg from '../package.json';
 
 export default defineManifest({
   manifest_version: 3,
-  name: 'Dual Subtitle for YouTube',
-  description: pkg.description,
+  // 이름·설명·단축키 설명은 브라우저 언어별로 public/_locales/{en,ko}/messages.json에서 온다
+  // (A72). 인앱 표시 언어(settings.uiLang, shared/i18n.ts)와는 별개 채널 — 이 셋은 Chrome이
+  // 직접 읽는 값이라 브라우저 UI 언어만 따른다. 해당 언어 파일이 없으면 default_locale(en).
+  name: '__MSG_extName__',
+  description: '__MSG_extDescription__',
+  default_locale: 'en',
   version: pkg.version,
   action: {
     default_popup: 'src/popup/index.html',
@@ -56,7 +60,7 @@ export default defineManifest({
   commands: {
     'open-ask': {
       suggested_key: { default: 'Alt+Q', mac: 'Alt+Q' },
-      description: 'Open the ask-AI panel (no subtitle selection needed)',
+      description: '__MSG_cmdOpenAsk__',
     },
   },
   // activeTab: 'open-ask' 단축키(사용자 제스처)로 그 순간의 탭 하나에만 ask-anywhere를 주입하기

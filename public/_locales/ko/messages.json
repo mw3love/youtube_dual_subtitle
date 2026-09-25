@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "Dual Subtitle for YouTube",
+    "description": "Chrome 웹스토어·chrome://extensions에 보이는 확장 이름."
+  },
+  "extDescription": {
+    "message": "YouTube에 원문+번역 듀얼 자막을 표시하고, 자막 속 단어·표현을 AI로 해설합니다",
+    "description": "짧은 확장 설명(최대 132자)."
+  },
+  "cmdOpenAsk": {
+    "message": "AI 질문 패널 열기 (자막 선택 없이)",
+    "description": "chrome://extensions/shortcuts에 보이는 단축키 설명."
+  }
+}
