@@ -464,6 +464,9 @@ export class ExplainUI {
     cinput.rows = 1;
     cinput.placeholder = tr('panel.chat.followup');
     cinput.addEventListener('keydown', (e) => {
+      // 한글 IME 조합 중 Enter는 무시 — Chrome은 조합 확정용 Enter와 실제 Enter를 두 번 보내,
+      // 막지 않으면 확정된 마지막 글자만 한 번 더 전송돼 제목이 그 글자로 덮어써진다.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         this.submitChat();
