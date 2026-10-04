@@ -139,8 +139,8 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 
 필요 사양: 1280×800 또는 640×400 (PNG/JPG), 최소 1장 최대 5장. **로캘별로 따로 올릴 수 있다**(대시보드에서 로캘 선택 → Localized screenshots).
 
-- 한국어(ko) 로캘: `photo/store/` 4장(한국어 UI·한국어 번역) 그대로.
-- 영어(기본) 로캘: `photo/store/en/` — 옵션 화면은 자동 캡처 완료(`screenshot_5_options.png`, 표시 English·번역 Español). 영상·Shorts·해설 화면은 자동화 Chromium에서 유튜브 재생이 막혀("Something went wrong") 실제 Chrome에서 수동 캡처 필요 — 권장: 외국어(스페인어 등) 영상 + 번역 English, 표시 언어 English.
+- 한국어(ko) 로캘: `photo/store/` 5장(한국어 UI·한국어 번역). 팝업(`screenshot_4_popup.png`)·옵션(`screenshot_5_options.png`)은 A79 디자인으로 다시 찍음(헤드리스 Chrome + chrome API 스텁, 노래방 모드 끈 상태로 — 켜면 미리보기 원문이 애니메이션 중간에 흐리게 찍힘). 팝업은 실제 크기가 작아 1280×800 어두운 바탕 가운데에 1.6배로 놓음.
+- 영어(기본) 로캘: `photo/store/en/` — 팝업·옵션은 자동 캡처 완료(`screenshot_4_popup.png`·`screenshot_5_options.png`, 표시 English·번역 Español). 영상·Shorts·해설 화면은 자동화 Chromium에서 유튜브 재생이 막혀("Something went wrong") 실제 Chrome에서 수동 캡처 필요 — 권장: 외국어(스페인어 등) 영상 + 번역 English, 표시 언어 English.
 
 권장 구성:
 1. 일반 영상에 듀얼 자막 표시 (원문/번역 시각적 강조)
