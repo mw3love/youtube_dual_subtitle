@@ -133,7 +133,7 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 
 ## 5. 아이콘
 
-✓ 완료 — `public/icons/`에 16/32/48/128 4종 모두 있고 `manifest.ts`의 `icons`/`action.default_icon`에도 등록돼 있음(`npm run icons`로 재생성 가능).
+✓ 완료 — 모양은 **주황 말풍선 + 자막 두 줄**(A78에서 사각형→말풍선, "보고 + 묻는" 확장이라는 뜻. 원본 `design/icon-source.svg`). `public/icons/`에 16/32/48/128 4종 모두 있고 `manifest.ts`의 `icons`/`action.default_icon`에도 등록돼 있음(`npm run icons`로 재생성 가능).
 
 ## 6. 스크린샷
 
