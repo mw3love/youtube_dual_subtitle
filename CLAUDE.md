@@ -558,6 +558,18 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **다음:** 옵션 페이지도 같은 톤(앰버 카드) + 왼쪽 목차·가운데 한 줄 구성으로 바꿀 예정(시안 "선택안 옵션").
 - **검증:** 프록시검증 — 헤드리스 Chrome에 chrome API 스텁 + 로컬 서버로 ko 켜짐 / ko 꺼짐+fallback 경고 / en 켜짐 3장 렌더 확인(넘침·어긋남 없음). 실제 확장 팝업에서의 클릭 동작은 미확인.
 
+### 49. 옵션 페이지 재디자인 — 왼쪽 목차·미리보기 + 카드 본문 (A76, v0.26.0)
+
+팝업(섹션 48)과 같은 톤으로 옵션 페이지 겉모양·배치를 바꿈. **저장·키·테스트 등 동작 코드는 무변경** — `options/main.tsx`는 표시 컴포넌트와 레이아웃만 손댐.
+
+- **배치** (`.layout` = `.side` + `.main`): 왼쪽 300px 고정(sticky)에 브랜드·**목차**·**미리보기 2개**, 오른쪽 본문(최대 760px). 시안은 미리보기를 본문 맨 위에 뒀으나, 아래쪽 자막 스타일을 고치는 동안 화면 밖으로 사라져 왼쪽 고정으로 옮김(옛 오른쪽 sticky 미리보기와 같은 이유).
+- **목차** (`tocItems` + `activeSection`): 섹션마다 `id`(`sec-dual` 등). 클릭 = `scrollIntoView`, 현재 위치는 `IntersectionObserver`(화면 위 1/3 띠)로 노란 표시. Gemini/게이트웨이 섹션은 `showGemini`/`showMindlogic`일 때만 목차에도 나옴.
+- **섹션 = 작은 제목 + 카드** (`Section`/`Row`, 클래스는 `options/index.html`): 섹션 31의 들여쓰기·`•` 불릿 계층은 카드로 대체(불릿 제거). 행 아래 보충 설명은 `.sub-hint`(라벨 폭 160 + gap 12만큼 들여씀 — 옛 `margin-left 152px` 인라인 대체).
+- **입력 모양:** 체크박스는 CSS만으로 토글 스위치 모양(`appearance:none` + `::after`, 동작은 checkbox 그대로). 표시 모드·표시 자막 수·쌓는 방식은 `<select>` → `Chips`(선택지가 다 보이고 한 번에 바뀜). 번역 방식 라디오는 `.choice` 카드, 고른 칸은 `:has(input:checked)`로 앰버 테두리. 테스트 버튼은 파랑 → 앰버(`.btn-test`).
+- **색:** 인라인 hex(`#999`/`#3ea6ff`/`#9eff9e`/`#ff7777`/`#ffa200`) → CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`).
+- **알려진 기존 문제(미수정):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나옴 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`가 `''`인데 `t()`가 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. A76 이전부터 있던 문제.
+- **검증:** 프록시검증 — 헤드리스 Chrome + chrome API 스텁으로 ko(Gemini 선택) 전체 페이지·en 상단 렌더 확인. 실제 확장에서 저장·테스트 동작은 미확인(동작 코드 무변경).
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

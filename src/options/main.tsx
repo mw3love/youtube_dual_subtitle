@@ -31,11 +31,6 @@ const weights = (): Array<{ value: 400 | 500 | 700; label: string }> => [
   { value: 700, label: t('weight.700') },
 ];
 
-// 하위 항목 계층 마커. 옛 `·`(middle dot)는 13px 텍스트에 껴서 안 보여 `•`(bullet)로 키움.
-function Bullet() {
-  return <span style={{ color: '#9a9a9a', marginRight: 6, fontSize: 15 }}>•</span>;
-}
-
 // 섹션별 초기화 대상 키 — 해당 섹션 값만 default로 되돌리고 나머지(언어/백엔드/해설 등)는 유지.
 // "자막 스타일" = 원문/번역 텍스트 스타일(크기·색·굵기).
 const TEXT_STYLE_KEYS = [
@@ -50,62 +45,34 @@ const LAYOUT_KEYS = [
   'subtitlePosition',
 ] as const satisfies readonly (keyof Settings)[];
 
+// 섹션 = 작은 제목(+ 섹션 초기화 버튼) + 카드(A76). id는 왼쪽 목차의 이동 목표.
 function Section({
+  id,
   title,
   action,
   children,
 }: {
+  id: string;
   title: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section style={{ marginBottom: 28 }}>
-      <h2
-        style={{
-          fontSize: 16,
-          margin: '0 0 12px',
-          paddingBottom: 6,
-          borderBottom: '1px solid #2e2e2e',
-          color: '#ffa200',
-          fontWeight: 700,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-        }}
-      >
+    <section id={id} className="sec">
+      <h2 className="sec-head">
         <span>{title}</span>
         {action}
       </h2>
-      {/* 하위 항목은 들여쓰기 + 행 앞 불릿(·, Row 내부)으로 제목과 시각 구분. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, paddingLeft: 10 }}>
-        {children}
-      </div>
+      <div className="card">{children}</div>
     </section>
   );
 }
 
-// 섹션 제목 옆 초기화 아이콘 — 해당 섹션의 값만 기본값으로 되돌린다. title 속성으로 무엇을
-// 되돌리는지 툴팁 안내. 노란 제목 옆에 두는 게 "이 섹션을 초기화"임이 직관적(전역 옵션
-// 초기화는 맨 아래 별도 버튼).
+// 섹션 제목 옆 초기화 버튼 — 해당 섹션의 값만 기본값으로 되돌린다. title 속성으로 무엇을
+// 되돌리는지 툴팁 안내(전역 옵션 초기화는 맨 아래 별도 버튼).
 function ResetIcon({ onClick, title }: { onClick: () => void; title: string }) {
   return (
-    <button
-      onClick={onClick}
-      title={title}
-      type="button"
-      style={{
-        fontSize: 13,
-        lineHeight: 1,
-        padding: '3px 8px',
-        color: '#bbb',
-        background: 'transparent',
-        border: '1px solid #3a3a3a',
-        borderRadius: 6,
-        cursor: 'pointer',
-        fontWeight: 400,
-      }}
-    >
+    <button onClick={onClick} title={title} type="button">
       {t('opt.reset')}
     </button>
   );
@@ -113,16 +80,39 @@ function ResetIcon({ onClick, title }: { onClick: () => void; title: string }) {
 
 function Row({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      {/* 라벨 앞 불릿(·)으로 "제목의 하위 항목"임을 표시. 빈 라벨(힌트 전용 행)은 불릿 생략. */}
-      <label style={{ minWidth: 140, fontSize: 13 }}>
-        {label && <Bullet />}
-        {label}
-      </label>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+    <div className="row">
+      <label className="row-label">{label}</label>
+      <div className="row-body">
         {children}
-        {hint && <span style={{ fontSize: 11, color: '#999', marginLeft: 2 }}>{hint}</span>}
+        {hint && <span className="hint">{hint}</span>}
       </div>
+    </div>
+  );
+}
+
+// 몇 개 중 하나를 고르는 값 — 드롭다운 대신 칩(누르면 바로 바뀜, 선택지가 다 보임).
+function Chips<T extends string | number>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="chips" role="group">
+      {options.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          className={`chip${o.value === value ? ' on' : ''}`}
+          aria-pressed={o.value === value}
+          onClick={() => onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -137,23 +127,10 @@ function StyleEditor({
   onChange: (s: CueStyle) => void;
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div
-        style={{
-          alignSelf: 'flex-start',
-          fontSize: 11,
-          fontWeight: 700,
-          color: '#bbb',
-          background: '#262626',
-          padding: '3px 10px',
-          borderRadius: 10,
-          letterSpacing: '0.3px',
-        }}
-      >
-        {label}
-      </div>
-      {/* 크기·색·굵기는 위 그룹 라벨(1.원문/2.번역)의 하위 — 한 단계 더 들여쓰기(각 행 앞 불릿). */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 24 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="group-chip">{label}</div>
+      {/* 크기·색·굵기는 위 그룹 라벨(1.원문/2.번역)의 하위 — 한 단계 들여쓰기. */}
+      <div className="group-body">
         <Row label={t('style.size')}>
           <input
             type="number"
@@ -163,7 +140,7 @@ function StyleEditor({
             onChange={(e) => onChange({ ...style, fontSize: Number(e.target.value) || 22 })}
             style={{ width: 70 }}
           />
-          <span style={{ fontSize: 12, color: '#999' }}>px</span>
+          <span className="hint">px</span>
         </Row>
         <Row label={t('style.color')}>
           <input
@@ -314,8 +291,8 @@ function PreviewBox({ settings, displayMode }: { settings: Settings; displayMode
       style={{
         background: 'linear-gradient(135deg, #1c2a3a 0%, #050a14 100%)',
         padding: '0 12px 12px',
-        borderRadius: 6,
-        border: '1px solid #2e2e2e',
+        borderRadius: 10,
+        border: '1px solid #2d2a25',
         aspectRatio: '16 / 9',
         display: 'flex',
         flexDirection: 'column',
@@ -367,22 +344,15 @@ function PreviewBox({ settings, displayMode }: { settings: Settings; displayMode
 }
 
 function Preview({ settings }: { settings: Settings }) {
-  const labelStyle: React.CSSProperties = {
-    fontSize: 11,
-    color: '#999',
-    fontWeight: 600,
-    marginBottom: 4,
-    letterSpacing: '0.3px',
-  };
   return (
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div>
-          <div style={labelStyle}>{t('opt.preview.dual')}</div>
+          <div className="preview-label">{t('opt.preview.dual')}</div>
           <PreviewBox settings={settings} displayMode={settings.displayMode} />
         </div>
         <div>
-          <div style={labelStyle}>{t('opt.preview.single')}</div>
+          <div className="preview-label">{t('opt.preview.single')}</div>
           <PreviewBox settings={settings} displayMode="source-only" />
         </div>
       </div>
@@ -608,7 +578,7 @@ function Options() {
   // 번역 모델 설명 — 해설 모델 설명(renderExplainBlock 내 <p>)과 짝을 이루는 안내.
   // 자막 전체를 번역하는 용도라 "많은 문장 = 가성비" 관점을 강조. Gemini/Mindlogic 공용.
   const transModelHint = (
-    <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
+    <p className="sub-hint">
       {t('hint.transModel')}
     </p>
   );
@@ -631,15 +601,14 @@ function Options() {
               true,
             )}
       </Row>
-      <p style={{ fontSize: 12, color: '#999', margin: '2px 0 4px 152px' }}>
+      <p className="sub-hint">
         {t('hint.explainModelPre')}
-        <b style={{ color: '#3ea6ff' }}>{t('panel.explain')}</b> ·{' '}
-        <b style={{ color: '#3ea6ff' }}>{t('panel.question')}</b>
+        <b style={{ color: 'var(--accent-text)' }}>{t('panel.explain')}</b> ·{' '}
+        <b style={{ color: 'var(--accent-text)' }}>{t('panel.question')}</b>
         {t('hint.explainModelPost')}
       </p>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-        <label style={{ minWidth: 140, fontSize: 13, marginTop: 2 }}>
-          <Bullet />
+      <div className="row" style={{ alignItems: 'flex-start' }}>
+        <label className="row-label" style={{ marginTop: 6 }}>
           {t('row.explainPrompt')}
         </label>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -654,11 +623,7 @@ function Options() {
               fontFamily: 'inherit',
               fontSize: 12,
               lineHeight: 1.5,
-              color: '#e8e8e8',
-              background: '#1c1c1c',
-              border: '1px solid #333',
-              borderRadius: 6,
-              padding: 8,
+              padding: 10,
               resize: 'vertical',
             }}
           />
@@ -666,12 +631,11 @@ function Options() {
             <button
               onClick={() => update({ explainPrompt: defaultExplainPrompt(settings.uiLang) })}
               disabled={settings.explainPrompt === defaultExplainPrompt(settings.uiLang)}
-              style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
               {t('btn.restoreDefault')}
             </button>
-            <span style={{ fontSize: 11, opacity: 0.6 }}>{t('opt.explainPrompt.langHint')}</span>
+            <span className="hint">{t('opt.explainPrompt.langHint')}</span>
           </div>
         </div>
       </div>
@@ -883,26 +847,11 @@ function Options() {
   const onResetLayout = (): void =>
     resetKeys(LAYOUT_KEYS, t('confirm.resetLayout'));
 
-  const dangerButtonStyle: React.CSSProperties = {
-    padding: '4px 10px',
-    borderColor: '#6b2a2a',
-    color: '#ffb3b3',
-  };
-
-  // 테스트 버튼 — 바로 옆 '보기/숨김'(중립 회색)과 헷갈리지 않게 파란 accent 테두리·글자 +
-  // 🧪 기호로 "동작 확인" 액션임을 구분. 세 곳(Gemini·Mindlogic·Notion) 공용.
-  const testButtonStyle: React.CSSProperties = {
-    padding: '4px 10px',
-    fontSize: 12,
-    borderColor: '#2a4a6b',
-    color: '#8fc7ff',
-  };
-
   // 슬라이더 값(퍼센트/배수)을 폰트 크기 'px' 값과 시각적으로 구분.
   // accent 색 + monospace로 "조절된 값"임을 한눈에 인식.
   const sliderValueStyle: React.CSSProperties = {
     fontSize: 12,
-    color: '#ffa200',
+    color: 'var(--accent-text)',
     fontWeight: 600,
     fontFamily: 'ui-monospace, "Cascadia Code", Menlo, Consolas, monospace',
     minWidth: 44,
@@ -917,42 +866,71 @@ function Options() {
   const showMindlogic =
     settings.backend === 'mindlogic' || settings.explainBackend === 'mindlogic';
 
+  // 목차 현재 위치 표시 — 화면 위쪽 1/3 띠에 걸린 섹션을 활성으로.
+  const [activeSection, setActiveSection] = useState('sec-dual');
+  useEffect(() => {
+    if (!loaded) return;
+    const els = [...document.querySelectorAll<HTMLElement>('section.sec')];
+    const io = new IntersectionObserver(
+      (entries) => {
+        const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (hit) setActiveSection(hit.target.id);
+      },
+      { rootMargin: '0px 0px -66% 0px' },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [loaded, showGemini, showMindlogic]);
+
   if (!loaded) return <div style={{ padding: 24 }}>{t('opt.loading')}</div>;
 
+  // 왼쪽 목차 — 보이는 섹션만(Gemini/게이트웨이는 고른 제공자일 때만 렌더되므로 같이 숨김).
+  const tocItems: Array<{ id: string; label: string }> = [
+    { id: 'sec-dual', label: t('sec.dual') },
+    { id: 'sec-single', label: t('sec.single') },
+    { id: 'sec-style', label: t('sec.style') },
+    { id: 'sec-layout', label: t('sec.layout') },
+    { id: 'sec-backend', label: t('sec.backend') },
+    ...(showGemini ? [{ id: 'sec-gemini', label: t('sec.gemini') }] : []),
+    ...(showMindlogic ? [{ id: 'sec-mindlogic', label: t('sec.mindlogic') }] : []),
+    { id: 'sec-notion', label: t('sec.notion') },
+    { id: 'sec-manage', label: t('sec.manage') },
+  ];
+
   return (
-    <div
-      style={{
-        maxWidth: 1140,
-        margin: '40px auto',
-        padding: 24,
-        fontFamily: 'system-ui, sans-serif',
-        color: '#e8e8e8',
-      }}
-    >
-      <h1 style={{ fontSize: 22, margin: '0 0 24px', display: 'flex', alignItems: 'baseline', gap: 10 }}>
-        <span>Dual Subtitle for YouTube</span>
-        <span style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>
-          v{chrome.runtime.getManifest().version}
-        </span>
-        {saveState === 'pending' && (
-          <span style={{ fontSize: 11, color: '#888', fontWeight: 400 }}>{t('opt.saving')}</span>
-        )}
-        {saveState === 'saved' && (
-          <span style={{ fontSize: 11, color: '#3ea6ff', fontWeight: 400 }}>{t('opt.saved')}</span>
-        )}
-      </h1>
+    <div className="layout">
+      <aside className="side">
+        <div className="brand">
+          Dual Subtitle
+          <small>v{chrome.runtime.getManifest().version}</small>
+        </div>
+        <nav className="toc">
+          {tocItems.map((it) => (
+            <a
+              key={it.id}
+              href={`#${it.id}`}
+              className={activeSection === it.id ? 'on' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById(it.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
+              {it.label}
+            </a>
+          ))}
+        </nav>
+        {/* 미리보기는 목차 아래 고정 — 아래쪽 스타일 섹션을 고치는 동안에도 계속 보이게. */}
+        <Preview settings={settings} />
+      </aside>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 360px',
-          gap: 32,
-          alignItems: 'start',
-        }}
-      >
-        <div>
+      <main className="main">
+        <div className="main-head">
+          <h1>Dual Subtitle for YouTube</h1>
+          {saveState === 'pending' && <span className="save-state">{t('opt.saving')}</span>}
+          {saveState === 'saved' && <span className="save-state saved">{t('opt.saved')}</span>}
+        </div>
 
-      <Section title={t('sec.dual')}>
+      <Section id="sec-dual" title={t('sec.dual')}>
         <Row label={t('row.uiLang')} hint={t('hint.uiLang')}>
           <select
             value={settings.uiLang}
@@ -977,11 +955,9 @@ function Options() {
             onClick={() => setRecordingKey(true)}
             style={{
               minWidth: 64,
-              padding: '4px 10px',
-              fontSize: 12,
-              cursor: 'pointer',
-              background: recordingKey ? '#3ea6ff' : undefined,
-              color: recordingKey ? '#000' : undefined,
+              fontWeight: 700,
+              background: recordingKey ? 'var(--accent)' : undefined,
+              color: recordingKey ? 'var(--bg)' : undefined,
             }}
           >
             {recordingKey ? t('btn.recordingKey') : settings.subtitlesToggleKey.toUpperCase()}
@@ -1000,16 +976,11 @@ function Options() {
           </select>
         </Row>
         <Row label={t('row.displayMode')}>
-          <select
+          <Chips<DisplayMode>
             value={settings.displayMode}
-            onChange={(e) => update({ displayMode: e.target.value as DisplayMode })}
-          >
-            {displayModes().map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
+            options={displayModes()}
+            onChange={(v) => update({ displayMode: v })}
+          />
         </Row>
         <Row label={t('row.wordReveal')}>
           <input
@@ -1020,27 +991,29 @@ function Options() {
         </Row>
       </Section>
 
-      <Section title={t('sec.single')}>
+      <Section id="sec-single" title={t('sec.single')}>
         <Row label={t('row.contextLines')}>
-          <select
+          <Chips<number>
             value={settings.singleContextLines}
-            onChange={(e) => update({ singleContextLines: Number(e.target.value) })}
-          >
-            <option value={1}>{t('lines.1')}</option>
-            <option value={2}>{t('lines.2')}</option>
-            <option value={3}>{t('lines.3')}</option>
-          </select>
+            options={[
+              { value: 1, label: t('lines.1') },
+              { value: 2, label: t('lines.2') },
+              { value: 3, label: t('lines.3') },
+            ]}
+            onChange={(v) => update({ singleContextLines: v })}
+          />
         </Row>
         {settings.singleContextLines > 1 && (
           <>
             <Row label={t('row.historyLayout')}>
-              <select
+              <Chips<HistoryLayout>
                 value={settings.historyLayout}
-                onChange={(e) => update({ historyLayout: e.target.value as HistoryLayout })}
-              >
-                <option value="stacked">{t('layout.stacked')}</option>
-                <option value="inline">{t('layout.inline')}</option>
-              </select>
+                options={[
+                  { value: 'stacked', label: t('layout.stacked') },
+                  { value: 'inline', label: t('layout.inline') },
+                ]}
+                onChange={(v) => update({ historyLayout: v })}
+              />
             </Row>
             {settings.historyLayout === 'stacked' && (
               <Row label={t('row.dimHistory')}>
@@ -1049,7 +1022,7 @@ function Options() {
                   checked={settings.dimHistory}
                   onChange={(e) => update({ dimHistory: e.target.checked })}
                 />
-                <span style={{ fontSize: 12, color: '#999' }}>
+                <span className="hint">
                   {t('hint.dimHistory')}
                 </span>
               </Row>
@@ -1059,6 +1032,7 @@ function Options() {
       </Section>
 
       <Section
+        id="sec-style"
         title={t('sec.style')}
         action={<ResetIcon onClick={onResetTextStyle} title={t('reset.textStyle.title')} />
         }
@@ -1076,6 +1050,7 @@ function Options() {
       </Section>
 
       <Section
+        id="sec-layout"
         title={t('sec.layout')}
         action={<ResetIcon onClick={onResetLayout} title={t('reset.layout.title')} />
         }
@@ -1122,83 +1097,69 @@ function Options() {
             </Row>
             {/* 자막 위치 — Row 컴포넌트 대신 수동 레이아웃.
                 위치 초기화는 섹션 제목 옆 ↻(자막 배치·배경 그룹)에 통합. */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label style={{ minWidth: 140, fontSize: 13 }}>
-                <Bullet />
-                {t('row.position')}
-              </label>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 2,
-                  fontSize: 11,
-                  color: '#999',
-                }}
-              >
+            <div className="row">
+              <label className="row-label">{t('row.position')}</label>
+              <div className="hint" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <div>{t('hint.positionDrag')}</div>
                 <div>{t('hint.positionWheel')}</div>
               </div>
             </div>
       </Section>
 
-      <Section title={t('sec.backend')}>
+      <Section id="sec-backend" title={t('sec.backend')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+          <label className="choice">
             <input
               type="radio"
               checked={settings.backend === 'google-free'}
               onChange={() => update({ backend: 'google-free' as BackendId })}
-              style={{ marginTop: 2 }}
             />
             <span>
               <div>
                 {t('backend.googleFree.title')}{' '}
-                <span style={{ fontSize: 11, color: '#3ea6ff', marginLeft: 2 }}>
+                <span style={{ fontSize: 11, color: 'var(--accent-text)', marginLeft: 2 }}>
                   {t('backend.recommended')}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              <div className="hint" style={{ marginTop: 2 }}>
                 {t('backend.googleFree.desc')}
               </div>
             </span>
           </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+          <label className="choice">
             <input
               type="radio"
               checked={settings.backend === 'chrome-builtin'}
               onChange={() => update({ backend: 'chrome-builtin' as BackendId })}
-              style={{ marginTop: 2 }}
             />
             <span>
               <div>{t('backend.chrome.title')}</div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              <div className="hint" style={{ marginTop: 2 }}>
                 {t('backend.chrome.desc')}
               </div>
             </span>
           </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+          <label className="choice">
             <input
               type="radio"
               checked={settings.backend === 'gemini'}
               onChange={() => update({ backend: 'gemini' as BackendId, explainBackend: 'gemini' })}
-              style={{ marginTop: 2 }}
             />
             <span>
               <div>
                 {t('backend.gemini.title')}{' '}
-                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>
+                <span className="ok" style={{ fontSize: 11, marginLeft: 2 }}>
                   {t('backend.aiBadge')}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              <div className="hint" style={{ marginTop: 2 }}>
                 {t('backend.gemini.descPre')}
                 <a
                   href="https://aistudio.google.com/apikey"
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => e.stopPropagation()}
-                  style={{ color: '#3ea6ff' }}
+                  
                 >
                   Google AI Studio
                 </a>
@@ -1206,21 +1167,20 @@ function Options() {
               </div>
             </span>
           </label>
-          <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 13, cursor: 'pointer' }}>
+          <label className="choice">
             <input
               type="radio"
               checked={settings.backend === 'mindlogic'}
               onChange={() => update({ backend: 'mindlogic' as BackendId, explainBackend: 'mindlogic' })}
-              style={{ marginTop: 2 }}
             />
             <span>
               <div>
                 {t('backend.mindlogic.title')}{' '}
-                <span style={{ fontSize: 11, color: '#9eff9e', marginLeft: 2 }}>
+                <span className="ok" style={{ fontSize: 11, marginLeft: 2 }}>
                   {t('backend.aiBadge')}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+              <div className="hint" style={{ marginTop: 2 }}>
                 {t('backend.mindlogic.desc')}
               </div>
             </span>
@@ -1229,7 +1189,7 @@ function Options() {
       </Section>
 
       {showGemini && (
-        <Section title={t('sec.gemini')}>
+        <Section id="sec-gemini" title={t('sec.gemini')}>
           <Row label={t('row.apiKey')}>
             <input
               type={showKey ? 'text' : 'password'}
@@ -1242,7 +1202,6 @@ function Options() {
             />
             <button
               onClick={() => setShowKey((v) => !v)}
-              style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
               {showKey ? t('btn.hide') : t('btn.show')}
@@ -1250,36 +1209,36 @@ function Options() {
             <button
               onClick={() => void onTestGemini()}
               disabled={!apiKey.trim() || testState.kind === 'pending'}
-              style={testButtonStyle}
+              className="btn-test"
               type="button"
             >
               {testState.kind === 'pending' ? t('btn.testing') : t('btn.test')}
             </button>
             {testState.kind === 'ok' && (
-              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+              <span className="ok" style={{ fontSize: 12 }}>
                 {t('test.ok', { translation: testState.translation })}
               </span>
             )}
             {testState.kind === 'err' && (
-              <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {testState.error}</span>
+              <span className="err" style={{ fontSize: 12 }}>✗ {testState.error}</span>
             )}
             {geminiModelsFetch.kind === 'ok' && (
-              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+              <span className="ok" style={{ fontSize: 11 }}>
                 {t('test.models.ok', { count: geminiModelsFetch.count })}
               </span>
             )}
             {geminiModelsFetch.kind === 'err' && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 11 }}>
                 {t('test.models.err', { error: geminiModelsFetch.error })}
               </span>
             )}
             {!apiKey.trim() && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 11 }}>
                 {t('warn.noGeminiKey')}
               </span>
             )}
           </Row>
-          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+          <p className="sub-hint">
             {t('hint.geminiKey')}
           </p>
           <Row label={t('row.transModel')}>
@@ -1291,7 +1250,7 @@ function Options() {
       )}
 
       {showMindlogic && (
-        <Section title={t('sec.mindlogic')}>
+        <Section id="sec-mindlogic" title={t('sec.mindlogic')}>
           <Row label={t('row.baseUrl')}>
             <input
               type="text"
@@ -1303,7 +1262,7 @@ function Options() {
               spellCheck={false}
             />
           </Row>
-          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+          <p className="sub-hint">
             {t('hint.baseUrl')}
           </p>
           <Row label={t('row.apiKey')}>
@@ -1318,7 +1277,6 @@ function Options() {
             />
             <button
               onClick={() => setShowMindlogicKey((v) => !v)}
-              style={{ padding: '4px 10px', fontSize: 12 }}
               type="button"
             >
               {showMindlogicKey ? t('btn.hide') : t('btn.show')}
@@ -1330,33 +1288,33 @@ function Options() {
                 !settings.mindlogicBaseUrl.trim() ||
                 mindlogicTestState.kind === 'pending'
               }
-              style={testButtonStyle}
+              className="btn-test"
               type="button"
             >
               {mindlogicTestState.kind === 'pending' ? t('btn.testing') : t('btn.test')}
             </button>
             {mindlogicTestState.kind === 'ok' && (
-              <span style={{ fontSize: 12, color: '#9eff9e' }}>
+              <span className="ok" style={{ fontSize: 12 }}>
                 {t('test.ok', { translation: mindlogicTestState.translation })}
               </span>
             )}
             {mindlogicTestState.kind === 'err' && (
-              <span style={{ fontSize: 12, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 12 }}>
                 ✗ {mindlogicTestState.error}
               </span>
             )}
             {modelsFetch.kind === 'ok' && (
-              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+              <span className="ok" style={{ fontSize: 11 }}>
                 {t('test.models.ok', { count: modelsFetch.count })}
               </span>
             )}
             {modelsFetch.kind === 'err' && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 11 }}>
                 {t('test.models.err', { error: modelsFetch.error })}
               </span>
             )}
             {creditsState.kind === 'ok' && (
-              <span style={{ fontSize: 11, color: '#9eff9e' }}>
+              <span className="ok" style={{ fontSize: 11 }}>
                 {t('credits.ok', {
                   remaining: creditsState.credits.monthlyRemaining.toLocaleString(),
                   quota: creditsState.credits.monthlyQuota.toLocaleString(),
@@ -1371,17 +1329,17 @@ function Options() {
               </span>
             )}
             {creditsState.kind === 'err' && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 11 }}>
                 {t('credits.err', { error: creditsState.error })}
               </span>
             )}
             {(!mindlogicApiKey.trim() || !settings.mindlogicBaseUrl.trim()) && (
-              <span style={{ fontSize: 11, color: '#ff7777' }}>
+              <span className="err" style={{ fontSize: 11 }}>
                 {t('warn.noMindlogicKey')}
               </span>
             )}
           </Row>
-          <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+          <p className="sub-hint">
             {t('hint.mindlogicKey')}
           </p>
           <Row label={t('row.transModel')}>
@@ -1392,20 +1350,20 @@ function Options() {
         </Section>
       )}
 
-      <Section title={t('sec.notion')}>
-        <p style={{ fontSize: 12, color: '#999', margin: '-4px 0 4px' }}>
+      <Section id="sec-notion" title={t('sec.notion')}>
+        <p className="hint" style={{ margin: 0, fontSize: 12 }}>
           {t('notion.introPre')}
-          <b style={{ color: '#3ea6ff' }}>{t('panel.notion')}</b>
+          <b style={{ color: 'var(--accent-text)' }}>{t('panel.notion')}</b>
           {t('notion.introPost')}
         </p>
-        <ol style={{ fontSize: 11, color: '#999', margin: '2px 0 6px', paddingLeft: 18, lineHeight: 1.7 }}>
+        <ol className="hint" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
           <li>
             {t('notion.step1Pre')}
             <a
               href="https://www.notion.so/my-integrations"
               target="_blank"
               rel="noreferrer"
-              style={{ color: '#3ea6ff' }}
+              
             >
               notion.so/my-integrations
             </a>
@@ -1430,13 +1388,12 @@ function Options() {
           />
           <button
             onClick={() => setShowNotionToken((v) => !v)}
-            style={{ padding: '4px 10px', fontSize: 12 }}
             type="button"
           >
             {showNotionToken ? t('btn.hide') : t('btn.show')}
           </button>
         </Row>
-        <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+        <p className="sub-hint">
           {t('hint.notionToken')}
         </p>
         <Row label={t('row.notionDb')}>
@@ -1450,7 +1407,7 @@ function Options() {
             spellCheck={false}
           />
         </Row>
-        <p style={{ fontSize: 11, color: '#888', margin: '2px 0 4px 152px' }}>
+        <p className="sub-hint">
           {t('hint.notionDb')}
         </p>
         <Row label={t('row.notionTest')}>
@@ -1461,53 +1418,39 @@ function Options() {
               !settings.notionDatabaseId.trim() ||
               notionTestState.kind === 'pending'
             }
-            style={testButtonStyle}
+            className="btn-test"
             type="button"
           >
             {notionTestState.kind === 'pending' ? t('btn.checking') : t('btn.test')}
           </button>
           {notionTestState.kind === 'ok' && (
-            <span style={{ fontSize: 12, color: '#9eff9e' }}>
+            <span className="ok" style={{ fontSize: 12 }}>
               {t('test.notion.ok', { title: notionTestState.dbTitle })}
             </span>
           )}
           {notionTestState.kind === 'err' && (
-            <span style={{ fontSize: 12, color: '#ff7777' }}>✗ {notionTestState.error}</span>
+            <span className="err" style={{ fontSize: 12 }}>✗ {notionTestState.error}</span>
           )}
         </Row>
       </Section>
 
-      <Section title={t('sec.manage')}>
+      <Section id="sec-manage" title={t('sec.manage')}>
         <Row label={t('row.cache')}>
-          <button onClick={onClearCache} style={{ padding: '4px 10px' }}>
+          <button onClick={onClearCache}>
             {t('btn.clearCache')}
           </button>
-          <span style={{ fontSize: 12, color: '#999' }}>
+          <span className="hint">
             {t('cache.count', { count: cacheCount ?? '…' })}
           </span>
         </Row>
-        <div
-          style={{
-            marginTop: 8,
-            paddingTop: 12,
-            borderTop: '1px dashed #3a2a2a',
-          }}
-        >
-          <Row label={t('row.resetAll')} hint={t('hint.resetAll')}>
-            <button onClick={onResetSettings} style={dangerButtonStyle}>
-              {t('btn.reset')}
-            </button>
-          </Row>
-        </div>
+        <div className="divider" />
+        <Row label={t('row.resetAll')} hint={t('hint.resetAll')}>
+          <button onClick={onResetSettings} className="btn-danger">
+            {t('btn.reset')}
+          </button>
+        </Row>
       </Section>
-        </div>
-        <div style={{ position: 'sticky', top: 24 }}>
-          <div style={{ fontSize: 18, color: '#ffa200', fontWeight: 700, marginBottom: 10 }}>
-            {t('opt.preview')}
-          </div>
-          <Preview settings={settings} />
-        </div>
-      </div>
+      </main>
     </div>
   );
 }
