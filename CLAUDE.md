@@ -567,7 +567,7 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **섹션 = 작은 제목 + 카드** (`Section`/`Row`, 클래스는 `options/index.html`): 섹션 31의 들여쓰기·`•` 불릿 계층은 카드로 대체(불릿 제거). 행 아래 보충 설명은 `.sub-hint`(라벨 폭 160 + gap 12만큼 들여씀 — 옛 `margin-left 152px` 인라인 대체).
 - **입력 모양:** 체크박스는 CSS만으로 토글 스위치 모양(`appearance:none` + `::after`, 동작은 checkbox 그대로). 표시 모드·표시 자막 수·쌓는 방식은 `<select>` → `Chips`(선택지가 다 보이고 한 번에 바뀜). 번역 방식 라디오는 `.choice` 카드, 고른 칸은 `:has(input:checked)`로 앰버 테두리. 테스트 버튼은 파랑 → 앰버(`.btn-test`).
 - **색:** 인라인 hex(`#999`/`#3ea6ff`/`#9eff9e`/`#ff7777`/`#ffa200`) → CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`).
-- **알려진 기존 문제(미수정):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나옴 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`가 `''`인데 `t()`가 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. A76 이전부터 있던 문제.
+- **한국어 화면의 영어 섞임 수정 (A77, v0.26.1):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나왔다 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`는 한국어 어순상 일부러 `''`인데 `t()`/`tl()`이 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. `||` → `??`(키가 없을 때만 영어). KO는 `Record<MsgKey,string>`이라 타입이 모든 키를 강제하므로 실제 폴백은 생기지 않는다. **빈 조각이 필요한 문장은 `''`로 두면 된다.**
 - **검증:** 프록시검증 — 헤드리스 Chrome + chrome API 스텁으로 ko(Gemini 선택) 전체 페이지·en 상단 렌더 확인. 실제 확장에서 저장·테스트 동작은 미확인(동작 코드 무변경).
 
 ## 비명백한 주의사항

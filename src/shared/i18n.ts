@@ -638,14 +638,14 @@ function fill(s: string, vars?: Vars): string {
   return s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m));
 }
 
-/** 현재 언어로 번역. 값이 비면 영어로 폴백. */
+/** 현재 언어로 번역. 키가 없을 때만 영어로 폴백 — 빈 문자열('')은 한국어 어순상 일부러 비운 조각이라 그대로 쓴다. */
 export function t(key: MsgKey, vars?: Vars): string {
-  return fill(TABLE[current][key] || EN[key], vars);
+  return fill(TABLE[current][key] ?? EN[key], vars);
 }
 
 /** 언어를 명시해 번역 — 저장된 기본 프롬프트 비교처럼 "다른 언어" 값이 필요할 때. */
 export function tl(lang: UiLang, key: MsgKey, vars?: Vars): string {
-  return fill(TABLE[lang][key] || EN[key], vars);
+  return fill(TABLE[lang][key] ?? EN[key], vars);
 }
 
 /** content/background/ask-anywhere용 — storage에서 읽고 이후 변경도 추적. */
