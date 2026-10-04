@@ -138,7 +138,7 @@ A16~A61까지는 `'C'`가 `subtitlesEnabled`를 토글하면서 CC 버튼도 프
 production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW devtools에서 성공 로그가 안 보인다. 사용자가 "지금 어느 백엔드로 동작 중인지" 확인하기 어려운 문제를 팝업 한 줄로 해결.
 
 - `secrets.ts:setLastBackend({ used, preferred, at })`: background가 매 성공 호출 후 `chrome.storage.local`에 기록. fire-and-forget.
-- 팝업(`popup/main.tsx:LastBackendLine`): 열릴 때 `getLastBackend()` 호출 → "최근 번역: Gemini · 2분 전" 한 줄 표시. preferred ≠ used면 ⚠ 표시 + 색 변경(fallback 시각화). 1분 간격으로 "N초/N분 전" 갱신. 30분 이상 지난 정보는 흐리게(stale 표시).
+- 팝업(`popup/main.tsx`): 열릴 때 `getLastBackend()` 호출. **A75(섹션 48)부터 평소엔 안 보이고**, preferred ≠ used(fallback)이면서 30분 이내일 때만 주황 경고 카드("Gemini 실패 · 지금은 Google 무료 사용 중")로 노출. (옛 "최근 번역: Gemini · 2분 전" 상시 줄·모델명 표기(섹션 40)는 제거.)
 - 왜 storage.sync 아닌 local: 휘발성 런타임 상태(다른 기기와 공유 가치 없음) + sync 쿼터 절약. 키 분리 패턴과 같은 storage area 공유.
 
 ### 12. (제거됨, A62) CC 버튼 ↔ subtitlesEnabled 단방향 sync
@@ -545,6 +545,18 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **ⓑⓒ 원인 — 선택이 박스 밖으로 번짐** (실측: 실제 Shorts 페이지에 동일 구조 박스를 넣고 Playwright 실입력 드래그): 18%(옛 기본) 위치에서 아래로 끌면 선택이 채널바·제목 오버레이(`yt-reel-channel-bar-view-model`)까지 번지고, 좌우로 박스를 벗어나면 페이지 헤더까지 번짐 → 선택 공통조상이 `.ydt-container` 밖이라 `evaluateSelection`이 툴바를 안 띄움. 30%면 아래가 `<video>`라 아래 방향은 안 번짐(사용자 관찰과 일치). 수정: 텍스트에서 시작한 드래그 동안 `selectionchange`마다 focus가 박스 밖이면 **포인터 좌표를 박스 안으로 clamp한 지점의 `caretRangeFromPoint`**로 `sel.extend`(실패 시 첫/끝 텍스트 노드). DOM 순서 비교(`comparePoint`)만으로 방향을 정하면 오른쪽으로 끌었는데 focus가 DOM상 앞의 헤더로 튀어 시작점에 붙는 오류가 실측돼 좌표 기반으로 함. CSS `user-select: contain`은 Chrome 미지원이라 불가.
 - **선택 중 자막 고정** (`update()`의 `isHoldingSelection`): 드래그 중이거나 자막 안에서 시작한 비어있지 않은 선택이 남아 있으면 현재 문장에 고정(영상은 계속 재생, 일시정지 안 함 — 사용자 선택). 문장이 넘어가며 DOM이 교체돼 선택이 사라지는 것 방지. 선택이 풀리면 다음 프레임에 현재 시각으로 따라잡음. 해설/질문 버튼 클릭 시 `explain-ui.ts:releaseSubtitleSelection`이 자막 선택을 해제해 고정을 푼다(툴바 mousedown `preventDefault`로 선택이 남기 때문).
 - **검증:** 선택 가두기는 실제 Shorts 페이지에서 동일 로직 하네스로 실입력 드래그 확인(프록시검증 — 확장 자체 로드 아님). 번역 도착 재렌더 제거·자막 고정은 빌드·타입체크만(프록시검증) — Chrome 실사용 확인 대상.
+
+### 48. 팝업 재디자인 — 자주 쓰는 것만 + 카드형 레이아웃 (A75, v0.25.0)
+
+**문제:** 팝업이 13줄(상태·새 질문·자막 켜기·노래방·표시 모드·언어·번역 방식·최근 번역·원문 크기·번역 크기·위치·설정·버전)이라 거의 안 바꾸는 설정까지 늘 자리를 차지했다. 사용자와 시안 6장(팝업 3 + 옵션 3, claude.ai Design 캔버스)을 비교해 "팝업 B(카드) + 크기는 원문/번역 글자 표기 + 기능별 카드"로 확정.
+
+- **남긴 것** (`popup/main.tsx`): 제목줄(오른쪽 아이콘 `새 질문`·`⚙ 설정` — 버전은 ⚙ 툴팁) → **자막 켜기 카드**(카드 전체가 토글, 아랫줄에 페이지 상태 + 단축키) → **표시 모드 3타일**(원문/번역 막대 그림 + 짧은 라벨 `pop.mode.*`) → 카드 3개 `언어`(내 언어) · `글자 크기`(원문 [−n+] │ 번역 [−n+] 한 줄) · `위치`(처음 자리로).
+- **옮긴 것:** 노래방 모드·번역 방식은 팝업에서 제거(옵션 페이지엔 원래 있음 — 한 번 정하면 거의 안 바꿈). 상태 줄(StatusLine)은 켜기 카드 아랫줄로 흡수 — 문제 상태(`unreachable`/`no-cues`)만 주황 글씨. 팝업에서 끄면 상태는 열 때 한 번만 조회한 값이라 줄 수 대신 단축키만 보이게 `settings.subtitlesEnabled`로 가린다.
+- **최근 번역 → 조건부 경고:** 상시 줄 대신 fallback + 30분 이내(`FALLBACK_FRESH_MS`)일 때만 경고 카드. 키 미설정 경고(`pop.noGeminiKey`/`noMindlogicKey`)는 그대로 조건부.
+- **이름:** `바꿀 언어` → `내 언어`(targetLang은 번역 대상이자 모국어 영상 판정(섹션 2)·AI 답변 언어(A73)라 "내 언어"가 실제 뜻). `위치 초기화` → `처음 자리로`. 영어는 크기 라벨을 `Source`/`Target`로(Translation은 320px 한 줄에 안 들어감).
+- **스타일:** 인라인 style → `popup/index.html`의 클래스 + CSS 변수(따뜻한 다크 `#181715` + 앰버 `#ffb020`). 팝업 폭 320px 고정. 글꼴은 기본(system-ui) — 시안의 Gothic A1은 번들 증가로 미채택(사용자 선택). 아이콘은 이모지 대신 선 SVG.
+- **다음:** 옵션 페이지도 같은 톤(앰버 카드) + 왼쪽 목차·가운데 한 줄 구성으로 바꿀 예정(시안 "선택안 옵션").
+- **검증:** 프록시검증 — 헤드리스 Chrome에 chrome API 스텁 + 로컬 서버로 ko 켜짐 / ko 꺼짐+fallback 경고 / en 켜짐 3장 렌더 확인(넘침·어긋남 없음). 실제 확장 팝업에서의 클릭 동작은 미확인.
 
 ## 비명백한 주의사항
 

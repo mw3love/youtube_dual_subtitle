@@ -9,20 +9,18 @@ import {
   type Settings,
   type TargetLang,
 } from '../shared/settings';
-import {
-  backends,
-  displayModes,
-  GEMINI_MODELS,
-  MINDLOGIC_MODELS,
-  TARGET_LANGS,
-} from '../shared/lang-options';
-import { setUiLang, t } from '../shared/i18n';
+import { TARGET_LANGS } from '../shared/lang-options';
+import { setUiLang, t, type MsgKey } from '../shared/i18n';
 import {
   getGeminiApiKey,
   getLastBackend,
   getMindlogicApiKey,
   type LastBackendInfo,
 } from '../shared/secrets';
+
+// 팝업(A75): 자주 바꾸는 것만 — 자막 켜기·표시 모드·내 언어·글자 크기·위치.
+// 노래방 모드·번역 방식처럼 한 번 정하면 그만인 설정은 옵션 페이지(⚙)로 옮겼다.
+// 스타일은 index.html의 클래스(.card/.tile/...)에 있다.
 
 // 현재 탭 상태 — 팝업이 열렸을 때 한 번 조회.
 type TabStatus =
@@ -32,64 +30,6 @@ type TabStatus =
   | { kind: 'subtitles-off' }
   | { kind: 'no-cues' }
   | { kind: 'active'; cueCount: number };
-
-function statusDot(color: string): React.CSSProperties {
-  return {
-    display: 'inline-block',
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: color,
-    marginRight: 7,
-    verticalAlign: 'middle',
-  };
-}
-
-function StatusLine({ status }: { status: TabStatus }) {
-  let color = '#888';
-  let text = '';
-  switch (status.kind) {
-    case 'loading':
-      color = '#666';
-      text = t('status.checking');
-      break;
-    case 'not-youtube':
-      color = '#888';
-      text = t('status.notYoutube');
-      break;
-    case 'unreachable':
-      color = '#aa6633';
-      text = t('status.unreachable');
-      break;
-    case 'subtitles-off':
-      color = '#888';
-      text = t('status.off');
-      break;
-    case 'no-cues':
-      color = '#aa6633';
-      text = t('status.noCues');
-      break;
-    case 'active':
-      color = '#3ea6ff';
-      text = t('status.active', { count: status.cueCount });
-      break;
-  }
-  return (
-    <div
-      style={{
-        fontSize: 11,
-        padding: '6px 8px',
-        background: '#222',
-        borderRadius: 3,
-        marginBottom: 10,
-        color: '#bbb',
-      }}
-    >
-      <span style={statusDot(color)} />
-      {text}
-    </div>
-  );
-}
 
 // 백엔드 식별자 → 사용자에게 보여줄 짧은 이름(표시 언어를 따라가므로 함수).
 function backendLabel(id: BackendId): string {
@@ -105,67 +45,36 @@ function backendLabel(id: BackendId): string {
   }
 }
 
-// gemini/mindlogic 모델 ID → 사람용 라벨(목록에 없으면 raw ID 그대로).
-function modelLabel(backend: BackendId, model?: string): string | null {
-  if (!model) return null;
-  if (backend === 'gemini') return GEMINI_MODELS.find((m) => m.value === model)?.label ?? model;
-  if (backend === 'mindlogic') return MINDLOGIC_MODELS.find((m) => m.value === model)?.label ?? model;
-  return null;
-}
+// fallback 경고는 이 시간 안의 일만 — 오래된 실패를 지금 문제처럼 보이지 않게(옛 팝업의 stale 기준과 동일).
+const FALLBACK_FRESH_MS = 30 * 60 * 1000;
 
-function formatAgo(at: number): string {
-  const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
-  if (sec < 60) return t('ago.sec', { n: sec });
-  const min = Math.floor(sec / 60);
-  if (min < 60) return t('ago.min', { n: min });
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return t('ago.hour', { n: hr });
-  const day = Math.floor(hr / 24);
-  return t('ago.day', { n: day });
-}
+// 표시 모드 타일 — 막대 두 개(원문·번역) 중 무엇을 그릴지로 모드를 그림으로 보여 준다.
+const MODE_TILES: Array<{ value: DisplayMode; label: MsgKey; src: boolean; tgt: boolean }> = [
+  { value: 'dual', label: 'pop.mode.dual', src: true, tgt: true },
+  { value: 'translation-only', label: 'pop.mode.translationOnly', src: false, tgt: true },
+  { value: 'source-only', label: 'pop.mode.sourceOnly', src: true, tgt: false },
+];
 
-// "최근 번역" 한 줄 — preferred ≠ used면 fallback 발생을 빨갛게 노출.
-function LastBackendLine({ info, preferred }: { info: LastBackendInfo; preferred: BackendId }) {
-  const fellBack = info.used !== info.preferred;
-  // 사용자가 popup 열어둔 동안 시간 흐름 반영 (1분 단위).
-  const [, force] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => force((n) => n + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-  const stale = Date.now() - info.at > 30 * 60 * 1000; // 30분 이상이면 흐리게
-  return (
-    <p
-      style={{
-        margin: '6px 0 0',
-        padding: '5px 8px',
-        fontSize: 11,
-        color: fellBack ? '#ffb37a' : stale ? '#888' : '#aac8ff',
-        background: '#1f1f1f',
-        border: '1px solid #2e2e2e',
-        borderRadius: 3,
-        opacity: stale ? 0.7 : 1,
-      }}
-      title={
-        fellBack
-          ? t('pop.fellBack.title', {
-              preferred: backendLabel(info.preferred),
-              used: backendLabel(info.used),
-            })
-          : t('pop.used.title', { used: backendLabel(info.used) })
-      }
-    >
-      {t('pop.lastBackend', { backend: backendLabel(info.used) })}
-      {modelLabel(info.used, info.model) ? ` (${modelLabel(info.used, info.model)})` : ''} ·{' '}
-      {formatAgo(info.at)}
-      {fellBack && (
-        <span style={{ marginLeft: 6, fontSize: 10 }}>
-          {t('pop.fellBack', { backend: backendLabel(preferred) })}
-        </span>
-      )}
-    </p>
-  );
-}
+// 아이콘 — 이모지 대신 선 SVG(폰트마다 모양이 달라지지 않게).
+const IconAsk = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+    <line x1="12" y1="7" x2="12" y2="13" />
+    <line x1="9" y1="10" x2="15" y2="10" />
+  </svg>
+);
+const IconGear = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+const IconReset = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="1 4 1 10 7 10" />
+    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+  </svg>
+);
 
 function Popup() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
@@ -176,7 +85,7 @@ function Popup() {
   // BYOK 백엔드의 키 설정 여부 — 키 없는데 해당 백엔드 선택했을 때만 안내 표시.
   const [geminiKeySet, setGeminiKeySet] = useState<boolean | null>(null);
   const [mindlogicKeySet, setMindlogicKeySet] = useState<boolean | null>(null);
-  // 마지막 번역 호출 결과 — preferred ≠ used면 fallback 발생을 사용자에게 노출.
+  // 마지막 번역 호출 결과 — preferred ≠ used(fallback)일 때만 경고로 노출.
   const [lastBackend, setLastBackendState] = useState<LastBackendInfo | null>(null);
 
   useEffect(() => {
@@ -230,7 +139,7 @@ function Popup() {
     window.close();
   };
 
-  // ➕ 새 질문 — 활성 YouTube 탭 콘텐츠에 OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다
+  // 새 질문 — 활성 YouTube 탭 콘텐츠에 OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다
   // (content/index.ts가 explainUI.openAsk() 호출). 패널 안 버튼과 동일 경로이자 단축키 Alt+Q의
   // cold-start 발견성 보완(단축키를 몰라도 됨). 콘텐츠 스크립트가 없거나 거부하면 무시.
   const openAskOnPage = async (): Promise<void> => {
@@ -266,27 +175,44 @@ function Popup() {
   const resetPosition = (): void =>
     update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition });
 
-  const rowStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '6px 0',
-    fontSize: 13,
-    gap: 10,
-  };
+  // 켜기 카드 아랫줄 — 페이지 상태 + 단축키. 상태는 팝업 열 때 한 번만 조회하므로, 여기서
+  // 끄면 줄 수 대신 단축키만 보이게 settings 기준으로 가린다.
+  const shortcut = t('pop.shortcut', { key: settings.subtitlesToggleKey.toUpperCase() });
+  let statusText: string | null = null;
+  let statusWarn = false;
+  switch (status.kind) {
+    case 'loading':
+      statusText = t('status.checking');
+      break;
+    case 'not-youtube':
+      statusText = t('status.notYoutube');
+      break;
+    case 'unreachable':
+      statusText = t('status.unreachable');
+      statusWarn = true;
+      break;
+    case 'no-cues':
+      statusText = t('status.noCues');
+      statusWarn = true;
+      break;
+    case 'active':
+      statusText = t('pop.lines', { count: status.cueCount });
+      break;
+    case 'subtitles-off':
+      break;
+  }
+  if (!settings.subtitlesEnabled && (status.kind === 'active' || status.kind === 'no-cues')) {
+    statusText = null;
+    statusWarn = false;
+  }
+  const heroSub = statusText ? `${statusText} · ${shortcut}` : shortcut;
 
-  const selectStyle: React.CSSProperties = { fontSize: 12, padding: '2px 4px', maxWidth: 200 };
+  const fellBack =
+    lastBackend !== null &&
+    lastBackend.used !== lastBackend.preferred &&
+    Date.now() - lastBackend.at < FALLBACK_FRESH_MS;
 
-  const sizeBtnStyle: React.CSSProperties = {
-    width: 26,
-    height: 24,
-    fontSize: 15,
-    lineHeight: '1',
-    padding: 0,
-    cursor: 'pointer',
-  };
-
-  const SizeRow = ({
+  const SizeStepper = ({
     label,
     value,
     bump,
@@ -295,183 +221,144 @@ function Popup() {
     value: number;
     bump: (d: number) => void;
   }): React.ReactElement => (
-    <div style={rowStyle}>
-      <span>{label}</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(-2)} title={t('pop.smaller')}>
-          −
-        </button>
-        <span style={{ fontSize: 12, minWidth: 26, textAlign: 'center', color: '#ccc' }}>{value}</span>
-        <button style={sizeBtnStyle} disabled={!loaded} onClick={() => bump(2)} title={t('pop.larger')}>
-          +
-        </button>
-      </span>
-    </div>
+    <span className="size">
+      <span className="size-label">{label}</span>
+      <button
+        className="step"
+        disabled={!loaded}
+        onClick={() => bump(-2)}
+        title={t('pop.smaller')}
+        aria-label={`${label} ${t('pop.smaller')}`}
+      >
+        −
+      </button>
+      <span className="step-value">{value}</span>
+      <button
+        className="step"
+        disabled={!loaded}
+        onClick={() => bump(2)}
+        title={t('pop.larger')}
+        aria-label={`${label} ${t('pop.larger')}`}
+      >
+        +
+      </button>
+    </span>
   );
 
   return (
-    <div
-      style={{
-        minWidth: 270,
-        padding: 14,
-        fontFamily: 'system-ui, sans-serif',
-        opacity: loaded ? 1 : 0.5,
-      }}
-    >
-      <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Dual Subtitle for YouTube</h3>
-
-      <StatusLine status={status} />
-
-      {pageReachable && (
+    <div className="pop" style={{ opacity: loaded ? 1 : 0.5 }}>
+      <div className="head">
+        <span className="head-title">Dual Subtitle</span>
+        {pageReachable && (
+          <button
+            className="icon-btn"
+            onClick={() => void openAskOnPage()}
+            disabled={!loaded}
+            title={t('pop.newQuestion.title')}
+            aria-label={t('pop.newQuestion')}
+          >
+            <IconAsk />
+          </button>
+        )}
         <button
-          onClick={() => void openAskOnPage()}
-          disabled={!loaded}
-          style={{ width: '100%', marginBottom: 10, padding: '6px', fontSize: 12, cursor: 'pointer' }}
-          title={t('pop.newQuestion.title')}
+          className="icon-btn"
+          onClick={openOptions}
+          title={`${t('pop.openOptions')} · v${chrome.runtime.getManifest().version}`}
+          aria-label={t('pop.openOptions')}
         >
-          {t('pop.newQuestion')}
-        </button>
-      )}
-
-      <label style={rowStyle}>
-        <span>
-          {t('pop.subtitlesOn')}
-          <span style={{ fontSize: 10, color: '#888', marginLeft: 6 }}>
-            {t('pop.shortcut', { key: settings.subtitlesToggleKey.toUpperCase() })}
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.subtitlesEnabled}
-          onChange={(e) => update({ subtitlesEnabled: e.target.checked })}
-          disabled={!loaded}
-        />
-      </label>
-
-      <label style={rowStyle} title={t('pop.wordReveal.title')}>
-        <span>{t('pop.wordReveal')}</span>
-        <input
-          type="checkbox"
-          checked={settings.wordRevealEnabled}
-          onChange={(e) => update({ wordRevealEnabled: e.target.checked })}
-          disabled={!loaded}
-        />
-      </label>
-
-      <label style={rowStyle}>
-        <span>{t('pop.displayMode')}</span>
-        <select
-          value={settings.displayMode}
-          onChange={(e) => update({ displayMode: e.target.value as DisplayMode })}
-          disabled={!loaded}
-          style={selectStyle}
-        >
-          {displayModes().map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={rowStyle}>
-        <span>{t('pop.targetLang')}</span>
-        <select
-          value={settings.targetLang}
-          onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
-          disabled={!loaded}
-          style={selectStyle}
-        >
-          {TARGET_LANGS.map((l) => (
-            <option key={l.value} value={l.value}>
-              {l.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label style={rowStyle}>
-        <span>{t('pop.backend')}</span>
-        <select
-          value={settings.backend}
-          onChange={(e) => update({ backend: e.target.value as BackendId })}
-          disabled={!loaded}
-          style={selectStyle}
-        >
-          {backends().map((b) => (
-            <option key={b.value} value={b.value}>
-              {b.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {settings.backend === 'gemini' && geminiKeySet === false && (
-        <p
-          style={{
-            margin: '4px 0 0',
-            padding: '6px 8px',
-            fontSize: 11,
-            color: '#ffcfa6',
-            background: '#3a2a1a',
-            border: '1px solid #5a3a1a',
-            borderRadius: 3,
-          }}
-        >
-          {t('pop.noGeminiKey')}
-        </p>
-      )}
-
-      {settings.backend === 'mindlogic' && mindlogicKeySet === false && (
-        <p
-          style={{
-            margin: '4px 0 0',
-            padding: '6px 8px',
-            fontSize: 11,
-            color: '#ffcfa6',
-            background: '#3a2a1a',
-            border: '1px solid #5a3a1a',
-            borderRadius: 3,
-          }}
-        >
-          {t('pop.noMindlogicKey')}
-        </p>
-      )}
-
-      {lastBackend && <LastBackendLine info={lastBackend} preferred={settings.backend} />}
-
-      {/* 크기/위치 미세조정 — 한 번 맞춰두는 값이라 자주 바꾸는 언어·백엔드 아래(맨 하단)로.
-          "자세히 설정하기" 바로 위 배치. */}
-      <SizeRow label={t('pop.sourceSize')} value={settings.sourceStyle.fontSize} bump={bumpSource} />
-      <SizeRow label={t('pop.targetSize')} value={settings.targetStyle.fontSize} bump={bumpTarget} />
-
-      <div style={rowStyle}>
-        <span title={t('pop.position.title')}>{t('pop.position')}</span>
-        <button
-          style={{ fontSize: 12, padding: '3px 10px', cursor: 'pointer' }}
-          disabled={!loaded}
-          onClick={resetPosition}
-          title={t('pop.resetPosition.title')}
-        >
-          {t('pop.resetPosition')}
+          <IconGear />
         </button>
       </div>
 
       <button
-        onClick={openOptions}
-        style={{
-          width: '100%',
-          marginTop: 10,
-          padding: '6px',
-          fontSize: 12,
-        }}
+        className={`card hero${settings.subtitlesEnabled ? ' on' : ''}`}
+        aria-pressed={settings.subtitlesEnabled}
+        disabled={!loaded}
+        onClick={() => update({ subtitlesEnabled: !settings.subtitlesEnabled })}
       >
-        {t('pop.openOptions')}
+        <span className="hero-text">
+          <span className="hero-title">{settings.subtitlesEnabled ? t('pop.on') : t('pop.off')}</span>
+          <span className={`hero-sub${statusWarn ? ' warn' : ''}`}>{heroSub}</span>
+        </span>
+        <span className="switch" aria-hidden="true" />
       </button>
 
-      <p style={{ margin: '8px 0 0', fontSize: 11, color: '#999' }}>
-        v{chrome.runtime.getManifest().version}
-      </p>
+      <div className="modes" role="group" aria-label={t('pop.displayMode')}>
+        {MODE_TILES.map((m) => (
+          <button
+            key={m.value}
+            className={`tile${settings.displayMode === m.value ? ' on' : ''}`}
+            aria-pressed={settings.displayMode === m.value}
+            disabled={!loaded}
+            onClick={() => update({ displayMode: m.value })}
+          >
+            <span className="bars" aria-hidden="true">
+              {m.src && <span className="bar src" />}
+              {m.tgt && <span className="bar tgt" />}
+            </span>
+            {t(m.label)}
+          </button>
+        ))}
+      </div>
+
+      <div>
+        <p className="cap">{t('pop.cap.lang')}</p>
+        <label className="card row">
+          <span>{t('pop.targetLang')}</span>
+          <select
+            className="lang-select"
+            value={settings.targetLang}
+            onChange={(e) => update({ targetLang: e.target.value as TargetLang })}
+            disabled={!loaded}
+          >
+            {TARGET_LANGS.map((l) => (
+              <option key={l.value} value={l.value}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div>
+        <p className="cap">{t('pop.cap.size')}</p>
+        <div className="card row size-row">
+          <SizeStepper label={t('pop.sourceSize')} value={settings.sourceStyle.fontSize} bump={bumpSource} />
+          <span className="divider" />
+          <SizeStepper label={t('pop.targetSize')} value={settings.targetStyle.fontSize} bump={bumpTarget} />
+        </div>
+      </div>
+
+      <div>
+        <p className="cap">{t('pop.cap.position')}</p>
+        <div className="card row">
+          <span title={t('pop.position.title')}>{t('pop.position')}</span>
+          <button
+            className="soft-btn"
+            disabled={!loaded}
+            onClick={resetPosition}
+            title={t('pop.resetPosition.title')}
+          >
+            <IconReset />
+            {t('pop.resetPosition')}
+          </button>
+        </div>
+      </div>
+
+      {settings.backend === 'gemini' && geminiKeySet === false && (
+        <p className="warn-box">{t('pop.noGeminiKey')}</p>
+      )}
+      {settings.backend === 'mindlogic' && mindlogicKeySet === false && (
+        <p className="warn-box">{t('pop.noMindlogicKey')}</p>
+      )}
+      {fellBack && lastBackend && (
+        <p className="warn-box">
+          {t('pop.fellBack', {
+            preferred: backendLabel(lastBackend.preferred),
+            used: backendLabel(lastBackend.used),
+          })}
+        </p>
+      )}
     </div>
   );
 }

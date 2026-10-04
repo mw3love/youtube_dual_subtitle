@@ -4,39 +4,285 @@
     <meta charset="UTF-8" />
     <title>Dual Subtitle for YouTube</title>
     <style>
+      /* 팝업 디자인(A75) — 따뜻한 다크 + 앰버 포인트. 기본 글꼴(system-ui)만 쓴다(번들 증가 회피). */
       :root {
         color-scheme: dark;
+        --bg: #181715;
+        --card: #22201d;
+        --line: #33302b;
+        --chip: #2d2a25;
+        --text: #f1efe9;
+        --muted: #bdb6a8;
+        --cap: #8f887b;
+        --accent: #ffb020;
+        --accent-text: #ffd27a;
+        --accent-bg: #2e2615;
       }
       html,
       body {
         margin: 0;
-        background: #1a1a1a;
-        color: #e8e8e8;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, sans-serif;
       }
+      button,
       select {
-        background: #2a2a2a;
-        color: #e8e8e8;
-        border: 1px solid #3a3a3a;
-        border-radius: 3px;
-        padding: 2px 4px;
         font-family: inherit;
+        color: inherit;
       }
       button {
-        background: #303030;
-        color: #e8e8e8;
-        border: 1px solid #444;
-        border-radius: 3px;
         cursor: pointer;
-        font-family: inherit;
       }
-      button:hover {
-        background: #3a3a3a;
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
       }
       input:focus-visible,
       select:focus-visible,
       button:focus-visible {
-        outline: 2px solid #3ea6ff;
+        outline: 2px solid var(--accent);
         outline-offset: 1px;
+      }
+
+      .pop {
+        width: 320px;
+        box-sizing: border-box;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .head-title {
+        flex: 1;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .icon-btn {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: 10px;
+        background: #24221f;
+        color: #cfc9bd;
+        padding: 0;
+      }
+      .icon-btn:hover {
+        background: var(--chip);
+        color: var(--text);
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+      }
+      /* 자막 켜기 카드 — 카드 전체가 토글 버튼. */
+      .hero {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 14px;
+        text-align: left;
+      }
+      .hero.on {
+        border-color: #5a4416;
+        background: #2a2213;
+      }
+      .hero-text {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+      }
+      .hero-title {
+        font-size: 16px;
+        font-weight: 700;
+      }
+      .hero.on .hero-title {
+        color: var(--accent-text);
+      }
+      .hero-sub {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .hero.on .hero-sub {
+        color: #b8a983;
+      }
+      .hero-sub.warn {
+        color: #ffb37a;
+      }
+      .switch {
+        flex: none;
+        position: relative;
+        width: 46px;
+        height: 26px;
+        border-radius: 13px;
+        background: #3a362f;
+      }
+      .switch::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: #8a8376;
+        transition: left 0.15s;
+      }
+      .hero.on .switch {
+        background: var(--accent);
+      }
+      .hero.on .switch::after {
+        left: 23px;
+        background: var(--bg);
+      }
+
+      /* 표시 모드 타일 — 자막 줄 모양을 막대로 그려 이름 없이도 뜻이 보이게. */
+      .modes {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+      }
+      .tile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 4px 9px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--card);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 500;
+      }
+      .tile.on {
+        border-color: var(--accent);
+        background: var(--accent-bg);
+        color: var(--accent-text);
+      }
+      .bars {
+        width: 44px;
+        height: 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        gap: 4px;
+      }
+      .bar {
+        display: block;
+        height: 4px;
+        border-radius: 2px;
+        background: currentColor;
+      }
+      .bar.src {
+        width: 44px;
+      }
+      .bar.tgt {
+        width: 32px;
+        opacity: 0.6;
+      }
+
+      .cap {
+        margin: 0 0 5px 4px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--cap);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+      .lang-select {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--accent-text);
+        font-size: 13px;
+        font-weight: 700;
+        text-align: right;
+        cursor: pointer;
+      }
+      .lang-select option {
+        background: var(--card);
+        color: var(--text);
+      }
+      .size-row {
+        padding: 0 10px;
+      }
+      .size {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .size-label {
+        font-size: 12px;
+        color: #cfc9bd;
+      }
+      .divider {
+        width: 1px;
+        height: 22px;
+        background: #3a362f;
+      }
+      .step {
+        width: 26px;
+        height: 26px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--chip);
+        font-size: 15px;
+        line-height: 1;
+        padding: 0;
+      }
+      .step-value {
+        width: 22px;
+        text-align: center;
+        font-size: 13px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .soft-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 28px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--chip);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .step:hover,
+      .soft-btn:hover {
+        background: #3a362f;
+      }
+
+      .warn-box {
+        margin: 0;
+        padding: 8px 10px;
+        font-size: 11px;
+        line-height: 1.5;
+        color: #ffc48f;
+        background: #2b2118;
+        border: 1px solid #4a3523;
+        border-radius: 10px;
       }
     </style>
   </head>
