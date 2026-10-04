@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <title>Dual Subtitle for YouTube</title>
     <style>
-      /* 팝업 디자인(A75) — 따뜻한 다크 + 앰버 포인트. 기본 글꼴(system-ui)만 쓴다(번들 증가 회피). */
+      /* 팝업 디자인(A75→A79) — 따뜻한 다크 바탕. 옵션 페이지와 같은 색 역할: 주황(--brand) = 제목,
+         파랑(--accent) = 켜짐·선택됨. 기본 글꼴(system-ui)만 쓴다(번들 증가 회피). */
       :root {
         color-scheme: dark;
         --bg: #181715;
@@ -13,10 +14,10 @@
         --chip: #2d2a25;
         --text: #f1efe9;
         --muted: #bdb6a8;
-        --cap: #8f887b;
-        --accent: #ffb020;
-        --accent-text: #ffd27a;
-        --accent-bg: #2e2615;
+        --brand: #ffa200;
+        --accent: #3ea6ff;
+        --accent-text: #8fc7ff;
+        --accent-bg: #13263a;
       }
       html,
       body {
@@ -94,8 +95,8 @@
         text-align: left;
       }
       .hero.on {
-        border-color: #5a4416;
-        background: #2a2213;
+        border-color: #1f4a6e;
+        background: #142433;
       }
       .hero-text {
         flex: 1;
@@ -116,7 +117,7 @@
         color: var(--muted);
       }
       .hero.on .hero-sub {
-        color: #b8a983;
+        color: #8aa4bb;
       }
       .hero-sub.warn {
         color: #ffb37a;
@@ -145,7 +146,7 @@
       }
       .hero.on .switch::after {
         left: 23px;
-        background: var(--bg);
+        background: #fff;
       }
 
       /* 표시 모드 타일 — 자막 줄 모양을 막대로 그려 이름 없이도 뜻이 보이게. */
@@ -199,7 +200,7 @@
         margin: 0 0 5px 4px;
         font-size: 11px;
         font-weight: 700;
-        color: var(--cap);
+        color: var(--brand);
       }
       .row {
         display: flex;

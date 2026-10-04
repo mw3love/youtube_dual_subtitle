@@ -172,7 +172,7 @@ A16~A61까지는 `ccButtonObserver`가 page CC 버튼의 `aria-pressed`를 감�
 - **프롬프트는 사용자 편집 가능**: `settings.explainPrompt`(storage.sync), 기본값 `defaultExplainPrompt(uiLang)`(`settings.ts` → i18n 사전의 `prompt.explainDefault`, 원형은 사용자 Gem 프롬프트. 프롬프트 문장 언어는 표시 언어별 두 벌, 답변 언어는 `{answerLang}` 자리표시자로 번역 언어를 따름 — 섹션 46). 옵션 페이지 textarea + "기본값으로" 버튼. system 메시지로 그대로 전달돼 답변 형식을 정함.
 - **배선**: content `requestExplain(text, context)` → `EXPLAIN` 메시지(backend/model/prompt 동봉, 모델은 explainBackend에 따라 `explainGeminiModel`/`explainMindlogicModel` — 번역 모델과 분리, 섹션 17) → background 핸들러 → `explain()` → `{ok, markdown}`. `applySettings`가 `explainUI.setEnabled(true)`(A51: 해설/질문 버튼 상시 표시, `explainEnabled` UI 토글 제거 — 섹션 31). 로딩 패널에 현재 모델명 표시(섹션 17).
 - **markdown 렌더는 자체 구현** (`content/explain/markdown.ts`, `renderMarkdown`): 신뢰 불가한 LLM 출력이라 **innerHTML 미사용** — 모든 텍스트를 `textContent`로만 넣고 element를 직접 생성해 XSS를 원천 차단(sanitizer 의존성 불필요). 지원 문법은 해설에 실제 쓰이는 것만: 헤딩·GFM 표·순서/비순서 목록·코드펜스·가로줄(`---`/`***`/`___`→`<hr>`/divider)·인라인(`` `code` ``/`**bold**`/`*italic*`). 스타일은 `styles.ts`의 `.ydt-explain-*`(패널 하위로 스코프).
-- **옵션 키 노출 조건** (A51 갱신, 섹션 31): Gemini/Mindlogic 설정 섹션은 **제공자별** `showGemini`/`showMindlogic` = `backend === 그 백엔드 || explainBackend === 그 백엔드`로 표시. 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 펼침. (옛 `explainEnabled && explainBackend === ...` 조건을 대체 — explainEnabled 게이트 제거. 해설 백엔드는 이제 번역 방식을 자동 추종해 별도 라디오 없음.)
+- **옵션 키 노출 조건** (A51 갱신, 섹션 31): Gemini/Mindlogic 설정 섹션은 **제공자별** `showGemini`/`showMindlogic` = `backend === 그 백엔드 || explainBackend === 그 백엔드`로 표시. 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 펼침. (옛 `explainEnabled && explainBackend === ...` 조건을 대체 — explainEnabled 게이트 제거. 해설 백엔드는 번역 방식이 AI면 그걸 자동 추종하고, Google·Chrome이면 번역 방식 카드의 「해설·질문에 쓸 AI」 칩으로 고른다 — A79, 섹션 31.)
 - **비용·한계:** 사용자가 누를 때만 1회 호출이라 비용 통제됨(자막 전체 번역과 다름). 페이지의 다른 사전 확장과 선택 팝업이 겹칠 수 있으나 우리 버튼은 `.ydt-container` 안 선택에만 발화. 후속 대화(follow-up Q)는 v1 미지원 — 단발 해설만.
 
 ### 15. 해설 → Notion/클립보드 정리 (A30, v0.6.0)
@@ -345,7 +345,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **섹션 순서**: 자막 관련을 위, AI/API를 아래로 — `자막 표시 → Single Subtitle → 자막 스타일 → 자막 배치·배경 → 번역 방식 → Gemini 설정 → Mindlogic 설정 → 단어·표현 해설 → Notion 저장 → 관리`. "번역 방식"(백엔드 라디오)은 옛 "자막 표시" 안에서 **독립 섹션으로 분리**해 Gemini/Mindlogic 설정 바로 위에 배치(AI 블록 응집).
 - **시각 계층 — 섹션 카드**: A76(섹션 49)부터 섹션 = 작은 제목 + 카드로 구분하고 옛 들여쓰기 + `•` 불릿은 제거(세로선 `borderLeft` 시안은 그 전에 사용자 선택으로 폐기). 자막 스타일의 크기·색·굵기는 그룹 칩(`1./2.`) 아래 한 단계 들여쓰기.
 - **API 설정 섹션 = 제공자별 표시** (`showGemini`/`showMindlogic`): `backend === 'gemini' || explainBackend === 'gemini'`이면 Gemini 설정 펼침(Mindlogic 동형). 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 노출 — 옛 통합 조건·`explainEnabled` 게이트(섹션 14)를 대체.
-- **해설 백엔드 라디오 제거 → 번역 방식(AI) 자동 추종**: "AI는 보통 하나만 쓴다" 전제로 해설 백엔드 선택 UI 제거. 번역 방식에서 Gemini/Mindlogic 선택 시 `explainBackend`도 함께 set(라디오 onChange), 로드 시 저장값이 어긋나면 정규화(`loadSettings().then`의 `aiBackend`). 번역이 google/chrome이면 마지막 AI 선택(기본 gemini) 유지. **해설 모델 선택칸은 유지**(같은 제공자라도 번역=저렴/해설=고품질 분리, 섹션 17). 트레이드오프: 번역≠해설 AI 조합은 UI로 못 고름(기본 gemini).
+- **해설 백엔드 라디오 제거 → 번역 방식(AI) 자동 추종**: "AI는 보통 하나만 쓴다" 전제로 해설 백엔드 선택 UI 제거. 번역 방식에서 Gemini/Mindlogic 선택 시 `explainBackend`도 함께 set(라디오 onChange), 로드 시 저장값이 어긋나면 정규화(`loadSettings().then`의 `aiBackend`). 번역이 google/chrome이면 마지막 AI 선택(기본 gemini) 유지. **해설 모델 선택칸은 유지**(같은 제공자라도 번역=저렴/해설=고품질 분리, 섹션 17). **A79 보완:** 번역이 google/chrome일 때만 번역 방식 카드 아래 「해설·질문에 쓸 AI」 칩(Gemini/게이트웨이)으로 `explainBackend`를 고른다 — 이 선택칸이 없을 땐 Google을 골라도 게이트웨이 설정이 보이는 이유(해설이 그 AI를 씀)가 화면에 안 드러나 혼란스러웠다. 번역이 AI면 이 줄은 숨고 해설은 번역 AI를 따라간다(번역 AI≠해설 AI 조합은 여전히 UI로 못 고름).
 - **해설 켜기 / Notion 저장 켜기 체크박스 제거 → 상시 노출**: 두 체크박스를 없애고 섹션 내용·패널 버튼(💡 해설·❓ 질문·📝 Notion)을 상시 표시. content가 `setEnabled(true)`/`setNotionEnabled(true)`(popup의 "➕ 새 질문"도 `explainEnabled` 게이트 제거, `pageReachable`만). `explainEnabled`/`notionEnabled`는 스키마에 **미래 결제 게이트용 예약 필드**로 남김(주석 명시) — 유료화 시 버튼은 무료도 노출해 구매 유도하고 "호출/저장" 단계에서 이 값을 검사할 자리.
 - **문구 평이화**: 해설 안내의 개발자 은어 "BYOK" → "내 AI 키가 필요해요"("무료 발급"은 Mindlogic엔 안 맞아 제거, Gemini 라디오 선택 시 아래 AI Studio 링크가 이미 뜸).
 - **검증:** 빌드·타입체크 통과(프록시검증) — 섹션 펼침/접힘·번역↔해설 AI 추종·Notion 상시·불릿 정렬은 Chrome 실사용 확인 대상.
@@ -553,19 +553,17 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **옮긴 것:** 노래방 모드·번역 방식은 팝업에서 제거(옵션 페이지엔 원래 있음 — 한 번 정하면 거의 안 바꿈). 상태 줄(StatusLine)은 켜기 카드 아랫줄로 흡수 — 문제 상태(`unreachable`/`no-cues`)만 주황 글씨. 팝업에서 끄면 상태는 열 때 한 번만 조회한 값이라 줄 수 대신 단축키만 보이게 `settings.subtitlesEnabled`로 가린다.
 - **최근 번역 → 조건부 경고:** 상시 줄 대신 fallback + 30분 이내(`FALLBACK_FRESH_MS`)일 때만 경고 카드. 키 미설정 경고(`pop.noGeminiKey`/`noMindlogicKey`)는 그대로 조건부.
 - **이름:** `바꿀 언어` → `내 언어`(targetLang은 번역 대상이자 모국어 영상 판정(섹션 2)·AI 답변 언어(A73)라 "내 언어"가 실제 뜻). `위치 초기화` → `처음 자리로`. 영어는 크기 라벨을 `Source`/`Target`로(Translation은 320px 한 줄에 안 들어감).
-- **스타일:** 인라인 style → `popup/index.html`의 클래스 + CSS 변수(따뜻한 다크 `#181715` + 앰버 `#ffb020`). 팝업 폭 320px 고정. 글꼴은 기본(system-ui) — 시안의 Gothic A1은 번들 증가로 미채택(사용자 선택). 아이콘은 이모지 대신 선 SVG.
-- **다음:** 옵션 페이지도 같은 톤(앰버 카드) + 왼쪽 목차·가운데 한 줄 구성으로 바꿀 예정(시안 "선택안 옵션").
+- **스타일:** 인라인 style → `popup/index.html`의 클래스 + CSS 변수(따뜻한 다크 `#181715`). 색 역할은 옵션 페이지와 같다(섹션 49): 작은 제목(`.cap`)은 주황 `--brand`, 켜짐 카드·선택 타일·내 언어 값은 파랑 `--accent`(A79 — 처음엔 앰버 `#ffb020`이었음). 팝업 폭 320px 고정. 글꼴은 기본(system-ui) — 시안의 Gothic A1은 번들 증가로 미채택(사용자 선택). 아이콘은 이모지 대신 선 SVG.
 - **검증:** 프록시검증 — 헤드리스 Chrome에 chrome API 스텁 + 로컬 서버로 ko 켜짐 / ko 꺼짐+fallback 경고 / en 켜짐 3장 렌더 확인(넘침·어긋남 없음). 실제 확장 팝업에서의 클릭 동작은 미확인.
 
-### 49. 옵션 페이지 재디자인 — 왼쪽 목차·미리보기 + 카드 본문 (A76, v0.26.0)
+### 49. 옵션 페이지 재디자인 — 왼쪽 설정·오른쪽 미리보기 + 카드 본문, 제목 주황·선택 파랑 (A76, v0.26.0 → A79)
 
 팝업(섹션 48)과 같은 톤으로 옵션 페이지 겉모양·배치를 바꿈. **저장·키·테스트 등 동작 코드는 무변경** — `options/main.tsx`는 표시 컴포넌트와 레이아웃만 손댐.
 
-- **배치** (`.layout` = `.side` + `.main`): 왼쪽 300px 고정(sticky)에 브랜드·**목차**·**미리보기 2개**, 오른쪽 본문(최대 760px). 시안은 미리보기를 본문 맨 위에 뒀으나, 아래쪽 자막 스타일을 고치는 동안 화면 밖으로 사라져 왼쪽 고정으로 옮김(옛 오른쪽 sticky 미리보기와 같은 이유).
-- **목차** (`tocItems` + `activeSection`): 섹션마다 `id`(`sec-dual` 등). 클릭 = `scrollIntoView`, 현재 위치는 `IntersectionObserver`(화면 위 1/3 띠)로 노란 표시. Gemini/게이트웨이 섹션은 `showGemini`/`showMindlogic`일 때만 목차에도 나옴.
+- **배치** (`.layout` = `.main` + `.side`): 왼쪽 본문(최대 760px), 오른쪽 300px 고정(sticky) **미리보기 2개**(예전과 같은 좌우). 미리보기를 본문 맨 위에 두면 아래쪽 자막 스타일을 고치는 동안 화면 밖으로 사라져 옆 고정. A76은 왼쪽에 목차+미리보기를 뒀으나 A79에서 사용자 선택으로 예전 좌우로 되돌리고 **목차는 제거**(시안 비교 — 목차 있음/없음 중 없음).
 - **섹션 = 작은 제목 + 카드** (`Section`/`Row`, 클래스는 `options/index.html`): 섹션 31의 들여쓰기·`•` 불릿 계층은 카드로 대체(불릿 제거). 행 아래 보충 설명은 `.sub-hint`(라벨 폭 160 + gap 12만큼 들여씀 — 옛 `margin-left 152px` 인라인 대체).
-- **입력 모양:** 체크박스는 CSS만으로 토글 스위치 모양(`appearance:none` + `::after`, 동작은 checkbox 그대로). 표시 모드·표시 자막 수·쌓는 방식은 `<select>` → `Chips`(선택지가 다 보이고 한 번에 바뀜). 번역 방식 라디오는 `.choice` 카드, 고른 칸은 `:has(input:checked)`로 앰버 테두리. 테스트 버튼은 파랑 → 앰버(`.btn-test`).
-- **색:** 인라인 hex(`#999`/`#3ea6ff`/`#9eff9e`/`#ff7777`/`#ffa200`) → CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`).
+- **입력 모양:** 체크박스는 CSS만으로 토글 스위치 모양(`appearance:none` + `::after`, 동작은 checkbox 그대로). 표시 모드·표시 자막 수·쌓는 방식은 `<select>` → `Chips`(선택지가 다 보이고 한 번에 바뀜). 번역 방식 라디오는 `.choice` 카드, 고른 칸은 `:has(input:checked)`로 파랑 테두리.
+- **색 역할 둘 (A79):** 주황 `--brand #ffa200` = 섹션 제목(아이콘·원문 자막 기본색과 같은 대표색), 파랑 `--accent #3ea6ff` = 켜짐·선택됨(토글·칩·선택 카드·테스트 버튼). A76은 선택 표시를 앰버 `#ffb020`로 했다가 제목(주황)과 거의 같은 색이라 섞여 보여 반대색 파랑으로 분리 — 예전 옵션 페이지의 주황 제목 + 파랑 컨트롤 조합과 같다. 팝업도 같은 규칙(섹션 48). 인라인 hex는 CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`)로.
 - **한국어 화면의 영어 섞임 수정 (A77, v0.26.1):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나왔다 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`는 한국어 어순상 일부러 `''`인데 `t()`/`tl()`이 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. `||` → `??`(키가 없을 때만 영어). KO는 `Record<MsgKey,string>`이라 타입이 모든 키를 강제하므로 실제 폴백은 생기지 않는다. **빈 조각이 필요한 문장은 `''`로 두면 된다.**
 - **검증:** 프록시검증 — 헤드리스 Chrome + chrome API 스텁으로 ko(Gemini 선택) 전체 페이지·en 상단 렌더 확인. 실제 확장에서 저장·테스트 동작은 미확인(동작 코드 무변경).
 

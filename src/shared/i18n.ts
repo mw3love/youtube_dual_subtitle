@@ -112,6 +112,9 @@ const EN = {
   'backend.gemini.descPre': 'Free key from ',
   'backend.gemini.descPost': '',
   'backend.mindlogic.title': 'OpenAI-compatible gateway (organization key)',
+  'row.explainAi': 'AI for explain & ask',
+  'hint.explainAi':
+    'Translation stays as chosen above — only 💡 Explain and ❓ Ask use this AI. Its key settings open below.',
   'backend.mindlogic.desc':
     'One key issued by your school or company gives access to Claude · GPT · Gemini and more through an OpenAI-compatible endpoint',
 
@@ -415,6 +418,9 @@ const KO: Record<MsgKey, string> = {
   'backend.gemini.descPre': '',
   'backend.gemini.descPost': '에서 무료 발급 가능',
   'backend.mindlogic.title': 'OpenAI 호환 게이트웨이 (조직 키)',
+  'row.explainAi': '해설·질문에 쓸 AI',
+  'hint.explainAi':
+    '번역은 위에서 고른 대로 하고, 💡 해설·❓ 질문만 이 AI로 해요. 고른 AI의 키 설정이 아래에 열려요.',
   'backend.mindlogic.desc':
     '학교/조직에서 발급된 키 하나로 OpenAI 호환 엔드포인트를 통해 Claude · GPT · Gemini 등 여러 모델 사용 가능',
 

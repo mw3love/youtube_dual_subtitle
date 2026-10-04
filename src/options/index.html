@@ -4,7 +4,9 @@
     <meta charset="UTF-8" />
     <title>Dual Subtitle for YouTube — Settings</title>
     <style>
-      /* 옵션 디자인(A76) — 팝업(A75)과 같은 따뜻한 다크 + 앰버. 기본 글꼴(system-ui). */
+      /* 옵션 디자인(A76→A79) — 따뜻한 다크 바탕. 색 역할 둘로 나눔:
+         주황(--brand) = 제목·브랜드(아이콘·원문 자막 기본색과 같은 대표색),
+         파랑(--accent) = 켜짐·선택됨. 둘이 비슷한 색이면 제목과 버튼이 섞여 보여서 반대색으로. */
       :root {
         color-scheme: dark;
         --bg: #181715;
@@ -16,9 +18,10 @@
         --text: #f1efe9;
         --muted: #a49d90;
         --cap: #cfc9bd;
-        --accent: #ffb020;
-        --accent-text: #ffd27a;
-        --accent-bg: #2e2615;
+        --brand: #ffa200;
+        --accent: #3ea6ff;
+        --accent-text: #8fc7ff;
+        --accent-bg: #13263a;
         --ok: #8fd19e;
         --err: #ff8a80;
       }
@@ -95,7 +98,7 @@
       }
       input[type='checkbox']:checked::after {
         left: 21px;
-        background: var(--bg);
+        background: #fff;
       }
       button {
         height: 30px;
@@ -124,7 +127,7 @@
         outline-offset: 1px;
       }
 
-      /* ── 배치: 왼쪽(목차 + 미리보기, 고정) · 오른쪽 본문 ── */
+      /* ── 배치: 왼쪽 본문(설정) · 오른쪽(미리보기, 고정) ── */
       .layout {
         display: flex;
         align-items: flex-start;
@@ -141,38 +144,6 @@
         display: flex;
         flex-direction: column;
         gap: 22px;
-      }
-      .brand {
-        padding: 0 12px;
-        font-size: 15px;
-        font-weight: 700;
-      }
-      .brand small {
-        margin-left: 6px;
-        font-size: 11px;
-        font-weight: 400;
-        color: var(--muted);
-      }
-      .toc {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-      .toc a {
-        padding: 8px 12px;
-        border-radius: 9px;
-        color: var(--muted);
-        text-decoration: none;
-        font-size: 13px;
-        font-weight: 500;
-      }
-      .toc a:hover {
-        color: var(--text);
-      }
-      .toc a.on {
-        background: var(--accent-bg);
-        color: var(--accent-text);
-        font-weight: 700;
       }
       .preview-label {
         margin: 0 0 6px 4px;
@@ -195,6 +166,12 @@
         margin: 0;
         font-size: 22px;
       }
+      .main-head h1 small {
+        margin-left: 8px;
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--muted);
+      }
       .save-state {
         font-size: 12px;
         color: var(--muted);
@@ -206,16 +183,15 @@
       /* ── 섹션 = 제목 + 카드 ── */
       .sec {
         margin-bottom: 28px;
-        scroll-margin-top: 24px;
       }
       .sec-head {
         display: flex;
         align-items: center;
         gap: 8px;
         margin: 0 0 8px 4px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 700;
-        color: var(--cap);
+        color: var(--brand);
       }
       .sec-head button {
         height: 24px;
@@ -327,7 +303,7 @@
       }
 
       .btn-test {
-        border-color: #5a4416;
+        border-color: #2a4a6b;
         color: var(--accent-text);
       }
       .btn-danger {

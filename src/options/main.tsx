@@ -9,6 +9,7 @@ import {
   type BackendId,
   type CueStyle,
   type DisplayMode,
+  type ExplainBackend,
   type HistoryLayout,
   type Settings,
   type TargetLang,
@@ -45,20 +46,18 @@ const LAYOUT_KEYS = [
   'subtitlePosition',
 ] as const satisfies readonly (keyof Settings)[];
 
-// 섹션 = 작은 제목(+ 섹션 초기화 버튼) + 카드(A76). id는 왼쪽 목차의 이동 목표.
+// 섹션 = 작은 제목(+ 섹션 초기화 버튼) + 카드(A76).
 function Section({
-  id,
   title,
   action,
   children,
 }: {
-  id: string;
   title: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="sec">
+    <section className="sec">
       <h2 className="sec-head">
         <span>{title}</span>
         {action}
@@ -866,71 +865,21 @@ function Options() {
   const showMindlogic =
     settings.backend === 'mindlogic' || settings.explainBackend === 'mindlogic';
 
-  // 목차 현재 위치 표시 — 화면 위쪽 1/3 띠에 걸린 섹션을 활성으로.
-  const [activeSection, setActiveSection] = useState('sec-dual');
-  useEffect(() => {
-    if (!loaded) return;
-    const els = [...document.querySelectorAll<HTMLElement>('section.sec')];
-    const io = new IntersectionObserver(
-      (entries) => {
-        const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (hit) setActiveSection(hit.target.id);
-      },
-      { rootMargin: '0px 0px -66% 0px' },
-    );
-    els.forEach((el) => io.observe(el));
-    return () => io.disconnect();
-  }, [loaded, showGemini, showMindlogic]);
-
   if (!loaded) return <div style={{ padding: 24 }}>{t('opt.loading')}</div>;
-
-  // 왼쪽 목차 — 보이는 섹션만(Gemini/게이트웨이는 고른 제공자일 때만 렌더되므로 같이 숨김).
-  const tocItems: Array<{ id: string; label: string }> = [
-    { id: 'sec-dual', label: t('sec.dual') },
-    { id: 'sec-single', label: t('sec.single') },
-    { id: 'sec-style', label: t('sec.style') },
-    { id: 'sec-layout', label: t('sec.layout') },
-    { id: 'sec-backend', label: t('sec.backend') },
-    ...(showGemini ? [{ id: 'sec-gemini', label: t('sec.gemini') }] : []),
-    ...(showMindlogic ? [{ id: 'sec-mindlogic', label: t('sec.mindlogic') }] : []),
-    { id: 'sec-notion', label: t('sec.notion') },
-    { id: 'sec-manage', label: t('sec.manage') },
-  ];
 
   return (
     <div className="layout">
-      <aside className="side">
-        <div className="brand">
-          Dual Subtitle
-          <small>v{chrome.runtime.getManifest().version}</small>
-        </div>
-        <nav className="toc">
-          {tocItems.map((it) => (
-            <a
-              key={it.id}
-              href={`#${it.id}`}
-              className={activeSection === it.id ? 'on' : undefined}
-              onClick={(e) => {
-                e.preventDefault();
-                document.getElementById(it.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-            >
-              {it.label}
-            </a>
-          ))}
-        </nav>
-        {/* 미리보기는 목차 아래 고정 — 아래쪽 스타일 섹션을 고치는 동안에도 계속 보이게. */}
-        <Preview settings={settings} />
-      </aside>
-
       <main className="main">
         <div className="main-head">
-          <h1>Dual Subtitle for YouTube</h1>
+          <h1>
+            Dual Subtitle for YouTube
+            <small>v{chrome.runtime.getManifest().version}</small>
+          </h1>
           {saveState === 'pending' && <span className="save-state">{t('opt.saving')}</span>}
           {saveState === 'saved' && <span className="save-state saved">{t('opt.saved')}</span>}
         </div>
 
-      <Section id="sec-dual" title={t('sec.dual')}>
+      <Section title={t('sec.dual')}>
         <Row label={t('row.uiLang')} hint={t('hint.uiLang')}>
           <select
             value={settings.uiLang}
@@ -991,7 +940,7 @@ function Options() {
         </Row>
       </Section>
 
-      <Section id="sec-single" title={t('sec.single')}>
+      <Section title={t('sec.single')}>
         <Row label={t('row.contextLines')}>
           <Chips<number>
             value={settings.singleContextLines}
@@ -1032,7 +981,6 @@ function Options() {
       </Section>
 
       <Section
-        id="sec-style"
         title={t('sec.style')}
         action={<ResetIcon onClick={onResetTextStyle} title={t('reset.textStyle.title')} />
         }
@@ -1050,7 +998,6 @@ function Options() {
       </Section>
 
       <Section
-        id="sec-layout"
         title={t('sec.layout')}
         action={<ResetIcon onClick={onResetLayout} title={t('reset.layout.title')} />
         }
@@ -1106,7 +1053,7 @@ function Options() {
             </div>
       </Section>
 
-      <Section id="sec-backend" title={t('sec.backend')}>
+      <Section title={t('sec.backend')}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <label className="choice">
             <input
@@ -1186,10 +1133,29 @@ function Options() {
             </span>
           </label>
         </div>
+        {/* 번역이 AI가 아닐 때(Google·Chrome)도 해설·질문은 AI가 필요하다 — 그 AI를 여기서 고른다.
+            번역이 AI면 해설은 그 AI를 따라가므로(라디오 onChange) 이 줄은 숨긴다. 고른 쪽 키 설정만
+            아래에 펼쳐져(showGemini/showMindlogic) "왜 이 설정이 보이는지"가 드러난다. */}
+        {(settings.backend === 'google-free' || settings.backend === 'chrome-builtin') && (
+          <>
+            <div className="divider" />
+            <Row label={t('row.explainAi')}>
+              <Chips<ExplainBackend>
+                value={settings.explainBackend}
+                options={[
+                  { value: 'gemini', label: t('backend.gemini.name') },
+                  { value: 'mindlogic', label: t('backend.mindlogic.short') },
+                ]}
+                onChange={(v) => update({ explainBackend: v })}
+              />
+            </Row>
+            <p className="sub-hint">{t('hint.explainAi')}</p>
+          </>
+        )}
       </Section>
 
       {showGemini && (
-        <Section id="sec-gemini" title={t('sec.gemini')}>
+        <Section title={t('sec.gemini')}>
           <Row label={t('row.apiKey')}>
             <input
               type={showKey ? 'text' : 'password'}
@@ -1250,7 +1216,7 @@ function Options() {
       )}
 
       {showMindlogic && (
-        <Section id="sec-mindlogic" title={t('sec.mindlogic')}>
+        <Section title={t('sec.mindlogic')}>
           <Row label={t('row.baseUrl')}>
             <input
               type="text"
@@ -1350,7 +1316,7 @@ function Options() {
         </Section>
       )}
 
-      <Section id="sec-notion" title={t('sec.notion')}>
+      <Section title={t('sec.notion')}>
         <p className="hint" style={{ margin: 0, fontSize: 12 }}>
           {t('notion.introPre')}
           <b style={{ color: 'var(--accent-text)' }}>{t('panel.notion')}</b>
@@ -1434,7 +1400,7 @@ function Options() {
         </Row>
       </Section>
 
-      <Section id="sec-manage" title={t('sec.manage')}>
+      <Section title={t('sec.manage')}>
         <Row label={t('row.cache')}>
           <button onClick={onClearCache}>
             {t('btn.clearCache')}
@@ -1451,6 +1417,10 @@ function Options() {
         </Row>
       </Section>
       </main>
+      <aside className="side">
+        {/* 미리보기는 오른쪽 고정 — 왼쪽 설정을 내리며 고치는 동안에도 계속 보이게. */}
+        <Preview settings={settings} />
+      </aside>
     </div>
   );
 }
