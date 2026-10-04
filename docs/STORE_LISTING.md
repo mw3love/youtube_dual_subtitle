@@ -147,7 +147,7 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 2. Shorts에서 자막 표시
 3. 단어 단위 점진 표시 효과 (가능하면 GIF→PNG 시리즈)
 4. 옵션 페이지 — 스타일 미리보기 함께 보이는 화면
-5. 팝업 — 토글·언어·엔진 옵션
+5. 팝업 — 자막 켜기·표시 모드·내 언어·글자 크기·위치
 
 ## 7. 홍보 이미지 (선택)
 

@@ -196,7 +196,7 @@ A16~A61까지는 `ccButtonObserver`가 page CC 버튼의 `aria-pressed`를 감�
 원문/번역 폰트 크기는 데이터 모델에서 이미 분리돼 있다(`settings.sourceStyle.fontSize` / `targetStyle.fontSize`, DOM도 `sourceEl`/`targetEl`). 조절 경로 둘:
 
 - **휠** (`subtitle-renderer.ts:onWheel`): 자막 컨테이너 위 휠 → 1px씩 ±. **행별 분기** — `targetEl.contains(target)`이면 **번역만**, 그 외(원문 행·행 사이 4px gap·외곽 halo)는 **원문+번역 둘 다**. 비명백한 비대칭의 의도: 사용자가 원문을 크게 보는 패턴이라 큰 원문 행이 호버하기 쉬워 "둘 다"의 기본 타겟이 되고, 번역만 미세조정하고 싶을 때만 작은 번역 행을 정조준한다. `document`에 capture phase + `passive:false`로 부착(YouTube player가 wheel 가로채는 것 회피 + 페이지 스크롤 차단). 변경분은 `onFontSizeChange(source, target)` → `content/index.ts`가 `saveSettings({sourceStyle, targetStyle})`로 영속화.
-- **팝업** (`popup/main.tsx:SizeRow`/`bumpSource`/`bumpTarget`): `원문 크기`/`번역 크기` 행에 `−`/`+` 버튼(±2px). 휠이 발견성 0(안내 없는 제스처)인 걸 보완하는 명시 컨트롤. 기존 `update()` 배선 그대로 — `storage.sync` 저장 → content가 `onChanged`로 즉시 반영(`applySettings` → `setFontSizes`). 스키마·메시지 추가 없음.
+- **팝업** (`popup/main.tsx:SizeStepper`/`bumpSource`/`bumpTarget`): `글자 크기` 카드 한 줄에 원문·번역 `−`/`+` 스테퍼(±2px, A75 — 섹션 48). 휠이 발견성 0(안내 없는 제스처)인 걸 보완하는 명시 컨트롤. 기존 `update()` 배선 그대로 — `storage.sync` 저장 → content가 `onChanged`로 즉시 반영(`applySettings` → `setFontSizes`). 스키마·메시지 추가 없음.
 - 범위는 양쪽 모두 8~72(`FONT_SIZE_MIN/MAX` ≡ settings 스키마). 옵션 페이지의 슬라이더와 같은 값을 공유하므로 세 surface(옵션·팝업·휠)가 동일 settings를 조작.
 
 ### 17. 해설 모델 분리 + Mindlogic 동적 모델 + 백틱 하이라이트 (A32, v0.8.0)
@@ -214,7 +214,7 @@ A16~A61까지는 `ccButtonObserver`가 page CC 버튼의 `aria-pressed`를 감�
 **문제:** YouTube Shorts는 하단에 자체 오버레이(가독성용 어두운 scrim + 채널/제목/음악 메타데이터)를 **우리 자막 위에** 그린다. 세로 모니터처럼 영상이 화면을 꽉 채우면 자막 기본 위치(하단 18%)가 이 오버레이 띠 안에 들어가, 자막이 그 아래로 깔려 **흐릿해지고 포인터 이벤트도 오버레이가 먼저 먹어 드래그·휠·텍스트 선택이 전부 막힌다**. 갇히면 드래그로 빠져나올 수도 없는 닭-달걀.
 
 - **Shorts 기본 위치 18% → 30%** (`settings.ts:DEFAULT_SETTINGS.subtitlePosition.shorts.yPercent`): 오버레이 띠를 벗어나 깨끗한 영상 구간에 안착. 일반 영상(normal 10%)은 이 문제 없어 그대로. (정중앙 50%는 화자 얼굴을 가려 부적합 — 30%가 "오버레이 탈출 + 얼굴 안 가림" 균형. 영상별 편차로 ±튜닝 여지.)
-- **팝업 "위치 초기화" 버튼** (`popup/main.tsx:resetPosition`): `update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })` 한 줄. 일반/Shorts 위치를 **둘 다** 기본값으로. 스키마·메시지 추가 없음 — 기존 배선(`storage.sync` 저장 → content `onChanged` → `applySettings` → `renderer.setPositions`)으로 즉시 반영. 팝업은 현재 탭이 Shorts인지 알기 어렵고 두 모드 위치는 독립 저장이라 "두 모드 모두 리셋"이 가장 단순·예측가능.
+- **팝업 "처음 자리로" 버튼**(옛 이름 "위치 초기화") (`popup/main.tsx:resetPosition`): `update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })` 한 줄. 일반/Shorts 위치를 **둘 다** 기본값으로. 스키마·메시지 추가 없음 — 기존 배선(`storage.sync` 저장 → content `onChanged` → `applySettings` → `renderer.setPositions`)으로 즉시 반영. 팝업은 현재 탭이 Shorts인지 알기 어렵고 두 모드 위치는 독립 저장이라 "두 모드 모두 리셋"이 가장 단순·예측가능.
 - **기존 사용자 마이그레이션:** 이미 저장된 값(18%)은 유지되다가 사용자가 "위치 초기화"를 눌러야 30%로 탈출 — 기본값 변경이 기존 storage를 자동 덮어쓰진 않음. 버튼이 곧 탈출구.
 - 위치 버튼(up/down 미세조정)까지는 과하다고 판단해 미채택 — 초기화 한 번으로 갇힘 해소가 목적.
 
@@ -327,8 +327,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 §28의 Alt+Q(직접 질문)는 단축키 하나뿐이라 발견성이 0이었다(안내 없는 제스처). 형광펜/복사처럼 **버튼으로도** 노출해 몰라도 쓸 수 있게 함. Alt+Q 경로(`openAsk`)는 그대로 재사용 — 새 트리거만 추가.
 
 - **패널 액션 툴바 `➕ 새 질문` 버튼** (`explain-ui.ts:ensureShell`): 형광펜/복사/Notion과 같은 `.ydt-explain-actions` 행에 추가하되, "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 **범주가 달라** CSS `.ydt-explain-action-newq { margin-right: auto }`로 **왼쪽에 분리** 배치(`styles.ts`). 클릭 → `this.openAsk()`(§28과 동일 경로). 결과 유무 무관 **항상 활성**(export 버튼들은 결과 도착 전 비활성인 것과 대비 — 로컬 `const` 버튼이라 `refreshActions` 참조 불필요). 패널은 `setEnabled(false)` 시 `closePanel()`로 파괴되므로 이 버튼은 `enabled===true`일 때만 존재 → `openAsk`의 `if(!enabled)return` 가드에 걸릴 데드 엣지 없음.
-- **팝업 `➕ 새 질문` 버튼** (`popup/main.tsx`): StatusLine 바로 아래 전폭 버튼. 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `settings.explainEnabled && pageReachable`일 때만 노출. `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
-- **팝업 크기/위치 컨트롤 최하단 이동** (`popup/main.tsx`): `원문 크기`/`번역 크기`(SizeRow) + `자막 위치`(위치 초기화) 3행을 표시 모드 아래 → **`자세히 설정하기` 버튼 바로 위**(최근 번역 줄 아래)로 이동. IA 근거: 자주 바꾸는 언어·백엔드(영상자막/바꿀언어/번역방식)를 위로, **한 번 맞춰두는 미세조정**을 아래로. 순수 순서 변경(스키마·배선·메시지 변화 0). 새 순서: `상태 → [새 질문] → 자막켜기 → 노래방 → 표시모드 → 영상자막 → 바꿀언어 → 번역방식 → 최근번역 → 원문크기 → 번역크기 → 자막위치 → 자세히 설정하기`.
+- **팝업 새 질문 버튼** (`popup/main.tsx`): 제목줄 오른쪽 아이콘 버튼(A75 — 옛 전폭 `➕ 새 질문` 버튼에서 바뀜, 섹션 48). 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `pageReachable`일 때만 노출(A51에서 `explainEnabled` 게이트 제거). `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
 - **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 패널/팝업 버튼 클릭 → 새 질문 탭, 팝업 하단 배치는 Chrome 실사용 확인 대상.
 
 ### 30. 직접 질문 입력창 autofocus + 새 질문 시 draft 비우기 (A50, v0.15.1)
@@ -344,7 +343,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 옵션 페이지(`options/main.tsx`)의 정보구조·시각 계층 정리 + 해설/Notion 상시화. 대부분 옵션 UI 한 파일이지만 상시화 3건은 런타임(`content/index.ts`)에도 영향.
 
 - **섹션 순서**: 자막 관련을 위, AI/API를 아래로 — `자막 표시 → Single Subtitle → 자막 스타일 → 자막 배치·배경 → 번역 방식 → Gemini 설정 → Mindlogic 설정 → 단어·표현 해설 → Notion 저장 → 관리`. "번역 방식"(백엔드 라디오)은 옛 "자막 표시" 안에서 **독립 섹션으로 분리**해 Gemini/Mindlogic 설정 바로 위에 배치(AI 블록 응집).
-- **시각 계층 — 들여쓰기 + 불릿**: `Section` 컴포넌트가 하위 항목 컨테이너에 `paddingLeft`만 준다(세로선 `borderLeft` 시안은 폐기 — 사용자 선택). 일반 설정 행(`Row`)은 라벨 앞에 `·` 불릿(빈 라벨 힌트 행은 생략). 라디오(`○`)·자막 스타일 그룹 칩(`1./2.`)은 자체 마커라 불릿 안 붙임(이중 마커 방지). 자막 스타일의 크기·색·굵기는 그룹 칩 아래 한 단계 더 들여쓰기.
+- **시각 계층 — 섹션 카드**: A76(섹션 49)부터 섹션 = 작은 제목 + 카드로 구분하고 옛 들여쓰기 + `•` 불릿은 제거(세로선 `borderLeft` 시안은 그 전에 사용자 선택으로 폐기). 자막 스타일의 크기·색·굵기는 그룹 칩(`1./2.`) 아래 한 단계 들여쓰기.
 - **API 설정 섹션 = 제공자별 표시** (`showGemini`/`showMindlogic`): `backend === 'gemini' || explainBackend === 'gemini'`이면 Gemini 설정 펼침(Mindlogic 동형). 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 노출 — 옛 통합 조건·`explainEnabled` 게이트(섹션 14)를 대체.
 - **해설 백엔드 라디오 제거 → 번역 방식(AI) 자동 추종**: "AI는 보통 하나만 쓴다" 전제로 해설 백엔드 선택 UI 제거. 번역 방식에서 Gemini/Mindlogic 선택 시 `explainBackend`도 함께 set(라디오 onChange), 로드 시 저장값이 어긋나면 정규화(`loadSettings().then`의 `aiBackend`). 번역이 google/chrome이면 마지막 AI 선택(기본 gemini) 유지. **해설 모델 선택칸은 유지**(같은 제공자라도 번역=저렴/해설=고품질 분리, 섹션 17). 트레이드오프: 번역≠해설 AI 조합은 UI로 못 고름(기본 gemini).
 - **해설 켜기 / Notion 저장 켜기 체크박스 제거 → 상시 노출**: 두 체크박스를 없애고 섹션 내용·패널 버튼(💡 해설·❓ 질문·📝 Notion)을 상시 표시. content가 `setEnabled(true)`/`setNotionEnabled(true)`(popup의 "➕ 새 질문"도 `explainEnabled` 게이트 제거, `pageReachable`만). `explainEnabled`/`notionEnabled`는 스키마에 **미래 결제 게이트용 예약 필드**로 남김(주석 명시) — 유료화 시 버튼은 무료도 노출해 구매 유도하고 "호출/저장" 단계에서 이 값을 검사할 자리.
@@ -459,7 +458,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 
 ### 40. 팝업 "최근 번역"에 모델명 추가 + Mindlogic 추천 힌트 제거 (A64, v0.22.1)
 
-- **모델명 표기** (`secrets.ts:LastBackendInfo` + `background/index.ts` + `popup/main.tsx`): 번역 성공 시 그 순간 `storage.sync`의 `geminiModel`/`mindlogicModel`을 함께 읽어 `LastBackendInfo.model`에 저장(google-free·chrome-builtin은 모델 선택이 없어 `undefined`). 팝업이 `GEMINI_MODELS`/`MINDLOGIC_MODELS`에서 라벨을 찾아 `Mindlogic (Claude Sonnet 4.6) · 28분 전`처럼 표시(목록 밖 값이면 raw ID).
+- **모델명 표기** (`secrets.ts:LastBackendInfo` + `background/index.ts` + `popup/main.tsx`): 번역 성공 시 그 순간 `storage.sync`의 `geminiModel`/`mindlogicModel`을 함께 읽어 `LastBackendInfo.model`에 저장(google-free·chrome-builtin은 모델 선택이 없어 `undefined`). **팝업 표시는 A75에서 제거**(fallback 경고 카드만 남음 — 섹션 11·48). `model` 필드는 저장만 되고 현재 읽는 곳 없음.
 - **Mindlogic 모델 힌트 제거** (`lang-options.ts`): `ModelOption.transHint`를 optional로 바꾸고 `MINDLOGIC_MODELS`에서 `자연스러움`/`고품질` 등 힌트 텍스트를 뺐다 — 모델 라인업이 자주 바뀌어 고정 추천 문구가 금방 낡기 때문(사용자 피드백). **Gemini는 그대로 유지**(세대가 안정적) — `renderModelSelect`(`options/main.tsx`)는 힌트가 없으면 `known.get(id)?.transHint`가 `undefined`라 자동으로 안 표시.
 
 ### 41. Alt+Q "직접 질문"을 유튜브 밖에서도 — activeTab 온디맨드 주입 (A65, v0.23.0)
