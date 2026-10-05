@@ -65,7 +65,8 @@ export default defineManifest({
   },
   // activeTab: 'open-ask' 단축키(사용자 제스처)로 그 순간의 탭 하나에만 ask-anywhere를 주입하기
   // 위함(섹션 40) — 상시 host_permissions 없이 그 탭에 한정된 임시 권한만 받는다.
-  permissions: ['storage', 'scripting', 'offscreen', 'activeTab'],
+  // contextMenus: 웹페이지 우클릭 「"…" 해설」·「AI에게 직접 질문」(A80) — 메뉴 클릭도 activeTab 제스처.
+  permissions: ['storage', 'scripting', 'offscreen', 'activeTab', 'contextMenus'],
   host_permissions: [
     'https://www.youtube.com/*',
     'https://translate.googleapis.com/*',

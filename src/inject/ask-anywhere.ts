@@ -15,22 +15,20 @@ import { ExplainUI, type ExplainResult, type NotionSaveResult } from '../content
 import { injectStyles } from '../content/renderer/styles';
 import { loadSettings, type Settings } from '../shared/settings';
 import { explainModelLabel } from '../shared/lang-options';
-import type { ChatTurn } from '../shared/types';
+import type { ChatTurn, OpenAskMsg } from '../shared/types';
 import { setUiLang, t } from '../shared/i18n';
 
-// 재주입 가드 — 이미 이 페이지에 떠 있으면 새 인스턴스를 만들지 않고 openAsk()만 재호출
-// (새 탭으로 누적, 기존 패널·탭은 그대로 보존).
+// 첫 주입 때 열 내용 — background가 이 파일을 주입하기 직전 같은 isolated world에 심어 둔다
+// (팝업 질문·우클릭 해설). 두 번째부터는 아래 onMessage가 OPEN_ASK를 직접 받는다:
+// crxjs 로더는 이 모듈을 동적 import()하므로 재주입해도 모듈 캐시 때문에 최상위 코드가 다시
+// 돌지 않는다 — 옛 재주입 가드(__YDT_ASK_OPEN__)는 그래서 실제로는 불리지 않았다.
 declare global {
   interface Window {
-    __YDT_ASK_OPEN__?: () => void;
+    __YDT_ASK_PENDING__?: Omit<OpenAskMsg, 'type'>;
   }
 }
 
-if (window.__YDT_ASK_OPEN__) {
-  window.__YDT_ASK_OPEN__();
-} else {
-  void initAskAnywhere();
-}
+void initAskAnywhere();
 
 // 설정 리스너가 패널 생성보다 먼저 등록되므로(아래 loadSettings 직후) 선언만 위에 둔다.
 let explainUI: ExplainUI | null = null;
@@ -144,7 +142,18 @@ async function initAskAnywhere(): Promise<void> {
   );
   explainUI.setEnabled(true);
   explainUI.setNotionEnabled(true);
-  explainUI.openAsk();
 
-  window.__YDT_ASK_OPEN__ = () => explainUI?.openAsk();
+  const open = (o: Omit<OpenAskMsg, 'type'>): void => {
+    if (o.explain) explainUI?.explainText(o.explain);
+    else explainUI?.openAsk(o.question);
+  };
+  open(window.__YDT_ASK_PENDING__ ?? {});
+  window.__YDT_ASK_PENDING__ = undefined;
+
+  // 이 페이지에 이미 떠 있으면 background의 sendMessage가 여기로 온다(재주입 없이 새 탭으로 누적).
+  chrome.runtime.onMessage.addListener((msg) => {
+    const m = msg as OpenAskMsg;
+    if (m?.type === 'OPEN_ASK') open(m);
+    return false;
+  });
 }

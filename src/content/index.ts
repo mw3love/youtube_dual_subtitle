@@ -2,7 +2,7 @@
 // MAIN world script가 가로챈 timedtext 응답을 받아서 parseJson3 → cue 배열로 만든다.
 // 트랙 목록도 받아 어떤 트랙이 선택될지 로깅 (소스 언어 결정용).
 
-import type { CaptionTrackInfo, ChatTurn, Cue, MainToContentMessage, Sentence } from '../shared/types';
+import type { CaptionTrackInfo, ChatTurn, Cue, MainToContentMessage, OpenAskMsg, Sentence } from '../shared/types';
 import { parseJson3 } from '../shared/json3';
 import { segmentCues } from '../shared/segment';
 import { SubtitleRenderer } from './renderer/subtitle-renderer';
@@ -243,8 +243,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   // 단축키(chrome.commands 'open-ask')를 background가 활성 탭으로 전달 → 자막 선택 없이
   // "직접 질문" 패널을 연다(별도 AI 사전 대체: 자막에 안 뜨는 표현 따로 묻기).
+  // 팝업 입력칸(question)·글자 선택 우클릭(explain)도 같은 메시지로 온다.
   if (m?.type === 'OPEN_ASK') {
-    explainUI.openAsk();
+    const o = m as OpenAskMsg;
+    if (o.explain) explainUI.explainText(o.explain);
+    else explainUI.openAsk(o.question);
   }
   return false;
 });

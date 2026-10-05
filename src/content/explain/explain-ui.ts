@@ -309,18 +309,36 @@ export class ExplainUI {
   // public — Alt+Q(content/index.ts)가 호출. 자막 선택 없이 빈 질문 탭을 열어 곧장 입력칸에
   // 포커스(자막에 안 뜨는 표현을 따로 물어보기 — 별도 AI 사전 대체). 해설 꺼져 있으면 무시.
   // term='직접 질문'은 표시 라벨일 뿐, isAsk=true라 백엔드엔 선택 텍스트를 안 보낸다(제출 시 라벨은 질문으로 교체).
-  openAsk(): void {
+  // question이 있으면(팝업 입력칸에서 쓰고 Enter) 열자마자 그 질문을 첫 질문으로 제출한다.
+  openAsk(question?: string): void {
     if (!this.enabled) return;
     this.openTab(tr('panel.directAsk'), '', true, true);
     // 새 질문은 빈 입력창으로 시작 — 입력창은 패널 공용(§28)이라 이전 탭의 미제출 초안이
     // 남는데, 새로 물으려고 연 탭엔 잔여 텍스트가 혼란스러워 비운다(탭 전환 시 draft 공유는 유지).
     if (this.chatInput) this.chatInput.value = '';
+    if (question?.trim() && this.chatInput) {
+      this.chatInput.value = question.trim();
+      this.submitChat();
+      return;
+    }
     // Alt+Q(chrome.commands)/팝업 버튼으로 열릴 땐 패널을 방금 표시·재배치한 직후라
     // 동기 focus()가 씹힌다(레이아웃 전·문서 포커스 복귀 전). 다음 프레임에 다시 포커스해
     // 마우스 클릭 없이 곧장 타이핑되게 한다.
     const input = this.chatInput;
     input?.focus();
     requestAnimationFrame(() => input?.focus());
+  }
+
+  // public — 웹페이지 글자 선택 우클릭 메뉴(「"…" 해설」)가 호출. 선택 텍스트를 곧장 해설 탭으로.
+  // 메뉴는 선택 글자만 주므로 문맥은 지금 페이지에 남아 있는 선택에서 직접 찾는다(selectionContext).
+  explainText(text: string): void {
+    if (!this.enabled || !text.trim()) return;
+    const term = text.trim();
+    const context = selectionContext(term);
+    this.hideToolbar();
+    releaseSubtitleSelection();
+    const tab = this.openTab(term, context, false);
+    void this.runExplain(tab, term, context);
   }
 
   // 툴바 🖍 형광펜: 헤더 버튼과 동일(onHighlightClick) — 현재 본문 선택을 백틱 마킹하고
@@ -1333,6 +1351,31 @@ function textNodesInRange(root: HTMLElement, range: Range): Text[] {
 function releaseSubtitleSelection(): void {
   const sel = window.getSelection();
   if (sel?.anchorNode && closestContainer(sel.anchorNode)) sel.removeAllRanges();
+}
+
+// 우클릭 해설의 문맥 — 페이지에 남아 있는 선택이 메뉴가 준 글자와 같으면 그 선택이 든 문단을,
+// 자막 박스 안이면 원문 줄을 쓴다(드래그 툴바와 같은 기준). 못 찾으면 단어 자체.
+// 문단이 길면(기사 본문 등) 단어 주변 약 300자만 — 모델에 쓸데없이 긴 글을 보내지 않게.
+const CONTEXT_MAX = 600;
+function selectionContext(term: string): string {
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || norm(sel.toString()) !== norm(term)) return term;
+  const node = sel.getRangeAt(0).commonAncestorContainer;
+  const container = closestContainer(node);
+  if (container) {
+    const src = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
+    return src || norm(container.textContent ?? '') || term;
+  }
+  const el = node instanceof HTMLElement ? node : node.parentElement;
+  const block =
+    el?.closest('p,li,td,th,dd,dt,h1,h2,h3,h4,h5,h6,blockquote,pre,figcaption') ?? el;
+  const ctx = norm(block?.textContent ?? '');
+  if (!ctx) return term;
+  if (ctx.length <= CONTEXT_MAX) return ctx;
+  const i = Math.max(0, ctx.indexOf(norm(term)));
+  const start = Math.max(0, i - CONTEXT_MAX / 2);
+  return ctx.slice(start, start + CONTEXT_MAX);
 }
 
 function closestContainer(node: Node): HTMLElement | null {

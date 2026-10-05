@@ -56,13 +56,6 @@ const MODE_TILES: Array<{ value: DisplayMode; label: MsgKey; src: boolean; tgt: 
 ];
 
 // 아이콘 — 이모지 대신 선 SVG(폰트마다 모양이 달라지지 않게).
-const IconAsk = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    <line x1="12" y1="7" x2="12" y2="13" />
-    <line x1="9" y1="10" x2="15" y2="10" />
-  </svg>
-);
 const IconGear = () => (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="3" />
@@ -139,22 +132,31 @@ function Popup() {
     window.close();
   };
 
-  // 새 질문 — 활성 YouTube 탭 콘텐츠에 OPEN_ASK 전달 → 자막 선택 없이 "직접 질문" 패널을 연다
-  // (content/index.ts가 explainUI.openAsk() 호출). 패널 안 버튼과 동일 경로이자 단축키 Alt+Q의
-  // cold-start 발견성 보완(단축키를 몰라도 됨). 콘텐츠 스크립트가 없거나 거부하면 무시.
-  const openAskOnPage = async (): Promise<void> => {
+  // 맨 위 질문 입력칸(A80) — Enter면 활성 탭에 직접 질문 패널을 열고 그 질문을 바로 제출한다
+  // (비어 있으면 빈 질문 패널). 유튜브가 아닌 사이트도 되도록 여는 일은 background가 맡는다
+  // (팝업을 연 것이 activeTab 제스처라 그 탭에 주입 가능). 못 여는 페이지면 팝업을 닫지 않고 안내.
+  const [askText, setAskText] = useState('');
+  const [askFailed, setAskFailed] = useState(false);
+  const submitAsk = async (): Promise<void> => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id) await chrome.tabs.sendMessage(tab.id, { type: 'OPEN_ASK' });
+      if (tab?.id !== undefined) {
+        const res = (await chrome.runtime.sendMessage({
+          type: 'POPUP_ASK',
+          tabId: tab.id,
+          url: tab.url,
+          question: askText.trim(),
+        })) as { ok?: boolean } | undefined;
+        if (res?.ok) {
+          window.close();
+          return;
+        }
+      }
     } catch {
-      // 콘텐츠 스크립트 미도달 — 무시.
+      // background 미응답 — 아래 안내로.
     }
-    window.close();
+    setAskFailed(true);
   };
-
-  // 콘텐츠 스크립트가 응답한 상태(=YouTube 탭 + 스크립트 도달)일 때만 "새 질문" 노출.
-  const pageReachable =
-    status.kind === 'active' || status.kind === 'no-cues' || status.kind === 'subtitles-off';
 
   // 폰트 크기 ± — 렌더러 휠 조절과 같은 범위(8~72), settings 스키마와도 동일.
   // update()가 storage.sync 저장 → content가 onChanged로 즉시 반영(setFontSizes).
@@ -249,17 +251,6 @@ function Popup() {
     <div className="pop" style={{ opacity: loaded ? 1 : 0.5 }}>
       <div className="head">
         <span className="head-title">Dual Subtitle</span>
-        {pageReachable && (
-          <button
-            className="icon-btn"
-            onClick={() => void openAskOnPage()}
-            disabled={!loaded}
-            title={t('pop.newQuestion.title')}
-            aria-label={t('pop.newQuestion')}
-          >
-            <IconAsk />
-          </button>
-        )}
         <button
           className="icon-btn"
           onClick={openOptions}
@@ -269,6 +260,26 @@ function Popup() {
           <IconGear />
         </button>
       </div>
+
+      <input
+        className="ask-input"
+        type="text"
+        autoFocus
+        value={askText}
+        placeholder={t('pop.ask.placeholder')}
+        title={t('pop.ask.title')}
+        onChange={(e) => {
+          setAskText(e.target.value);
+          setAskFailed(false);
+        }}
+        onKeyDown={(e) => {
+          // 한글 조합 확정 Enter는 무시(§28 — 안 하면 마지막 글자로 한 번 더 제출된다).
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          void submitAsk();
+        }}
+      />
+      {askFailed && <p className="warn-box">{t('pop.ask.failed')}</p>}
 
       <button
         className={`card hero${settings.subtitlesEnabled ? ' on' : ''}`}

@@ -10,7 +10,7 @@ import { saveToNotion, testNotion } from './notion';
 import type { BackendId } from './translators/types';
 import type { ExplainBackend, GeminiModel, MindlogicModel } from '../shared/settings';
 import { browserDefaults } from '../shared/settings';
-import type { ChatTurn } from '../shared/types';
+import type { ChatTurn, OpenAskMsg } from '../shared/types';
 import { setLastBackend } from '../shared/secrets';
 import { getCached, setCached } from '../shared/cache/idb-cache';
 import { initUiLang } from '../shared/i18n';
@@ -31,14 +31,56 @@ console.log(TAG, 'background service worker started');
 // "사용자 제스처로 호출됨" 조건을 이 이벤트 콜백 프레임 안에서 바로 씀으로써 최대한 지킨다.
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== 'open-ask' || tab.id === undefined) return;
-  const tabId = tab.id;
-  chrome.tabs.sendMessage(tabId, { type: 'OPEN_ASK' }).catch(() => {
+  void openAskInTab(tab.id, tab.url, {});
+});
+
+// 단축키·우클릭 메뉴·팝업 입력칸이 공유하는 진입점. 탭에 패널이 이미 있으면(유튜브 content script
+// 또는 이미 주입된 ask-anywhere) 메시지로, 없으면 ask-anywhere를 주입해 연다. 열었으면 true.
+async function openAskInTab(
+  tabId: number,
+  url: string | undefined,
+  payload: Omit<OpenAskMsg, 'type'>,
+): Promise<boolean> {
+  try {
+    await chrome.tabs.sendMessage(tabId, { type: 'OPEN_ASK', ...payload } satisfies OpenAskMsg);
+    return true;
+  } catch {
     // 유튜브 탭인데 sendMessage가 실패했다면 content script가 아직 초기화 중일 가능성이 큼(레이스) —
     // 그 경우 ask-anywhere를 얹으면 자막 배선 없는 별도 ExplainUI가 중복 생겨 더 나빠진다.
     // 진짜 "콘텐츠 스크립트 자체가 없는 페이지"에서만 온디맨드 주입으로 보완한다.
-    if (/^https:\/\/(www\.)?youtube\.com\//.test(tab.url ?? '')) return;
-    void injectAskAnywhere(tabId);
+    if (/^https:\/\/(www\.)?youtube\.com\//.test(url ?? '')) return false;
+    return injectAskAnywhere(tabId, payload);
+  }
+}
+
+// 웹페이지 우클릭 메뉴(A80) — 글자를 골랐으면 「"…" 해설」, 아무것도 안 골랐으면 「AI에게 직접 질문」.
+// 메뉴 클릭도 activeTab을 주는 사용자 제스처라 단축키와 같은 온디맨드 주입이 된다. 제목은 단축키
+// 설명처럼 브라우저 언어(_locales)를 따른다(%s = 선택한 글자). 메뉴는 브라우저가 기억하므로
+// 설치·업데이트 때 한 번 다시 만든다(removeAll로 중복 방지).
+const MENU_EXPLAIN = 'ydt-explain-selection';
+const MENU_ASK = 'ydt-ask-page';
+function createContextMenus(): void {
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: MENU_EXPLAIN,
+      title: chrome.i18n.getMessage('menuExplainSelection'),
+      contexts: ['selection'],
+    });
+    chrome.contextMenus.create({
+      id: MENU_ASK,
+      title: chrome.i18n.getMessage('menuAsk'),
+      contexts: ['page'],
+    });
   });
+}
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (tab?.id === undefined) return;
+  if (info.menuItemId === MENU_EXPLAIN && info.selectionText?.trim()) {
+    void openAskInTab(tab.id, tab.url, { explain: info.selectionText.trim() });
+  } else if (info.menuItemId === MENU_ASK) {
+    void openAskInTab(tab.id, tab.url, {});
+  }
 });
 
 // manifest content_scripts에 등록해둔 ask-anywhere(섹션 40) 항목에서 crxjs가 빌드 시 해시한
@@ -49,17 +91,30 @@ function askAnywhereFiles(): string[] {
   return scripts.find((s) => s.js?.some((f) => f.includes('ask-anywhere')))?.js ?? [];
 }
 
-async function injectAskAnywhere(tabId: number): Promise<void> {
+async function injectAskAnywhere(
+  tabId: number,
+  payload: Omit<OpenAskMsg, 'type'>,
+): Promise<boolean> {
   const files = askAnywhereFiles();
   if (!files.length) {
     console.warn(TAG, 'ask-anywhere script not found in manifest');
-    return;
+    return false;
   }
   try {
+    // 열 내용을 먼저 같은 isolated world에 심어 두면 ask-anywhere가 시작할 때 읽어 간다.
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (p: Omit<OpenAskMsg, 'type'>) => {
+        window.__YDT_ASK_PENDING__ = p;
+      },
+      args: [payload],
+    });
     await chrome.scripting.executeScript({ target: { tabId }, files });
+    return true;
   } catch (e) {
     // chrome:// · 웹스토어 · PDF 뷰어 등 스크립팅이 금지된 페이지 — 조용히 무시.
     console.warn(TAG, 'ask-anywhere injection skipped:', e instanceof Error ? e.message : String(e));
+    return false;
   }
 }
 
@@ -382,6 +437,17 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener((details) => {
   console.log(TAG, 'onInstalled', details.reason);
   if (details.reason === 'install') void seedInstallDefaults();
+  createContextMenus();
+});
+
+// 팝업 맨 위 입력칸(A80) — 팝업은 곧 닫히므로 여는 일은 background가 맡는다. 팝업을 연 것 자체가
+// activeTab 제스처라 유튜브가 아닌 탭에도 주입할 수 있다. 못 연 페이지(chrome:// 등)면 ok:false →
+// 팝업이 안내를 띄운다.
+chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
+  const m = msg as { type?: string; tabId?: number; url?: string; question?: string };
+  if (m?.type !== 'POPUP_ASK' || typeof m.tabId !== 'number') return false;
+  void openAskInTab(m.tabId, m.url, { question: m.question }).then((ok) => sendResponse({ ok }));
+  return true;
 });
 
 // 새 설치에만 브라우저 언어 기반 표시/번역 언어를 심는다(settings.ts:browserDefaults 주석 참고).

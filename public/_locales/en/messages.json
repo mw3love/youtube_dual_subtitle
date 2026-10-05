@@ -10,5 +10,13 @@
   "cmdOpenAsk": {
     "message": "Open the ask-AI panel (no subtitle selection needed)",
     "description": "Keyboard shortcut description shown in chrome://extensions/shortcuts."
+  },
+  "menuExplainSelection": {
+    "message": "Explain \"%s\" with AI",
+    "description": "Right-click menu on selected text. %s is replaced by the selection."
+  },
+  "menuAsk": {
+    "message": "Ask AI (Dual Subtitle)",
+    "description": "Right-click menu on a page with nothing selected."
   }
 }

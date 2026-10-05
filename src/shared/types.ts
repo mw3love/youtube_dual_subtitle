@@ -28,6 +28,15 @@ export interface ChatTurn {
   text: string;
 }
 
+// background → 탭(content/index.ts 또는 ask-anywhere)으로 해설 패널을 여는 메시지.
+// 둘 다 없으면 빈 직접 질문(Alt+Q), question = 팝업 입력칸의 질문을 바로 제출,
+// explain = 우클릭 메뉴로 고른 글자를 바로 해설.
+export interface OpenAskMsg {
+  type: 'OPEN_ASK';
+  question?: string;
+  explain?: string;
+}
+
 export interface CaptionTrackInfo {
   baseUrl: string;
   languageCode: string;

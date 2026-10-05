@@ -80,6 +80,27 @@
         color: var(--text);
       }
 
+      /* 맨 위 질문 입력칸(A80) — 팝업을 열면 바로 커서가 여기. */
+      .ask-input {
+        width: 100%;
+        box-sizing: border-box;
+        height: 40px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--card);
+        color: var(--text);
+        font-family: inherit;
+        font-size: 13px;
+      }
+      .ask-input::placeholder {
+        color: #8f887b;
+      }
+      .ask-input:focus {
+        border-color: var(--accent);
+        outline: none;
+      }
+
       .card {
         background: var(--card);
         border: 1px solid var(--line);

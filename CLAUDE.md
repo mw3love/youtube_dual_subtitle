@@ -327,7 +327,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 §28의 Alt+Q(직접 질문)는 단축키 하나뿐이라 발견성이 0이었다(안내 없는 제스처). 형광펜/복사처럼 **버튼으로도** 노출해 몰라도 쓸 수 있게 함. Alt+Q 경로(`openAsk`)는 그대로 재사용 — 새 트리거만 추가.
 
 - **패널 액션 툴바 `➕ 새 질문` 버튼** (`explain-ui.ts:ensureShell`): 형광펜/복사/Notion과 같은 `.ydt-explain-actions` 행에 추가하되, "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 **범주가 달라** CSS `.ydt-explain-action-newq { margin-right: auto }`로 **왼쪽에 분리** 배치(`styles.ts`). 클릭 → `this.openAsk()`(§28과 동일 경로). 결과 유무 무관 **항상 활성**(export 버튼들은 결과 도착 전 비활성인 것과 대비 — 로컬 `const` 버튼이라 `refreshActions` 참조 불필요). 패널은 `setEnabled(false)` 시 `closePanel()`로 파괴되므로 이 버튼은 `enabled===true`일 때만 존재 → `openAsk`의 `if(!enabled)return` 가드에 걸릴 데드 엣지 없음.
-- **팝업 새 질문 버튼** (`popup/main.tsx`): 제목줄 오른쪽 아이콘 버튼(A75 — 옛 전폭 `➕ 새 질문` 버튼에서 바뀜, 섹션 48). 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `pageReachable`일 때만 노출(A51에서 `explainEnabled` 게이트 제거). `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
+- **팝업 새 질문 버튼** (`popup/main.tsx`) — **A80(섹션 50)부터 제거, 팝업 맨 위 질문 입력칸으로 대체**(아래는 옛 동작): 제목줄 오른쪽 아이콘 버튼(A75 — 옛 전폭 `➕ 새 질문` 버튼에서 바뀜, 섹션 48). 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `pageReachable`일 때만 노출(A51에서 `explainEnabled` 게이트 제거). `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
 - **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 패널/팝업 버튼 클릭 → 새 질문 탭, 팝업 하단 배치는 Chrome 실사용 확인 대상.
 
 ### 30. 직접 질문 입력창 autofocus + 새 질문 시 draft 비우기 (A50, v0.15.1)
@@ -471,7 +471,7 @@ Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용
 - **`web_accessible_resources`는 이 그룹만 `<all_urls>`로 예외:** crxjs가 자동 생성하는 `web_accessible_resources` 항목은 해당 `content_scripts.matches`(=`.invalid` placeholder)를 그대로 복사해버려, 실제로 임의 페이지에 주입했을 때 loader의 동적 `import()`(다른 공유 청크를 chrome-extension:// URL로 fetch)가 그 페이지 origin에서 CORS로 막힌다. `scripts/patch-manifest.mjs`가 `npm run build` 뒤 `dist/manifest.json`에서 리소스 목록에 `ask-anywhere`가 들어간 그룹만 찾아 `matches`를 `<all_urls>`로 넓힌다. **`web_accessible_resources.matches`는 host_permissions와 별개 채널**(그 사이트의 스크립트가 이 파일들을 "볼" 수 있게 하는 것뿐, 확장이 그 사이트 데이터를 보는 권한이 아님)이라 설치 권한 경고를 유발하지 않는다(Chrome 공식 문서가 이 구분을 명시하나 권한 경고 UI 자체에 대한 명시 문장은 없음 — 확인 필요로 남김). 그룹을 못 찾으면 빌드를 `process.exit(1)`로 실패시켜(조용히 깨진 채 배포되는 걸 방지) — 이 그룹이 사라지는 건 crxjs의 내부 청크 분할 방식이 바뀌었다는 신호다.
 - **YouTube 레이스 가드** (`background/index.ts`): `chrome.tabs.sendMessage(tabId, {type:'OPEN_ASK'})`가 실패해도 그 탭이 `youtube.com`이면 온디맨드 주입을 하지 않는다 — content script가 아직 초기화 중일 뿐인데 ask-anywhere를 얹으면 자막 배선 없는 별도 `ExplainUI` 인스턴스가 중복 생겨 선택 이벤트가 두 번 처리된다. 진짜 "콘텐츠 스크립트 자체가 없는 페이지"에서만 보완.
 - **사용자 제스처 유지:** `chrome.commands.onCommand`의 두 번째 인자로 `tab`을 직접 받아(별도 `chrome.tabs.query` 왕복 없이) `activeTab`이 요구하는 "사용자 제스처로 호출됨" 조건을 이벤트 콜백 프레임 안에서 바로 쓴다(`AI_Dictionary`의 `chrome.action.onClicked`와 같은 원칙).
-- **팝업 "➕ 새 질문" 버튼(섹션 29)은 이번엔 그대로 둠** — 여전히 YouTube 탭에서만 노출(`pageReachable` 게이트). 단축키만 전역화했고, 팝업 버튼 전역화는 범위 밖.
+- **팝업 "➕ 새 질문" 버튼(섹션 29)은 이번엔 그대로 둠** — A80(섹션 50)에서 팝업 입력칸으로 바뀌며 전역화됨.
 
 **검증:** 빌드·타입체크·`manifest.json` 산출 구조(placeholder matches + `<all_urls>` 리소스 그룹) 확인(프록시검증) — 실제 비유튜브 사이트에서 `Alt+Q` 눌러 패널이 뜨는지는 Chrome 실사용 확인 대상.
 
@@ -566,6 +566,17 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **색 역할 둘 (A79):** 주황 `--brand #ffa200` = 섹션 제목(아이콘·원문 자막 기본색과 같은 대표색), 파랑 `--accent #3ea6ff` = 켜짐·선택됨(토글·칩·선택 카드·테스트 버튼). A76은 선택 표시를 앰버 `#ffb020`로 했다가 제목(주황)과 거의 같은 색이라 섞여 보여 반대색 파랑으로 분리 — 예전 옵션 페이지의 주황 제목 + 파랑 컨트롤 조합과 같다. 팝업도 같은 규칙(섹션 48). 인라인 hex는 CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`)로.
 - **한국어 화면의 영어 섞임 수정 (A77, v0.26.1):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나왔다 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`는 한국어 어순상 일부러 `''`인데 `t()`/`tl()`이 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. `||` → `??`(키가 없을 때만 영어). KO는 `Record<MsgKey,string>`이라 타입이 모든 키를 강제하므로 실제 폴백은 생기지 않는다. **빈 조각이 필요한 문장은 `''`로 두면 된다.**
 - **검증:** 프록시검증 — 헤드리스 Chrome + chrome API 스텁으로 ko(Gemini 선택) 전체 페이지·en 상단 렌더 확인. 실제 확장에서 저장·테스트 동작은 미확인(동작 코드 무변경).
+
+### 50. 웹페이지 우클릭 해설 + 팝업 질문 입력칸 (A80, v0.28.0)
+
+**계기:** 웹페이지를 보다가 모르는 영단어를 마우스로 빠르게 묻고 싶다는 요청. 검토한 안: ① 아이콘 클릭 = 직접 질문(팝업 폐지) ② 팝업에 입력칸 ③ 우클릭으로 질문창. ①은 `default_popup`이 있으면 `action.onClicked`가 아예 안 불려(공식 문서) 팝업을 없애야 하고, 그러면 유튜브 자막 설정이 옵션 페이지까지 멀어져 기각. 채택 = ③을 보완한 **글자 선택 우클릭 해설** + ②.
+
+- **우클릭 메뉴** (`background/index.ts:createContextMenus`, `contextMenus` 권한 — 설치 경고 없음, 공식 permissions-list 확인): 글자를 골랐으면(`contexts:['selection']`) 「"%s" AI 해설」 → `OPEN_ASK {explain}` → `ExplainUI.explainText(text)`가 그 글자로 해설 탭을 바로 연다(타이핑 0). 안 골랐으면(`['page']`) 「AI에게 직접 질문」 → 빈 직접 질문. 메뉴 클릭도 activeTab을 주는 제스처라 단축키와 같은 온디맨드 주입이 된다. 메뉴 제목은 단축키 설명처럼 `_locales`(브라우저 언어) — 인앱 `uiLang`이 아님. 메뉴는 `onInstalled`에서 `removeAll` 후 생성.
+- **우클릭 해설의 문맥** (`explain-ui.ts:selectionContext`): 메뉴는 선택 글자만 주므로, 페이지에 남은 선택이 같은 글자면 그 선택이 든 블록(p/li/td/…) 텍스트를 문맥으로 쓴다(자막 박스 안이면 원문 줄 — 드래그 툴바와 같은 기준). 600자 넘으면 단어 주변만 자름. 못 찾으면 단어 자체.
+- **팝업 입력칸** (`popup/main.tsx`): 제목줄 아래 `autoFocus` 입력칸. Enter → `POPUP_ASK {tabId,url,question}` → background `openAskInTab` → 패널을 열고 `openAsk(question)`이 그 질문을 바로 제출(빈 Enter면 빈 질문 탭). 팝업을 연 것이 activeTab 제스처라 유튜브가 아닌 탭에도 주입된다. 못 여는 페이지(`chrome://`·스토어)면 `{ok:false}` → 팝업을 닫지 않고 안내. 한글 조합 확정 Enter 가드(§28과 같은 이유). 옛 제목줄 "새 질문" 아이콘(섹션 29)은 입력칸과 기능이 같아 제거.
+- **공용 진입점** `openAskInTab(tabId,url,payload)`: 단축키·우클릭·팝업 셋이 공유. `OPEN_ASK`(`shared/types.ts:OpenAskMsg` — `question?`/`explain?`)를 탭에 보내고, 받는 쪽이 없으면(유튜브 제외 — §41 레이스 가드) ask-anywhere를 주입한다. 주입 직전 같은 isolated world에 `window.__YDT_ASK_PENDING__`(열 내용)을 `executeScript({func,args})`로 심어 두고 ask-anywhere가 시작 시 읽는다.
+- **버그 수정 — 비유튜브 두 번째 Alt+Q 무반응:** 옛 ask-anywhere의 재주입 가드(`__YDT_ASK_OPEN__`)는 실제로 불리지 않았다. crxjs 로더는 모듈을 동적 `import()`하므로 재주입해도 **모듈 캐시 때문에 최상위 코드가 다시 돌지 않는다**(빌드 산출 로더로 확인). ask-anywhere에 `chrome.runtime.onMessage`(`OPEN_ASK`) 리스너를 달아, 두 번째부터는 sendMessage가 성공해 재주입 자체를 안 하게 했다.
+- **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려(테스트 사본만 `<all_urls>` host 권한 추가) 팝업 입력칸 autofocus·ko/en 렌더, 일반 페이지 첫 주입 질문 제출(isAsk=true), 주입된 탭에 explain 메시지 → 「postpone」 탭 + 문단 문맥 전송, 재호출 시 탭 누적, `chrome://` → ok:false 확인. 브라우저 고유 우클릭 메뉴 표시·클릭, 실제 activeTab 제스처 권한, 유튜브 탭 경로, 한글 IME Enter는 Chrome 실사용 확인 대상.
 
 ## 비명백한 주의사항
 
