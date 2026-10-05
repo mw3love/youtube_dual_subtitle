@@ -18,8 +18,8 @@ YouTube 영상에 **원문 + 번역 자막을 동시에** 표시하는 Chrome �
 - 번역 백엔드 선택
   - **Google 무료**: 클라우드 번역, 품질 상위
   - **Chrome 내장**: 로컬 모델, 오프라인·프라이버시
-  - **Gemini (BYOK)**: 본인 Google AI Studio 키로 AI 번역. 더 자연스러운 한국어, Flash·Flash-Lite 모델 선택
-  - **OpenAI 호환 게이트웨이 (BYOK)**: 학교/조직 발급 키 하나로 Claude Haiku · GPT-5.4 mini/nano · Gemini Flash 등 가성비 라인 선택. OpenAI 호환 Chat Completions 경로를 쓰는 통합 크레딧 게이트웨이(Mindlogic/FactChat 등)
+  - **Gemini (BYOK)**: 본인 Google AI Studio 키로 AI 번역. 더 자연스러운 한국어
+  - **OpenAI 호환 게이트웨이 (BYOK)**: 학교/조직 발급 키 하나로 게이트웨이가 제공하는 모델 중 선택. OpenAI 호환 Chat Completions 경로를 쓰는 통합 크레딧 게이트웨이(Mindlogic/FactChat 등)
 - 자막 위치를 마우스 드래그로 직접 조정 (일반/Shorts 좌표 별도 저장)
 - 스타일 커스터마이즈: 폰트 크기·색·굵기·줄 높이·배경 투명도
 - Shorts 자막 크기 배율 별도 조정
