@@ -52,7 +52,7 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 - 번역 캐시: 같은 영상 다시 볼 때 즉시 표시. 30일 / 200개 자동 정리
 - 단축키로 듀얼자막 켜기/끄기(기본 G, 옵션에서 원하는 키로 재지정 가능). C는 YouTube 네이티브 자막 그대로 두어 서로 완전히 독립
 - 💡 단어·표현 해설: 자막을 드래그하면 예문·어원·뉘앙스까지 AI가 설명 — 답변은 번역 언어로 (내 Gemini 또는 게이트웨이 키 필요)
-- ❓ 자유 질문 + Alt+Q 어디서나 질문: 궁금한 부분을 직접 물어보기. Alt+Q는 YouTube뿐 아니라 어느 웹사이트에서도 동작
+- ❓ 자유 질문 + Alt+Q 어디서나 질문: 궁금한 부분을 직접 물어보기. Alt+Q·글자 선택 우클릭(「AI 해설」)·팝업 질문 입력칸은 YouTube뿐 아니라 어느 웹사이트에서도 동작
 - 📝 Notion 저장: 해설/답변을 내 Notion 데이터베이스에 한 번에 정리 (내 Notion 연동 토큰 필요)
 
 ■ 데이터·프라이버시
@@ -98,7 +98,7 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 ■ AI explanations (bring your own Gemini or gateway key)
 - 💡 Explain: select any words in the subtitles for example sentences, meaning, origin and nuance — answered in your translation language
 - ❓ Ask: type your own question about the selected phrase; follow-up questions keep the conversation
-- Alt+Q: open the Ask panel on any website, not only YouTube
+- Alt+Q, right-click on selected text ("Explain with AI"), or the popup's ask box: open the Ask panel on any website, not only YouTube
 - 🖍️ Highlight parts of an answer, 📋 copy it as Markdown, or 📝 save it to your own Notion database
 
 ■ Privacy
@@ -122,14 +122,15 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 | 권한 | 정당화 |
 |---|---|
 | `storage` | Save user preferences (languages, styles, subtitle position) to chrome.storage.sync and cache translations in IndexedDB. |
-| `scripting` | Inject the "Ask AI" panel into the active tab (together with `activeTab`) when the user presses the `Alt+Q` shortcut on a non-YouTube page. The YouTube subtitle renderer itself is declared statically in `content_scripts`. |
+| `scripting` | Inject the "Ask AI" panel into the active tab (together with `activeTab`) when the user presses the `Alt+Q` shortcut, clicks our right-click menu item, or submits the popup's ask box on a non-YouTube page. The YouTube subtitle renderer itself is declared statically in `content_scripts`. |
 | `offscreen` | The Chrome Built-in Translator API requires a DOM context; we host it in an offscreen document. |
 | `host_permissions: https://www.youtube.com/*` | Intercept YouTube caption track responses and overlay our dual subtitle container on the player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the user-selected Google free translation endpoint. Not used when Chrome Built-in backend is selected. |
 | `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with the user's own API key (BYOK) when the Gemini backend is selected. The extension does not ship any key — the user enters theirs from Google AI Studio. |
 | `host_permissions: https://factchat-cloud.mindlogic.ai/*`, `https://factchat.mindlogic-kr-api.com/*` | Call the Mindlogic API Gateway (at the base URL the user configures in Options) with the user's own school/organization-issued key (BYOK) when the Mindlogic backend is selected. The extension does not ship any key — the user enters theirs from their institution. |
 | `host_permissions: https://api.notion.com/*` | Save an AI explanation/answer to the user's own Notion database when they click the Notion export button and have entered their own Notion integration token. |
-| `activeTab` | Let the `Alt+Q` shortcut open the "Ask AI" panel on the active tab, on any website, scoped to that one keypress — no standing access to other tabs or sites. |
+| `activeTab` | Let the `Alt+Q` shortcut, the right-click menu, or the popup's ask box open the "Ask AI" panel on the active tab, on any website, scoped to that one user action — no standing access to other tabs or sites. |
+| `contextMenus` | Add "Explain \"%s\" with AI" (on selected text) and "Ask AI" to the right-click menu so users can look up an unknown word on any page without typing it. |
 
 ## 5. 아이콘
 

@@ -119,6 +119,9 @@ Chrome Web Store 제출 전 critical path 점검용. 테스트 프레임워크�
 | 10.3 | 옵션 페이지 키 표시/숨김 토글 | 기본은 password 마스크. "보기" 클릭 시 text |
 | 10.4 | host_permissions 외 origin에 요청 X | DevTools Network 탭 확인 — youtube.com / translate.googleapis.com / generativelanguage.googleapis.com / factchat-cloud.mindlogic.ai / factchat.mindlogic-kr-api.com / api.notion.com 외 요청 없음 |
 | 10.5 | `Alt+Q`로 비유튜브 사이트에 주입 시 activeTab 범위 확인 (A65) | 그 탭에서 패널이 뜸. 다른 탭으로 전환 후 다시 `Alt+Q`를 눌러도 처음 탭에는 재주입 안 됨(각 키press가 그 순간 활성 탭에만 스코프) |
+| 10.6 | 같은 비유튜브 탭에서 `Alt+Q` 두 번 (A80) | 두 번째에도 새 탭이 쌓임(옛 버그: 두 번째 무반응) |
+| 10.7 | 비유튜브 페이지에서 단어 선택 → 우클릭 「"…" AI 해설」 (A80) | 패널이 그 단어로 해설 탭을 바로 엶. 선택 없이 우클릭하면 「AI에게 직접 질문」 → 빈 질문 탭. 유튜브 자막·해설 본문 선택에서도 동작 |
+| 10.8 | 팝업 입력칸 질문 + Enter (A80) | 팝업 열면 커서가 입력칸. Enter → 팝업 닫히고 패널에 그 질문 답. 한글 입력 마지막 글자 중복 제출 없음. 빈 Enter → 빈 질문 탭. `chrome://` 탭에선 팝업에 "열 수 없어요" 안내 |
 
 ## 11. 빌드·배포
 

@@ -20,7 +20,7 @@ The Extension processes the following data **locally on your device** to perform
 | Gemini API key (only if you choose the Gemini backend) | Authenticate your own Google AI Studio key for translation | `chrome.storage.local` (this device only, NOT synced to your Google account) | Sent only to Google's Gemini API as your `x-goog-api-key` header |
 | Mindlogic API key + Gateway base URL (only if you choose the Mindlogic Gateway backend) | Authenticate your own school/organization-issued gateway key for translation | `chrome.storage.local` (key) / `chrome.storage.sync` (base URL, not sensitive) — this device only for the key, NOT synced to your Google account | Sent only to the Gateway base URL you enter in Options (your organization's own domain, e.g. `https://factchat-cloud.mindlogic.ai/`) as the `Authorization: Bearer` header |
 | Last translation backend used (which backend, when) | Show a warning in the popup when, within the last 30 minutes, a fallback backend handled translation instead of your preferred one | `chrome.storage.local` (this device only) | Not sent to any third-party server |
-| Text you select or type when using "Explain" / "Ask a question" (💡/❓ buttons, or the `Alt+Q` shortcut) | Get an AI explanation or answer from your chosen backend (Gemini or Mindlogic Gateway) | RAM only, not persisted beyond the on-screen panel (closing the tab or the panel discards it) | See "AI Explain / Ask a question" below |
+| Text you select or type when using "Explain" / "Ask a question" (💡/❓ buttons, the `Alt+Q` shortcut, the right-click "Explain" menu, or the popup's ask box) | Get an AI explanation or answer from your chosen backend (Gemini or Mindlogic Gateway) | RAM only, not persisted beyond the on-screen panel (closing the tab or the panel discards it) | See "AI Explain / Ask a question" below |
 | Notion integration token + database ID (only if you use the 📝 Notion export button) | Save an explanation/answer as a page in your own Notion database | Token: `chrome.storage.local` (this device only) / Database ID: `chrome.storage.sync` | Sent only to `https://api.notion.com` with your token as the `Authorization: Bearer` header |
 
 ## 2. External services
@@ -55,9 +55,9 @@ You can switch backends at any time from the options page, and turn subtitles of
 
 ### AI Explain / Ask a question (Gemini / Mindlogic Gateway)
 
-Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, or the `Alt+Q` keyboard shortcut. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for explanations in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
+Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, the `Alt+Q` keyboard shortcut, the right-click menu on selected text ("Explain … with AI"), or the ask box at the top of the Extension's popup. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for explanations in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
 
-**As of this version, `Alt+Q` works on any website, not only YouTube.** Pressing it injects a small answer panel into the current tab **only for that one keypress** (Chrome's `activeTab` permission — the Extension does not run on other websites otherwise, and stops having any special access to that tab once you navigate away or close the panel). On non-YouTube pages there is no subtitle context to send — only the text you select or type.
+**`Alt+Q`, the right-click menu, and the popup ask box work on any website, not only YouTube.** Using one of them injects a small answer panel into the current tab **only for that one action** (Chrome's `activeTab` permission — the Extension does not run on other websites otherwise, and stops having any special access to that tab once you navigate away or close the panel). On non-YouTube pages there is no subtitle context to send — only the text you type, or the text you selected plus the paragraph it sits in (up to about 600 characters) so the AI can tell which meaning is meant.
 
 ### Notion (optional export)
 
@@ -68,14 +68,15 @@ If you enter a Notion integration token and database ID in Options, the 📝 Not
 | Permission | Why it's needed |
 |---|---|
 | `storage` | Save your settings (sync) and the translation cache (IndexedDB). |
-| `scripting` | Run the content script on YouTube pages (declared in `content_scripts`), and — together with `activeTab` — inject the "Ask AI" panel into the active tab when you press `Alt+Q` on a non-YouTube page. |
+| `scripting` | Run the content script on YouTube pages (declared in `content_scripts`), and — together with `activeTab` — inject the "Ask AI" panel into the active tab when you press `Alt+Q`, use the right-click menu, or submit the popup's ask box on a non-YouTube page. |
 | `offscreen` | Host the Chrome Built-in Translator API, which requires a DOM context. |
 | `host_permissions: https://www.youtube.com/*` | Read YouTube caption tracks and overlay subtitles on the video player. |
 | `host_permissions: https://translate.googleapis.com/*` | Call the Google Free translation endpoint when that backend is selected. |
 | `host_permissions: https://generativelanguage.googleapis.com/*` | Call the Gemini API with your own API key when the Gemini backend is selected. The Extension itself does not ship any API key. |
 | `host_permissions: https://factchat-cloud.mindlogic.ai/*`, `https://factchat.mindlogic-kr-api.com/*` | Call the Mindlogic API Gateway (at the base URL you configure) with your own school/organization key when the Mindlogic backend is selected. The Extension itself does not ship any API key. Only these known gateway domains are pre-declared; a brand-new organization domain would require an Extension update. |
 | `host_permissions: https://api.notion.com/*` | Save an AI explanation/answer to your own Notion database when you click the 📝 Notion button and have entered your own Notion integration token. |
-| `activeTab` | Let the `Alt+Q` shortcut inject the "Ask AI" answer panel into whichever tab is active **at the moment you press it**, on any website — not only YouTube. This grants no standing access to that tab; it's scoped to that one user-initiated action. |
+| `activeTab` | Let the `Alt+Q` shortcut, the right-click menu, or the popup's ask box inject the "Ask AI" answer panel into whichever tab is active **at the moment you use it**, on any website — not only YouTube. This grants no standing access to that tab; it's scoped to that one user-initiated action. |
+| `contextMenus` | Add two items to the page's right-click menu: "Explain … with AI" (when text is selected) and "Ask AI". Nothing is read or sent unless you click one of them. |
 
 The Extension does **not** request the broad `tabs`, `history`, `cookies`, or `webRequest` permissions and cannot read your browsing history, other tabs' contents, or any cookies.
 
