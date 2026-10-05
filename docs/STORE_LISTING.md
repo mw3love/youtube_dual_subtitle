@@ -45,8 +45,8 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 - 번역 엔진 4종
   • Google 무료: 클라우드 번역, 품질 상위 (사용량 많으면 일시 차단 가능)
   • Chrome 내장: 로컬 모델, 오프라인·차단 없음·자막 외부 전송 없음
-  • Gemini (내 키): Google AI Studio에서 본인 키 발급 후 입력, AI 번역으로 가장 자연스러운 한국어. Flash·Flash-Lite 모델 선택
-  • OpenAI 호환 게이트웨이 (내 키): 학교/조직 발급 키로 Claude Haiku · GPT-5.4 mini/nano · Gemini Flash 등 가성비 라인 선택
+  • Gemini (내 키): Google AI Studio에서 본인 키 발급 후 입력, AI 번역으로 가장 자연스러운 번역
+  • OpenAI 호환 게이트웨이 (내 키): 학교/조직에서 발급한 게이트웨이 키로 사용 (지원 도메인 한정)
 - 자막 스타일: 폰트 크기·색·굵기·줄 높이·배경 투명도 모두 조정
 - Shorts 자막 크기 배율 별도 조정 (좁은 세로 화면 대응)
 - 번역 캐시: 같은 영상 다시 볼 때 즉시 표시. 30일 / 200개 자동 정리
@@ -178,3 +178,4 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 - 보통 1~3 영업일.
 - 거절 시 메일로 사유 옴 — 수정 후 재제출 가능.
 - 자주 거절되는 사유: 사용하지 않는 권한(이미 정리 완료), Privacy Policy URL 부재, 단일 목적 위반, 사용자 데이터 명세 부실.
+- **실제 거절 이력 (2026-10, 키워드 스팸 "Yellow Argon"):** 한국어 긴 설명의 `Claude Haiku · GPT-5.4 mini/nano · Gemini Flash` 모델명 나열이 "관련 없는 키워드"로 걸림. 설명에는 **다른 회사 AI 모델명·제품명을 나열하지 않는다** — 실제로 연동하는 서비스 이름(Google·Chrome·Gemini·Notion)만 그 기능을 설명하는 문장 안에서 쓴다.
