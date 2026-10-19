@@ -170,6 +170,7 @@ const explainUI = new ExplainUI(
   requestQuestion,
   requestNotionSave,
   currentExplainModelLabel,
+  () => currentTrackLang,
 );
 
 // 자막이 다음 cue로 넘어가면 드래그로 떠 있던 해설/질문 툴바를 닫는다(가리키던 선택이 사라짐).

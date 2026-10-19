@@ -578,6 +578,16 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **버그 수정 — 비유튜브 두 번째 Alt+Q 무반응:** 옛 ask-anywhere의 재주입 가드(`__YDT_ASK_OPEN__`)는 실제로 불리지 않았다. crxjs 로더는 모듈을 동적 `import()`하므로 재주입해도 **모듈 캐시 때문에 최상위 코드가 다시 돌지 않는다**(빌드 산출 로더로 확인). ask-anywhere에 `chrome.runtime.onMessage`(`OPEN_ASK`) 리스너를 달아, 두 번째부터는 sendMessage가 성공해 재주입 자체를 안 하게 했다.
 - **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려(테스트 사본만 `<all_urls>` host 권한 추가) 팝업 입력칸 autofocus·ko/en 렌더, 일반 페이지 첫 주입 질문 제출(isAsk=true), 주입된 탭에 explain 메시지 → 「postpone」 탭 + 문단 문맥 전송, 재호출 시 탭 누적, `chrome://` → ok:false 확인. 브라우저 고유 우클릭 메뉴 표시·클릭, 실제 activeTab 제스처 권한, 유튜브 탭 경로, 한글 IME Enter는 Chrome 실사용 확인 대상.
 
+### 51. 🔊 듣기 — 선택한 표현을 원어민 발음으로 (A81, v0.29.0)
+
+**계기:** 단어만 보고는 발음을 모를 때가 많다는 요청. 자막 드래그/더블클릭과 해설 본문 드래그로 뜨는 툴바(§22·§33)에 `🔊 듣기`를 추가(순서 `🖍️ 형광펜 · 🔊 듣기 · 💡 해설 · ❓ 질문`).
+
+- **엔진 = 브라우저 내장 `speechSynthesis`** (`content/explain/speak.ts`): 키·권한·네트워크 왕복 없이 content script에서 바로 호출되고, Chrome은 `Google US English`/`Google UK English *`/`Google 한국의` 등 원어민 음성을 기본 제공(실측). 같은 언어 음성 중 이름에 Google이 든 것을 우선, 영어는 en-US 우선. 연타 시 `cancel()` 후 새로 읽어 큐가 쌓이지 않게. **Chrome은 사용자 제스처 없는 `speak()`를 막으므로** 반드시 버튼 클릭 핸들러 안에서 부른다(스크립트로 부르면 start 없이 끝남 — 실측).
+- **검토 후 미룬 대안 — 게이트웨이 TTS**(`/audio/speech/`, `gemini-2.5-flash-preview-tts`): 비용은 사실상 0이지만 게이트웨이 키 사용자만 쓸 수 있고 매번 서버 왕복이라 느리다. 내장 음성 품질이 아쉬울 때 옵션으로 붙일 자리. STT는 읽어 주기에 불필요.
+- **발음 언어**: 자막 **원문 줄(`.ydt-source`)** 선택이면 현재 트랙 언어(`content/index.ts`가 `() => currentTrackLang`을 `ExplainUI` 생성자 마지막 인자로 넘김 — 'en'만 en-US로 보정), 그 외(번역 줄·해설 본문·ask-anywhere)는 `guessSpeechLang`이 글자 체계로 추정(한글 ko·가나 ja·한자 zh·키릴 ru, 나머지 라틴은 en-US). 라틴 문자는 언어 구분이 안 돼 해설 본문의 프랑스어 단어도 영어 음성으로 읽힌다(학습 대상이 영어라 수용).
+- **툴바는 클릭 후에도 남는다** — 다시 눌러 반복 청취. 선택이 남아 있는 동안 자막은 그 문장에 고정(§47).
+- **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려 youtube.com의 가짜 자막 박스에서 더블클릭 → 툴바 4버튼(형광펜 숨김)·🔊 클릭 시 한국어 발화 확인(그 Chromium엔 영어 음성이 없어 영어는 무음). 실제 Chrome에서 같은 음성 선택 로직을 클릭 제스처로 실행해 `Google US English` 발화(start→end) 확인. 실제 자막·해설 패널에서 🔊 클릭은 Chrome 실사용 확인 대상.
+
 ## 비명백한 주의사항
 
 - **코드를 바꾸면 `npm run build` 필수**. Chrome은 `dist/`만 본다. 옵션 페이지가 변경 안 보이면 99% 빌드 안 했거나 확장 ↻ 안 했거나 옵션 탭 안 새로고침함.

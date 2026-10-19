@@ -20,6 +20,7 @@
 import { renderMarkdown, domToMarkdown } from './markdown';
 import type { ChatTurn } from '../../shared/types';
 import { t as tr, tl } from '../../shared/i18n';
+import { speak, guessSpeechLang } from './speak';
 
 const TAG = '[YDT/explain]';
 
@@ -56,7 +57,7 @@ interface Tab {
 export class ExplainUI {
   private enabled = true;
   private notionEnabled = false;
-  // 선택 위에 뜨는 툴바(🖍 형광펜 + 💡 해설 + ❓ 질문). 형광펜은 해설 본문 선택일 때만 표시.
+  // 선택 위에 뜨는 툴바(🖍 형광펜 + 🔊 듣기 + 💡 해설 + ❓ 질문). 형광펜은 해설 본문 선택일 때만 표시.
   private toolbar: HTMLElement | null = null;
   private hlToolbarBtn: HTMLButtonElement | null = null; // 툴바의 🖍 형광펜(본문 선택 시에만 표시)
   // mousedown 시작 좌표 — mouseup에서 이동거리로 "드래그 선택 vs 제자리 클릭"을 구분(툴바 재표시 판단).
@@ -71,7 +72,8 @@ export class ExplainUI {
   // 영상 전환·전체화면 가로질러 유지, F5/✕(닫기)로 초기화. null이면 CSS 기본값.
   private panelPos: { left: number; top: number } | null = null;
   // 버튼 클릭 시점에 넘길 선택 텍스트/문맥 — 선택이 사라져도 유지.
-  private pending: { text: string; context: string } | null = null;
+  // lang = 🔊 듣기 발음 언어(자막 원문 줄이면 트랙 언어, 그 외는 글자 체계로 추정).
+  private pending: { text: string; context: string; lang: string } | null = null;
 
   // ─── 탭 상태 ───
   private tabs: Tab[] = [];
@@ -107,6 +109,8 @@ export class ExplainUI {
     ) => Promise<NotionSaveResult>,
     // 로딩 메시지에 띄울 현재 해설 모델 이름 (content가 settings에서 계산해 넘김).
     private readonly modelLabel: () => string,
+    // 🔊 듣기용 자막 원문 언어(현재 트랙 lang). 유튜브 밖(ask-anywhere)엔 없음 → 글자 체계로 추정.
+    private readonly sourceLang: () => string | null = () => null,
   ) {
     document.addEventListener('mouseup', this.onMouseUp, true);
     document.addEventListener('mousedown', this.onMouseDown, true);
@@ -179,7 +183,9 @@ export class ExplainUI {
     if (container) {
       const sourceText = container.querySelector('.ydt-source .ydt-cue-text')?.textContent?.trim();
       const context = sourceText || container.textContent?.trim() || text;
-      this.pending = { text, context };
+      const inSource = !!(node instanceof Element ? node : node.parentElement)?.closest('.ydt-source');
+      const lang = (inSource && this.sourceLang()) || guessSpeechLang(text);
+      this.pending = { text, context, lang };
       // 자막 선택 — 형광펜 대상 아님(마킹은 해설 답변 본문에만). 해설/질문만.
       this.showToolbar(range.getBoundingClientRect(), false);
       return;
@@ -189,7 +195,7 @@ export class ExplainUI {
     if (body) {
       const block = closestBlock(node, body);
       const context = (block?.textContent || body.textContent || text).trim();
-      this.pending = { text, context };
+      this.pending = { text, context, lang: guessSpeechLang(text) };
       // 답변이 도착한 탭이면 형광펜도 노출(로딩/에러 텍스트엔 마킹 무의미 — 헤더 버튼 게이트와 동일).
       this.showToolbar(range.getBoundingClientRect(), !!this.activeTab()?.result);
       return;
@@ -270,6 +276,12 @@ export class ExplainUI {
       hlBtn.textContent = tr('panel.highlight');
       hlBtn.addEventListener('click', this.onToolbarHighlightClick);
       this.hlToolbarBtn = hlBtn;
+      // 🔊 듣기 — 선택을 브라우저 TTS로 읽음. 툴바·선택은 그대로 둬 연타로 다시 들을 수 있게.
+      const listenBtn = document.createElement('button');
+      listenBtn.className = 'ydt-explain-btn';
+      listenBtn.type = 'button';
+      listenBtn.textContent = tr('panel.listen');
+      listenBtn.addEventListener('click', this.onListenClick);
       const explainBtn = document.createElement('button');
       explainBtn.className = 'ydt-explain-btn';
       explainBtn.type = 'button';
@@ -280,7 +292,7 @@ export class ExplainUI {
       questionBtn.type = 'button';
       questionBtn.textContent = tr('panel.question');
       questionBtn.addEventListener('click', this.onQuestionClick);
-      this.toolbar.append(hlBtn, explainBtn, questionBtn);
+      this.toolbar.append(hlBtn, listenBtn, explainBtn, questionBtn);
     }
     if (this.hlToolbarBtn) this.hlToolbarBtn.style.display = canHighlight ? '' : 'none';
     const host = this.host();
@@ -349,6 +361,12 @@ export class ExplainUI {
     ev.stopPropagation();
     this.hideToolbar();
     this.onHighlightClick();
+  };
+
+  private onListenClick = (ev: MouseEvent): void => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (this.pending) speak(this.pending.text, this.pending.lang);
   };
 
   private onExplainClick = (ev: MouseEvent): void => {
@@ -719,8 +737,9 @@ export class ExplainUI {
     if (this.toolbar) {
       const btns = this.toolbar.querySelectorAll('button');
       if (btns[0]) btns[0].textContent = tr('panel.highlight');
-      if (btns[1]) btns[1].textContent = tr('panel.explain');
-      if (btns[2]) btns[2].textContent = tr('panel.question');
+      if (btns[1]) btns[1].textContent = tr('panel.listen');
+      if (btns[2]) btns[2].textContent = tr('panel.explain');
+      if (btns[3]) btns[3].textContent = tr('panel.question');
     }
     if (this.fab) this.fab.title = tr('panel.fab.title');
     const panel = this.panel;
