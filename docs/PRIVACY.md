@@ -1,6 +1,6 @@
 # Privacy Policy — Dual Subtitle for YouTube
 
-_Last updated: 2026-09-25 (Gemini and gateway backends now send one sentence per request; gateway backend is labeled "OpenAI-compatible gateway" in the UI)_
+_Last updated: 2026-10-19 (added the 🔊 Listen button, which uses the browser's built-in speech voices)_
 
 한국어: [PRIVACY.md](../PRIVACY.md) — this English version is the authoritative one.
 
@@ -58,6 +58,10 @@ You can switch backends at any time from the options page, and turn subtitles of
 Separately from subtitle translation, the Extension lets you select text (in the subtitle box or in the answer panel itself) or type a free-form question to get an AI explanation — via the 💡/❓ buttons in the panel, the `Alt+Q` keyboard shortcut, the right-click menu on selected text ("Explain … with AI"), or the ask box at the top of the Extension's popup. This uses whichever BYOK backend (Gemini or Mindlogic Gateway) you've configured for explanations in Options, and sends your selected text/question (plus, on YouTube, the surrounding subtitle line for context) to that backend's API — same endpoints and key-handling as described above. No conversation history is sent beyond what you can see in the current answer thread (follow-up questions include the visible thread; closing the tab discards it).
 
 **`Alt+Q`, the right-click menu, and the popup ask box work on any website, not only YouTube.** Using one of them injects a small answer panel into the current tab **only for that one action** (Chrome's `activeTab` permission — the Extension does not run on other websites otherwise, and stops having any special access to that tab once you navigate away or close the panel). On non-YouTube pages there is no subtitle context to send — only the text you type, or the text you selected plus the paragraph it sits in (up to about 600 characters) so the AI can tell which meaning is meant.
+
+### 🔊 Listen (browser text-to-speech)
+
+The 🔊 button reads the text you selected aloud using your browser's built-in speech voices (the Web Speech API). The Extension itself sends this text nowhere. However, some browser voices are generated online — in Chrome, voices named "Google …" send the text to Google to produce the audio, handled by the browser itself and subject to Google's privacy practices. This only happens when you click the button.
 
 ### Notion (optional export)
 

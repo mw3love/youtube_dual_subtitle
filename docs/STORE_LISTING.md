@@ -53,6 +53,7 @@ Dual Subtitle for YouTube는 영상에 원문 자막과 번역 자막을 동시�
 - 단축키로 듀얼자막 켜기/끄기(기본 G, 옵션에서 원하는 키로 재지정 가능). C는 YouTube 네이티브 자막 그대로 두어 서로 완전히 독립
 - 💡 단어·표현 해설: 자막을 드래그하면 예문·어원·뉘앙스까지 AI가 설명 — 답변은 번역 언어로 (내 Gemini 또는 게이트웨이 키 필요)
 - ❓ 자유 질문 + Alt+Q 어디서나 질문: 궁금한 부분을 직접 물어보기. Alt+Q·글자 선택 우클릭(「AI 해설」)·팝업 질문 입력칸은 YouTube뿐 아니라 어느 웹사이트에서도 동작
+- 🔊 듣기: 자막이나 해설에서 고른 단어·문장을 원어민 발음으로 읽어 줌 (키 불필요)
 - 📝 Notion 저장: 해설/답변을 내 Notion 데이터베이스에 한 번에 정리 (내 Notion 연동 토큰 필요)
 
 ■ 데이터·프라이버시
@@ -99,6 +100,7 @@ Dual Subtitle for YouTube shows the original captions and a translation at the s
 - 💡 Explain: select any words in the subtitles for example sentences, meaning, origin and nuance — answered in your translation language
 - ❓ Ask: type your own question about the selected phrase; follow-up questions keep the conversation
 - Alt+Q, right-click on selected text ("Explain with AI"), or the popup's ask box: open the Ask panel on any website, not only YouTube
+- 🔊 Listen: hear the selected word or sentence read aloud in a native voice (no key needed)
 - 🖍️ Highlight parts of an answer, 📋 copy it as Markdown, or 📝 save it to your own Notion database
 
 ■ Privacy
