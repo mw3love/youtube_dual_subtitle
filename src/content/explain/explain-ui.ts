@@ -268,7 +268,7 @@ export class ExplainUI {
       // mousedown 기본 동작(선택 collapse·포커스 이동)을 막아 click 직전에 선택이 사라지며
       // 버튼이 hide→click 미발화되는 것을 방지. 툴바-오버-선택의 표준 패턴.
       this.toolbar.addEventListener('mousedown', (e) => e.preventDefault());
-      // 🖍 형광펜 — 맨 앞(형광펜·해설·질문 순). 클릭 시 그 선택을 마킹하고 형광펜 모드 ON(유지).
+      // 🖍 형광펜 — 맨 앞(형광펜·해설·듣기·질문 순). 클릭 시 그 선택을 마킹하고 형광펜 모드 ON(유지).
       // 본문 선택일 때만 display로 노출. 이모지 뒤 U+FE0F는 컬러 표현 강제(크레용 기본 흑백 회피).
       const hlBtn = document.createElement('button');
       hlBtn.className = 'ydt-explain-btn';
@@ -292,7 +292,7 @@ export class ExplainUI {
       questionBtn.type = 'button';
       questionBtn.textContent = tr('panel.question');
       questionBtn.addEventListener('click', this.onQuestionClick);
-      this.toolbar.append(hlBtn, listenBtn, explainBtn, questionBtn);
+      this.toolbar.append(hlBtn, explainBtn, listenBtn, questionBtn);
     }
     if (this.hlToolbarBtn) this.hlToolbarBtn.style.display = canHighlight ? '' : 'none';
     const host = this.host();
@@ -737,8 +737,8 @@ export class ExplainUI {
     if (this.toolbar) {
       const btns = this.toolbar.querySelectorAll('button');
       if (btns[0]) btns[0].textContent = tr('panel.highlight');
-      if (btns[1]) btns[1].textContent = tr('panel.listen');
-      if (btns[2]) btns[2].textContent = tr('panel.explain');
+      if (btns[1]) btns[1].textContent = tr('panel.explain');
+      if (btns[2]) btns[2].textContent = tr('panel.listen');
       if (btns[3]) btns[3].textContent = tr('panel.question');
     }
     if (this.fab) this.fab.title = tr('panel.fab.title');
