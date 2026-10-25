@@ -50,6 +50,8 @@ export interface CaptionTracksMessage {
   reason: string;
   videoId: string | null;
   tracks: CaptionTrackInfo[];
+  // 자동 더빙 영상의 원래 음성 언어(예: 'en'). 음성 트랙 정보가 없는 보통 영상은 null.
+  originalLang?: string | null;
 }
 
 // MAIN world에서 monkey-patch한 window.fetch가 timedtext 응답을 가로채 보낸다.

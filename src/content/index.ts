@@ -263,13 +263,22 @@ function trackScore(t: CaptionTrackInfo, preferred: string): number {
   return 3;
 }
 
-function pickTrack(tracks: CaptionTrackInfo[]): CaptionTrackInfo | null {
+function pickTrack(tracks: CaptionTrackInfo[], originalLang?: string | null): CaptionTrackInfo | null {
   if (!tracks.length) return null;
 
   // L2: 영상 원본 lang 자동 감지 — ASR 트랙의 lang이 영상 음성 lang.
   // 영상 원본이 사용자 모국어(targetLang)면 모국어 single 의도로 보고 그 lang 트랙 강제.
   // (외국어 영상에 모국어 manual이 있어도 학습 의도로 외국어 우선은 그대로.)
-  const asrTrack = tracks.find((t) => t.kind === 'asr');
+  // 자동 더빙 영상은 ASR 트랙이 더빙 언어마다 있어 첫 ASR이 원래 언어가 아니다 — MAIN이 알려 준
+  // 원래 음성 언어(originalLang)와 맞는 ASR 트랙을 우선한다(첫 ASR이 de라 독일어를 요청하던 문제).
+  const orig = originalLang?.toLowerCase();
+  const asrTrack =
+    (orig &&
+      tracks.find((t) => {
+        const l = (t.languageCode ?? '').toLowerCase();
+        return t.kind === 'asr' && (l === orig || l.startsWith(`${orig}-`));
+      })) ||
+    tracks.find((t) => t.kind === 'asr');
   const videoLang = asrTrack?.languageCode?.toLowerCase() ?? null;
   const tgt = targetLang().toLowerCase();
   if (videoLang && (videoLang === tgt || videoLang.startsWith(`${tgt}-`))) {
@@ -316,6 +325,20 @@ function trackKeyFromUrl(url: string): string | null {
   }
 }
 
+function videoIdFromUrl(url: string): string | null {
+  try {
+    return new URL(url, location.origin).searchParams.get('v');
+  } catch {
+    return null;
+  }
+}
+
+// 쇼츠는 다음 reel로 넘길 때 주소(location)를 바꾸기 전에 그 reel의 timedtext부터 받는다.
+// 그 응답을 바로 처리하면 cue가 이전 영상 ID로 기록돼(mountedVideoId) 곧이은 새 영상 broadcast가
+// 지워 버리고, 같은 트랙 dedup 때문에 뒤따르는 우리 direct fetch 응답도 버려져 자막이 영영 안 뜬다.
+// 주소가 따라잡을 때까지 여기 보류했다가 그 영상의 handleCaptionTracks에서 다시 처리한다.
+let earlyResponse: { url: string; body: string } | null = null;
+
 function effectiveLangFromUrl(url: string): string | null {
   // 자동번역 트랙은 tlang에 표시 언어. 일반 트랙은 lang에 원본 언어.
   try {
@@ -342,6 +365,7 @@ function handleCaptionTracks(payload: {
   reason: string;
   videoId: string | null;
   tracks: CaptionTrackInfo[];
+  originalLang?: string | null;
 }): void {
   console.log(
     TAG,
@@ -358,8 +382,10 @@ function handleCaptionTracks(payload: {
     renderer.clearCues();
     lastCues = [];
     lastSentences = [];
+    // 지운 cue의 트랙 기록도 비운다 — 남겨 두면 이 영상의 같은 트랙 응답이 dedup에 걸려 버려진다.
+    lastProcessedTrackKey = null;
   }
-  const chosen = pickTrack(payload.tracks);
+  const chosen = pickTrack(payload.tracks, payload.originalLang);
   if (!chosen) {
     console.log(TAG, 'no caption tracks for', payload.videoId, `(reason: ${payload.reason})`);
     return;
@@ -395,6 +421,14 @@ function handleCaptionTracks(payload: {
       `requested direct fetch for ${payload.videoId} (lang=${chosen.languageCode} kind=${chosen.kind ?? 'manual'})`,
     );
   }
+
+  // 주소가 바뀌기 전에 도착해 보류해 둔 이 영상의 응답을 이제 처리한다(earlyResponse 참조).
+  if (earlyResponse && payload.videoId && videoIdFromUrl(earlyResponse.url) === payload.videoId) {
+    const early = earlyResponse;
+    earlyResponse = null;
+    console.log(TAG, `replaying early timedtext response for ${payload.videoId}`);
+    handleTimedtextResponse(early);
+  }
 }
 
 function handleTimedtextResponse(payload: { url: string; body: string }): void {
@@ -409,6 +443,12 @@ function handleTimedtextResponse(payload: { url: string; body: string }): void {
     }
   } catch {
     // URL parse 실패 시 그대로 진행
+  }
+  const respVideoId = videoIdFromUrl(payload.url);
+  if (respVideoId && respVideoId !== currentVideoId()) {
+    earlyResponse = payload;
+    console.log(TAG, `timedtext for ${respVideoId} arrived before location (${currentVideoId()}) — holding`);
+    return;
   }
   // 직전 처리와 같은 트랙이면 중복(page xhr + direct fetch)으로 보고 skip.
   // 다른 트랙 갔다가 같은 트랙으로 돌아오면 lastKey가 갱신돼 있어 다시 처리된다.
@@ -753,6 +793,9 @@ function clearWatchdog(): void {
 // 정작 부트 시퀀스는 재발사되지 않는다.
 function requestForceBoot(videoId: string): void {
   requestedDirectFetchVideoIds.delete(videoId);
+  // cue가 없는 상태에서만 불리므로 트랙 dedup 기록도 비운다 — 안 비우면 재시도로 받은 응답이
+  // "같은 트랙"으로 버려져 워치독이 아무것도 복구하지 못한다.
+  lastProcessedTrackKey = null;
   window.postMessage({ source: 'YDT_CONTENT', type: 'FORCE_BOOT', videoId }, location.origin);
 }
 

@@ -41,6 +41,7 @@ YouTube의 `/api/timedtext`는 PoToken·쿠키 등 client validation 인증이 �
 - 트랙 선택 (`content/index.ts:pickTrack`): ASR 트랙의 lang을 영상 원본 lang hint로 사용.
   - 영상 원본 lang === `targetLang`(예: 한국어 영상) → 모국어 single 의도 → tgt 트랙 강제 (manual > asr).
   - 외국어 영상 → 영상 원본 언어(`videoLang`, ASR 트랙 lang) 매치 트랙 우선 (manual > asr). **A62(섹션 38)부터** — 그 전엔 사용자 설정 `preferredSource` 매치가 기준이었으나 설정 자체를 제거하고 완전 자동감지로 전환.
+  - 자동 더빙 영상(ASR 트랙이 더빙 언어마다 있음)은 첫 ASR이 원래 언어가 아니라서, MAIN이 보내는 `originalLang`(더빙 아닌 음성 트랙 언어)과 맞는 ASR을 `videoLang`으로 쓴다 — 섹션 52.
   - 한국어 영상에 영어/일본어 manual이 같이 있어도 한국어 잡음 (예전엔 외국어 잡혀 듀얼됨).
 - chosen 강제 fetch: isolated → `FETCH_TIMEDTEXT { baseUrl, languageCode, kind }` 메시지. MAIN의 `fetchTimedtextDirect`가:
   1. `waitForMatchingPageUrl`: page가 자체 fetch한 timedtext URL의 PoToken을 얻기 위해 최대 5초 대기.
@@ -587,6 +588,16 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **발음 언어**: 자막 **원문 줄(`.ydt-source`)** 선택이면 현재 트랙 언어(`content/index.ts`가 `() => currentTrackLang`을 `ExplainUI` 생성자 마지막 인자로 넘김 — 'en'만 en-US로 보정), 그 외(번역 줄·해설 본문·ask-anywhere)는 `guessSpeechLang`이 글자 체계로 추정(한글 ko·가나 ja·한자 zh·키릴 ru, 나머지 라틴은 en-US). 라틴 문자는 언어 구분이 안 돼 해설 본문의 프랑스어 단어도 영어 음성으로 읽힌다(학습 대상이 영어라 수용).
 - **툴바는 클릭 후에도 남는다** — 다시 눌러 반복 청취. 선택이 남아 있는 동안 자막은 그 문장에 고정(§47).
 - **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려 youtube.com의 가짜 자막 박스에서 더블클릭 → 툴바 4버튼(형광펜 숨김)·🔊 클릭 시 한국어 발화 확인(그 Chromium엔 영어 음성이 없어 영어는 무음). 실제 Chrome에서 같은 음성 선택 로직을 클릭 제스처로 실행해 `Google US English` 발화(start→end) 확인. 실제 자막·해설 패널에서 🔊 클릭은 Chrome 실사용 확인 대상.
+
+### 52. 쇼츠 넘기기 후 자막 미표시 — 이른 응답 보류 + 자동 더빙 원래 언어 (A83)
+
+**증상(사용자 리포트):** 영어 쇼츠를 넘겨 보면 자막이 한참 안 나올 때가 있고, 새로고침하면 바로 나온다. 일반 영상은 정상.
+
+- **원인 1 — 쇼츠는 주소보다 자막이 먼저 온다** (`content/index.ts:handleTimedtextResponse`): 다음 reel로 넘기면 페이지가 그 reel의 timedtext를 받은 **뒤에** 주소(location)를 바꾼다(실측 ~0.1~0.2s 차이). 옛 코드는 응답 처리 시 `mountedVideoId = currentVideoId()`라 cue에 **이전 영상 ID**가 붙었고 → 곧이은 새 영상 broadcast가 "다른 영상 cue"로 보고 지움 → 뒤따르는 우리 direct fetch 응답은 `lastProcessedTrackKey`(같은 트랙 dedup)에 걸려 버려짐 → 워치독 재시도도 같은 dedup에 걸려 **복구 불가**. 새로고침은 첫 로드라 주소가 먼저 맞아 정상. 일반 영상은 주소가 먼저 바뀌어 무관.
+  **해결:** 응답 URL의 `v`가 현재 주소와 다르면 `earlyResponse`에 보류하고, 그 영상의 `handleCaptionTracks`(주소가 따라잡은 뒤의 broadcast) 끝에서 다시 처리한다. 덤으로 지금 보이지 않는(프리페치된) reel의 자막이 현재 영상에 잘못 얹히는 경로도 막힌다. 그리고 cue를 지울 때(`handleCaptionTracks`의 새 영상 분기)와 `requestForceBoot`에서 `lastProcessedTrackKey`도 비운다 — dedup은 "그 트랙 cue가 지금 떠 있을 때"만 의미가 있다.
+- **원인 2 — 자동 더빙 영상의 원래 언어 오판** (`inject-main.ts:originalAudioLang` → `CAPTION_TRACKS.originalLang` → `pickTrack`): 유튜브 자동 더빙 영상은 음성이 언어마다 있고 ASR 자막도 언어마다 생긴다(예: `de/es/en/it/id/pt/fr/hi` 전부 asr). `pickTrack`이 첫 ASR(`de`)을 원래 언어로 보고 독일어를 direct fetch → PoToken이 lang에 묶여 항상 빈 응답 → 페이지 자체 fetch가 놓치면 대체 경로가 없었다. 원래 언어는 `streamingData.adaptiveFormats[].audioTrack` 중 `isAutoDubbed`가 아닌 것(있으면 `audioIsDefault` 우선)의 `id`(예: `en-US.4` → `en`)로 뽑고, 없으면 `captions…audioTracks[defaultAudioTrackIndex].audioTrackId`. 음성 트랙 정보가 없는 보통 영상은 `null`이라 기존대로 첫 ASR. (실측: 더빙 음성은 `isAutoDubbed:true`, 원본은 플래그 없음 + `audioIsDefault:true` + 표시명 "영어 (US) 원본".)
+- **남은 것(미수정):** 쇼츠에서 `getTracks`가 활성 reel 정보를 못 얻으면 `ytInitialPlayerResponse`(첫 영상 것)로 떨어져 엉뚱한 트랙 목록을 쓴다(쓸모없는 요청만 생김). `trySetTrack`은 쇼츠에서도 숨은 `#movie_player`(쇼츠 플레이어 밖)에 `setOption`한다.
+- **검증:** 프록시검증 — 개발 빌드를 테스트 Chromium(`--disable-blink-features=AutomationControlled`, 자동화 플래그 제거 — 안 하면 페이지 자체 timedtext도 빈 응답)에 올려 쇼츠 연속 넘기기. 수정 전 10회 중 2회 표시 → 원인 1 수정 후 10/10 → 원인 2까지 12회 중 10회(나머지 둘은 첫 대사가 12s 이후로 추정 / 자막 없는 쇼츠로 추정), 독일어 요청 0회. 사용자 크롬 실사용 확인 대상.
 
 ## 비명백한 주의사항
 

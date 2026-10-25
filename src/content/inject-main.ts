@@ -130,7 +130,30 @@ import { getVideoIdFromLocation } from '../shared/url';
   }
 
   interface CaptionsHolder {
-    captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: RawCaptionTrack[] } };
+    captions?: {
+      playerCaptionsTracklistRenderer?: {
+        captionTracks?: RawCaptionTrack[];
+        audioTracks?: { audioTrackId?: string }[];
+        defaultAudioTrackIndex?: number;
+      };
+    };
+    streamingData?: {
+      adaptiveFormats?: { audioTrack?: { id?: string; audioIsDefault?: boolean; isAutoDubbed?: boolean } }[];
+    };
+  }
+
+  // 자동 더빙 영상은 음성이 언어마다 있고 ASR 자막도 언어마다 생겨(예: de/es/en/…) 첫 ASR 트랙이
+  // 원래 언어가 아니다. 더빙이 아닌 음성 트랙의 id(예: 'en-US.4')에서 원래 언어를 뽑는다.
+  // 음성 트랙 정보가 없는 보통 영상은 null — isolated가 기존대로 첫 ASR 트랙 언어를 쓴다.
+  function originalAudioLang(holder: CaptionsHolder | undefined): string | null {
+    const audio = (holder?.streamingData?.adaptiveFormats ?? [])
+      .map((f) => f.audioTrack)
+      .filter((a): a is NonNullable<typeof a> => !!a?.id && !a.isAutoDubbed);
+    const r = holder?.captions?.playerCaptionsTracklistRenderer;
+    const id =
+      (audio.find((a) => a.audioIsDefault) ?? audio[0])?.id ??
+      r?.audioTracks?.[r.defaultAudioTrackIndex ?? -1]?.audioTrackId;
+    return id ? id.split(/[-.]/)[0].toLowerCase() : null;
   }
 
   function readName(n: RawCaptionTrack['name']): string | undefined {
@@ -145,7 +168,7 @@ import { getVideoIdFromLocation } from '../shared/url';
     return Array.isArray(c) ? c : null;
   }
 
-  function getTracks(): { tracks: RawCaptionTrack[]; via: string } {
+  function getTracks(): { tracks: RawCaptionTrack[]; via: string; originalLang: string | null } {
     const w = window as unknown as {
       ytInitialPlayerResponse?: CaptionsHolder;
       ytplayer?: { config?: { args?: { raw_player_response?: CaptionsHolder } } };
@@ -160,8 +183,9 @@ import { getVideoIdFromLocation } from '../shared/url';
       const shortsPlayer = (root as ParentNode).querySelector?.('#shorts-player') as PlayerEl | null;
       if (shortsPlayer?.getPlayerResponse) {
         try {
-          const live = tracksFrom(shortsPlayer.getPlayerResponse());
-          if (live && live.length > 0) return { tracks: live, via: 'shorts-active' };
+          const pr = shortsPlayer.getPlayerResponse();
+          const live = tracksFrom(pr);
+          if (live && live.length > 0) return { tracks: live, via: 'shorts-active', originalLang: originalAudioLang(pr) };
         } catch {
           // fall through
         }
@@ -171,18 +195,19 @@ import { getVideoIdFromLocation } from '../shared/url';
     const player = document.querySelector('#movie_player, #shorts-player') as PlayerEl | null;
     if (player?.getPlayerResponse) {
       try {
-        const live = tracksFrom(player.getPlayerResponse());
-        if (live) return { tracks: live, via: 'getPlayerResponse' };
+        const pr = player.getPlayerResponse();
+        const live = tracksFrom(pr);
+        if (live) return { tracks: live, via: 'getPlayerResponse', originalLang: originalAudioLang(pr) };
       } catch {
         // fall through
       }
     }
 
     const a = tracksFrom(w?.ytInitialPlayerResponse);
-    if (a) return { tracks: a, via: 'ytInitialPlayerResponse' };
+    if (a) return { tracks: a, via: 'ytInitialPlayerResponse', originalLang: originalAudioLang(w?.ytInitialPlayerResponse) };
     const b = tracksFrom(w?.ytplayer?.config?.args?.raw_player_response);
-    if (b) return { tracks: b, via: 'ytplayer.config' };
-    return { tracks: [], via: 'none' };
+    if (b) return { tracks: b, via: 'ytplayer.config', originalLang: originalAudioLang(w?.ytplayer?.config?.args?.raw_player_response) };
+    return { tracks: [], via: 'none', originalLang: null };
   }
 
   const getVideoId = getVideoIdFromLocation;
@@ -192,7 +217,7 @@ import { getVideoIdFromLocation } from '../shared/url';
   const RETRY_DELAYS_MS = [0, 250, 500, 1000, 2000, 4000, 7000];
 
   function tryBroadcast(reason: string, attempt = 0): void {
-    const { tracks: raw, via } = getTracks();
+    const { tracks: raw, via, originalLang } = getTracks();
     if (raw.length === 0 && attempt + 1 < RETRY_DELAYS_MS.length) {
       setTimeout(() => tryBroadcast(reason, attempt + 1), RETRY_DELAYS_MS[attempt + 1]);
       return;
@@ -204,10 +229,10 @@ import { getVideoIdFromLocation } from '../shared/url';
       kind: t.kind === 'asr' ? ('asr' as const) : undefined,
     }));
     window.postMessage(
-      { source: 'YDT_MAIN', type: 'CAPTION_TRACKS', reason, videoId: getVideoId(), tracks },
+      { source: 'YDT_MAIN', type: 'CAPTION_TRACKS', reason, videoId: getVideoId(), tracks, originalLang },
       location.origin,
     );
-    console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'via:', via, 'videoId:', getVideoId(), 'attempts:', attempt);
+    console.log(TAG, 'broadcast', reason, 'tracks:', tracks.length, 'via:', via, 'originalLang:', originalLang, 'videoId:', getVideoId(), 'attempts:', attempt);
 
     // M1: CC click을 여기서 발화하지 않음 — page가 sticky lang으로 fetch 시작하는 걸 막기 위해.
     // 대신 isolated가 chosen 결정 후 FETCH_TIMEDTEXT 메시지 보내면, MAIN handler에서
