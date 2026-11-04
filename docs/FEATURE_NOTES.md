@@ -1,0 +1,446 @@
+# 기능 노트 — 섹션 12·14~52 전문
+
+`CLAUDE.md`에서 옮겨 온 기능별 설계 노트다(2026-11-04, CLAUDE.md가 94k자로 비대해져 분리). 번호는 코드 주석의 「섹션 N」과 같으니 바꾸지 말 것. 핵심 구조(섹션 1~13)와 매 세션 알아야 할 함정 요약은 `CLAUDE.md`에 있다. 본문의 「섹션 N」 참조는 1~11·13이면 `CLAUDE.md`, 그 외는 이 파일이다.
+
+새 기능 섹션은 여기에 추가하고, `CLAUDE.md` 색인에 함정 한두 줄을 같이 적는다.
+
+### 12. (제거됨, A62) CC 버튼 ↔ subtitlesEnabled 단방향 sync
+
+A16~A61까지는 `ccButtonObserver`가 page CC 버튼의 `aria-pressed`를 감시해 **CC=true → 우리 `subtitlesEnabled`도 true**로 동기했다(CC=false는 무시 — page sticky의 잘못된 lang으로 자막이 자동 disable되는 케이스 방지). A39(v0.11.1)에서 진짜 사용자 클릭(`isTrusted=true`, 1초 윈도)만 honor하도록 게이팅도 추가됐었다.
+
+**A62(섹션 38)에서 메커니즘 전체 제거.** 네이티브 CC(`'C'` 키)와 듀얼자막(`Alt+C`)을 완전히 독립된 컨트롤로 분리하면서(섹션 10), "네이티브를 켜면 듀얼자막도 켜진다"는 동기 자체가 목표와 충돌해 옵저버·게이팅 로직을 통째로 삭제했다. 지금은 두 상태가 서로 어떤 영향도 주지 않는다.
+
+### 14. 단어·표현 해설 (드래그 선택 → AI 영어 선생님, A29, v0.5.0)
+
+**의도:** 자막에서 모르는 표현을 드래그하면 단순 번역을 넘어 예문·어원·표·뉘앙스까지 "영어 선생님" 스타일로 해설. 사용자가 쓰던 Gemini Gem 흐름(탭 왕복)을 확장 안으로 들여옴. **번역과 완전 별개 경로** — router/캐시/길이검증을 안 거치는 on-demand 단발 chat 호출.
+
+- **트리거·표시** (`content/explain/explain-ui.ts`, `ExplainUI`): `mouseup` → `window.getSelection()`이 `.ydt-container` 안의 비어있지 않은 선택이면 선택 rect 위에 `.ydt-explain-btn`("💡 해설")을 띄움. native 텍스트 선택은 이미 동작(렌더러 pointerdown이 `.ydt-cue-text`에서 양보, 섹션 8) — UI는 그 결과만 읽는다. 클릭 시 우상단 사이드 패널(`.ydt-explain-panel`)에 로딩→markdown 렌더. 문맥은 같은 박스의 원문 줄(`.ydt-source .ydt-cue-text`) 전체를 같이 보내 단어 뜻 disambiguation. 버튼/패널은 `document.fullscreenElement ?? document.body`에 append하고 `fullscreenchange`에 re-home(전체화면에서도 보이게). Esc로 패널 닫기.
+- **백엔드** (`background/explain.ts`, `explain()`): 자유서술이 가능한 BYOK 둘만 — `ExplainBackendSchema = enum('gemini','mindlogic')`. `google-free`/`chrome-builtin`은 해설 불가라 제외. gemini는 `generateContent`(systemInstruction=프롬프트, JSON schema 없음), mindlogic은 `chat/completions`(system+user). `temperature 0.3`, `maxOutputTokens/max_tokens 4096`(A32, 표 여러 개 잘림 방지). 429/5xx 1회 백오프, 401/403 즉시 throw. 키는 번역과 동일하게 `secrets.ts`(storage.local) 재사용 — 새 키 입력 UI 불필요. 모델은 번역과 분리된 `explainGeminiModel`/`explainMindlogicModel`(섹션 17).
+- **프롬프트는 사용자 편집 가능**: `settings.explainPrompt`(storage.sync), 기본값 `defaultExplainPrompt(uiLang)`(`settings.ts` → i18n 사전의 `prompt.explainDefault`, 원형은 사용자 Gem 프롬프트. 프롬프트 문장 언어는 표시 언어별 두 벌, 답변 언어는 `{answerLang}` 자리표시자로 번역 언어를 따름 — 섹션 46). 옵션 페이지 textarea + "기본값으로" 버튼. system 메시지로 그대로 전달돼 답변 형식을 정함.
+- **배선**: content `requestExplain(text, context)` → `EXPLAIN` 메시지(backend/model/prompt 동봉, 모델은 explainBackend에 따라 `explainGeminiModel`/`explainMindlogicModel` — 번역 모델과 분리, 섹션 17) → background 핸들러 → `explain()` → `{ok, markdown}`. `applySettings`가 `explainUI.setEnabled(true)`(A51: 해설/질문 버튼 상시 표시, `explainEnabled` UI 토글 제거 — 섹션 31). 로딩 패널에 현재 모델명 표시(섹션 17).
+- **markdown 렌더는 자체 구현** (`content/explain/markdown.ts`, `renderMarkdown`): 신뢰 불가한 LLM 출력이라 **innerHTML 미사용** — 모든 텍스트를 `textContent`로만 넣고 element를 직접 생성해 XSS를 원천 차단(sanitizer 의존성 불필요). 지원 문법은 해설에 실제 쓰이는 것만: 헤딩·GFM 표·순서/비순서 목록·코드펜스·가로줄(`---`/`***`/`___`→`<hr>`/divider)·인라인(`` `code` ``/`**bold**`/`*italic*`). 스타일은 `styles.ts`의 `.ydt-explain-*`(패널 하위로 스코프).
+- **옵션 키 노출 조건** (A51 갱신, 섹션 31): Gemini/Mindlogic 설정 섹션은 **제공자별** `showGemini`/`showMindlogic` = `backend === 그 백엔드 || explainBackend === 그 백엔드`로 표시. 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 펼침. (옛 `explainEnabled && explainBackend === ...` 조건을 대체 — explainEnabled 게이트 제거. 해설 백엔드는 번역 방식이 AI면 그걸 자동 추종하고, Google·Chrome이면 번역 방식 카드의 「해설·질문에 쓸 AI」 칩으로 고른다 — A79, 섹션 31.)
+- **비용·한계:** 사용자가 누를 때만 1회 호출이라 비용 통제됨(자막 전체 번역과 다름). 페이지의 다른 사전 확장과 선택 팝업이 겹칠 수 있으나 우리 버튼은 `.ydt-container` 안 선택에만 발화. 후속 대화(follow-up Q)는 v1 미지원 — 단발 해설만.
+
+### 15. 해설 → Notion/클립보드 정리 (A30, v0.6.0)
+
+**의도:** 해설 패널 내용을 모아 복습할 수 있게 외부로 내보낸다. 두 경로를 제공 — **무설정 클립보드 복사**와 **BYOK Notion API 직접 저장**.
+
+- **패널 액션 버튼** (`explain-ui.ts`): 해설 도착 시 헤더의 `📋 복사`/`📝 Notion` 활성화. `lastResult{term,markdown,context}` 보관해 두 버튼이 참조. Notion 버튼은 상시 표시(A51: `setNotionEnabled(true)` — 옛 `notionEnabled` 게이트 제거, 섹션 31).
+  - **📋 복사**: `navigator.clipboard.writeText`로 `## term` + markdown(+ 자막 인용)을 복사. **Notion은 markdown 붙여넣기를 자동으로 리치 블록 변환**하므로 무설정으로도 표·예문이 살아 들어감. 가장 빠른 효용.
+  - **📝 Notion**: `requestNotionSave` → `NOTION_SAVE` 메시지(영상 제목/URL 동봉) → background. 저장중→`✓ 저장됨 ↗`(클릭 시 생성된 페이지 열기)/`✗ 저장 실패`(2.5s 후 원복). 저장 후 형광펜을 고치면 `♻ 업데이트`로 바뀌어 재저장이 **덮어쓰기**가 된다(A58, 섹션 34).
+- **백엔드** (`background/notion.ts`, `saveToNotion`): 호출 경로는 gemini/mindlogic와 동일 — SW가 `host_permissions`의 `api.notion.com`으로 fetch(CORS 우회). 토큰은 `secrets.ts`(storage.local), DB ID는 settings(storage.sync). `Notion-Version: 2022-06-28`.
+  - **DB 스키마 적응**: `GET /v1/databases/{id}`로 **title 속성 "이름"**(DB마다 Name/이름/… 다름)을 찾아 거기에 제목 매핑. URL/Date 타입 속성이 있으면 best-effort로 영상 링크/오늘 날짜 채움(없으면 건너뜀 — 어떤 DB에도 안 깨짐). 그 외 속성은 안 건드림.
+  - **제목 = "예문" (A40, v0.11.2 → 한 문장+길이 캡 A41, v0.12.0)**: 단어보다 예문이 복습에 유용해(ai-dictionary 차용) 제목을 단어 대신 **그 단어가 쓰인 자막 문장**으로 한다(`notion.ts:pickNotionTitle`). 우선순위 ① 자막 문맥(`context`) 중 **선택 단어가 든 한 문장**(`pickContextSentence` — 종결부호 `.?!…。！？` + 닫는 따옴표/괄호로 split)이 `TITLE_MAX_LEN`(100자) 이하면 그것(실제 용례 우선) → ② ①이 degenerate(빈/단어와 동일)거나 **한 문장이 100자 초과면**(구두점 없는 ASR 런온은 한 문장으로 안 쪼개져 통째로 길어짐 — 섹션 13) 해설 markdown의 **첫 인라인 백틱 예문**(`` /`([^`\n]+)`/ ``, AI가 만든 깔끔한 한 문장. 코드펜스 ```` ``` ````는 안 걸림) → ③ 단어. **A40은 ①을 자막 문장 통째로 썼으나**, 런온 자막에서 제목이 과도하게 길어져 A41에서 한 문장 추출 + 길이 캡 폴백을 추가. 같은 로직을 **📋 복사 헤딩**(`explain-ui.ts:pickTitle`, content/background 분리로 평행 구현 — `TITLE_MAX_LEN`도 양쪽 동일)에도 적용. 제목이 전체 자막과 다르면(=한 문장·예문) 본문 인용 quote는 전체 문맥을 그대로 보존(내용으론 유용), 같으면 중복이라 생략.
+  - **본문**: 영상 링크 paragraph + 자막 문맥 quote + divider + `markdownToBlocks(markdown)`. 단 **URL 속성이 있으면 본문 영상링크 문단은 생략**(A32, 중복 제거 — 링크는 속성으로 가고, URL 속성 없는 DB에서만 본문 fallback). **자막 문맥 quote는 그게 제목으로 올라간 경우에도 생략**(A40, 위 참조).
+  - **ID 정규화**: DB URL을 통째로 붙여넣어도 **첫 번째** 32 hex 추출 → 대시 형태로 재조립(`normalizeId`). DB URL은 경로의 DB id + 쿼리 `?v=`의 view id로 32-hex가 둘이라, 마지막을 쓰면 view id를 잡아 오답 — 첫 매치가 DB id.
+- **markdown→Notion 블록** (`background/notion-blocks.ts`, `markdownToBlocks`): SW엔 DOM이 없어 `content/explain/markdown.ts`를 재사용 못 함 — **같은 블록 인식 로직의 평행 구현**이되 출력이 Notion 블록 JSON. heading_1~3·paragraph·목록·code·table(+table_row)·divider(`---`)·인라인 rich_text(bold/italic/code). `inlineToRichText`는 **재귀**라 볼드/이탤릭 안의 코드를 결합 annotation(`{bold,code}`)으로 — 사용자가 볼드 단어에 백틱 표시 시 나오는 ``**`word`**``를 평면 파싱하면 안쪽 백틱이 리터럴로 깨지던 걸 해결(A32, 섹션 17). rich_text 조각 2000자 청크, children 100블록 cap.
+- **테스트 버튼**: `TEST_NOTION` → `testNotion(token, dbId)`가 `GET databases`로 토큰+DB 연결(share)+ID를 한 번에 검증(DB 제목 반환). gemini/mindlogic의 router 우회 테스트 패턴과 동일.
+- **셋업 부담**: integration 토큰 + DB를 integration에 연결(share) + DB URL 입력 3단계 — 옵션 페이지에 안내. (gemini 키 복붙 1회보다 많음.)
+
+### 16. 폰트 크기 조절 — 휠 행별 분기 + 팝업 스테퍼 (A31, v0.7.0)
+
+원문/번역 폰트 크기는 데이터 모델에서 이미 분리돼 있다(`settings.sourceStyle.fontSize` / `targetStyle.fontSize`, DOM도 `sourceEl`/`targetEl`). 조절 경로 둘:
+
+- **휠** (`subtitle-renderer.ts:onWheel`): 자막 컨테이너 위 휠 → 1px씩 ±. **행별 분기** — `targetEl.contains(target)`이면 **번역만**, 그 외(원문 행·행 사이 4px gap·외곽 halo)는 **원문+번역 둘 다**. 비명백한 비대칭의 의도: 사용자가 원문을 크게 보는 패턴이라 큰 원문 행이 호버하기 쉬워 "둘 다"의 기본 타겟이 되고, 번역만 미세조정하고 싶을 때만 작은 번역 행을 정조준한다. `document`에 capture phase + `passive:false`로 부착(YouTube player가 wheel 가로채는 것 회피 + 페이지 스크롤 차단). 변경분은 `onFontSizeChange(source, target)` → `content/index.ts`가 `saveSettings({sourceStyle, targetStyle})`로 영속화.
+- **팝업** (`popup/main.tsx:SizeStepper`/`bumpSource`/`bumpTarget`): `글자 크기` 카드 한 줄에 원문·번역 `−`/`+` 스테퍼(±2px, A75 — 섹션 48). 휠이 발견성 0(안내 없는 제스처)인 걸 보완하는 명시 컨트롤. 기존 `update()` 배선 그대로 — `storage.sync` 저장 → content가 `onChanged`로 즉시 반영(`applySettings` → `setFontSizes`). 스키마·메시지 추가 없음.
+- 범위는 양쪽 모두 8~72(`FONT_SIZE_MIN/MAX` ≡ settings 스키마). 옵션 페이지의 슬라이더와 같은 값을 공유하므로 세 surface(옵션·팝업·휠)가 동일 settings를 조작.
+
+### 17. 해설 모델 분리 + Mindlogic 동적 모델 + 백틱 하이라이트 (A32, v0.8.0)
+
+**(1) 번역/해설 모델 분리.** 번역(자막 수백 cue, 가성비)과 해설(드래그 1회, 품질)은 호출 프로필이 정반대라 모델을 나눈다. `settings.explainGeminiModel`/`explainMindlogicModel` 신설(번역용 `geminiModel`/`mindlogicModel`과 별개). `content/index.ts:requestExplain`이 explainBackend에 따라 이 둘 중 하나를 `EXPLAIN`에 실음. Gemini에 `3.5-flash`(=`gemini-3.5-flash`) 추가 — 해설 기본값(Gem과 동급; 2.5-flash는 다단계 포맷 지시 순응도가 낮아 답변이 부실했던 게 발단). 해설 로딩 메시지에 현재 모델명 표시(`lang-options.ts:explainModelLabel` → `ExplainUI` 생성자 콜백).
+
+**(2) Mindlogic 동적 모델.** 게이트웨이 `GET /v1/gateway/models`(OpenAI 호환 `{data:[{id,owned_by}]}`)로 사용 가능 모델 전체를 가져온다(`mindlogic.ts:listMindlogicModels`, background `MINDLOGIC_LIST_MODELS` 메시지). 옵션 "모델 새로고침" 버튼 → `chrome.storage.local`(`ydtMindlogicModels`) 캐시 → owner별 `<optgroup>` 드롭다운(번역·해설 모델 둘 다). 이를 위해 `MindlogicModelSchema`를 **enum→`z.string()`**(목록 밖 모델 선택 시 검증 실패→default 리셋 방지; 게이트웨이가 실제 유효성 판정). `mindlogic.ts:validateModel`도 비어있지 않은 문자열 허용으로 완화. `lang-options.ts:MINDLOGIC_MODELS`(+`GEMINI_MODELS`)는 추천 마커(`transHint`=번역 관점, `explainHint`=해설 관점)와 새로고침 전 fallback으로 남는 **하드코딩** 목록 — `/models`는 id·owner만 주므로 "추천"은 자동 갱신 안 됨(모델 라인업 바뀌면 코드로 갱신).
+
+**(3) 백틱 하이라이트 도구.** 해설 패널에서 텍스트를 형광펜처럼 백틱(코드)으로 표시 — 복사/Notion에 백틱으로 반영, 공부·기록용. **DOM이 source of truth**(옛 markdown 문자열 매칭은 드래그에서 반복어구·서식 가로지름에 엉뚱한 위치를 감싸 깨졌음): 선택된 **텍스트 노드마다** 그 부분만 `surroundContents(<code class=ydt-user-mark>)`로 감싸 노드 경계 걸침을 회피한다(`explain-ui.ts:toggleMarkSelection`/`textNodesInRange`/`unwrapMark`; 사용자의 Chrome Annotation 프로젝트 검증 방식 차용). 내보낼 때만 `markdown.ts:domToMarkdown`(`renderMarkdown`의 역방향: heading/목록/표/코드펜스 + 인라인 직렬화)으로 DOM→markdown → 복사/Notion이 그걸 사용(`currentMarkdown`). `lastResult.markdown`은 더 이상 마크용으로 변형 안 함(DOM이 진실). 버튼 동작: 선택 있으면 그 선택을 토글하고 모드 ON 유지(드래그 후 버튼도 OK, 순서 무관 — `mousedown preventDefault`로 선택 보존), 선택 없으면 모드 토글. 수동 표시는 빨강(`.ydt-user-mark`), AI 예문 백틱은 청록 — 패널 안 구분(Notion엔 동일 백틱). 빨간 칩 클릭으로 해제.
+
+**(4) Notion 내보내기 보강.** `notion-blocks.ts:inlineToRichText` 재귀화로 볼드+코드 결합 annotation 지원(섹션 15). `notion.ts:saveToNotion`은 DB에 **URL 속성이 있으면 본문 맨 윗줄 영상링크 문단 생략**(중복 제거 — 링크는 속성으로; 속성 없는 DB에서만 본문 fallback).
+
+### 18. 자막 위치 초기화 + Shorts 기본 위치 상향 (A34, v0.8.2)
+
+**문제:** YouTube Shorts는 하단에 자체 오버레이(가독성용 어두운 scrim + 채널/제목/음악 메타데이터)를 **우리 자막 위에** 그린다. 세로 모니터처럼 영상이 화면을 꽉 채우면 자막 기본 위치(하단 18%)가 이 오버레이 띠 안에 들어가, 자막이 그 아래로 깔려 **흐릿해지고 포인터 이벤트도 오버레이가 먼저 먹어 드래그·휠·텍스트 선택이 전부 막힌다**. 갇히면 드래그로 빠져나올 수도 없는 닭-달걀.
+
+- **Shorts 기본 위치 18% → 30%** (`settings.ts:DEFAULT_SETTINGS.subtitlePosition.shorts.yPercent`): 오버레이 띠를 벗어나 깨끗한 영상 구간에 안착. 일반 영상(normal 10%)은 이 문제 없어 그대로. (정중앙 50%는 화자 얼굴을 가려 부적합 — 30%가 "오버레이 탈출 + 얼굴 안 가림" 균형. 영상별 편차로 ±튜닝 여지.)
+- **팝업 "처음 자리로" 버튼**(옛 이름 "위치 초기화") (`popup/main.tsx:resetPosition`): `update({ subtitlePosition: DEFAULT_SETTINGS.subtitlePosition })` 한 줄. 일반/Shorts 위치를 **둘 다** 기본값으로. 스키마·메시지 추가 없음 — 기존 배선(`storage.sync` 저장 → content `onChanged` → `applySettings` → `renderer.setPositions`)으로 즉시 반영. 팝업은 현재 탭이 Shorts인지 알기 어렵고 두 모드 위치는 독립 저장이라 "두 모드 모두 리셋"이 가장 단순·예측가능.
+- **기존 사용자 마이그레이션:** 이미 저장된 값(18%)은 유지되다가 사용자가 "위치 초기화"를 눌러야 30%로 탈출 — 기본값 변경이 기존 storage를 자동 덮어쓰진 않음. 버튼이 곧 탈출구.
+- 위치 버튼(up/down 미세조정)까지는 과하다고 판단해 미채택 — 초기화 한 번으로 갇힘 해소가 목적.
+
+### 19. 드래그 선택 → 자유 질문 (A35, v0.9.0)
+
+**의도:** 해설(섹션 14)은 "선택 표현을 영어 선생님 형식으로 설명"하는 고정 답이다. 그 위에 **사용자가 직접 질문을 적어 묻는** 경로를 더한다(예: "이 단어 반대말?", "여기서 who 빼면 이상한가?"). 자유 질문이라 언어 락이 없어 한글 영상에서도 궁금한 부분을 자막으로 바로 물어볼 수 있다. **해설과 같은 단발 chat 경로**를 재사용하되 user 메시지에 질문을 끼우고 system 프롬프트만 바꾼다.
+
+- **트리거 — 단일 버튼이 툴바로** (`explain-ui.ts`): 선택 시 뜨던 `💡 해설` 단일 버튼을 `.ydt-explain-toolbar`(flex 컨테이너) 안 두 버튼(`💡 해설` + `❓ 질문`)으로 바꿈. 위치/clamp/`mousedown preventDefault`(선택 보존) 로직은 그대로 툴바로 이전. `onMouseUp`/`onMouseDown`의 양보 가드도 `.ydt-explain-btn` → `.ydt-explain-toolbar`로 확장(버튼 사이 gap 클릭 포함).
+- **질문 패널 — 입력칸은 본문 바깥** (`openPanel(term, context, question)`): `❓ 질문`이면 헤더와 본문(`.ydt-explain-body`) **사이**에 `.ydt-explain-qform`(textarea + 전송 버튼)을 둔다. Enter 전송 / Shift+Enter 줄바꿈. 핵심: 입력칸을 본문 **밖** 형제로 둬야 복사/Notion(`currentMarkdown`=`domToMarkdown(body)`)·백틱 하이라이트(`body.contains` 게이트)가 textarea를 안 건드리고 **답변만** 대상으로 한다(기존 인프라 무수정 재사용). 답이 와도 입력칸은 남아 **재질문 가능**(v1은 단발 — 이전 답 기억 안 함, 각 질문은 선택+문맥 기준 독립). 멀티턴(대화 누적)은 다음 단계(gemini contents[]/mindlogic messages[] 둘 다 지원).
+- **질문은 답 위에 함께 렌더**: `runQuestion`이 성공 시 `**질문:** {q}\n\n{답}`을 `renderMarkdown`. 패널에 Q/A가 같이 보이고, P 문단은 `domToMarkdown`의 default 분기(`markdown.ts`)로 `**질문:**`까지 직렬화돼 **복사/Notion 내보내기에 질문이 포함**된다.
+- **백엔드 — 질문 전용 프롬프트** (`background/explain.ts`, `settings.ts:questionSystemPrompt(lang)`): `EXPLAIN` 메시지에 `question?` 필드 추가. `explain()`이 `question`이 있으면 고정 표 형식의 `explainPrompt` 대신 **가벼운 튜터 프롬프트**(`questionSystemPrompt(getUiLang())`, 사전 상수·사용자 편집 대상 아님)를 system으로 쓰고, `buildUserMessage`가 "고른 부분 + 자막 문장 + 질문" 형태로 조립. "who 빼면 이상해?" 같은 자유 질문에 고정 형식이 끼어드는 걸 방지. 백엔드(gemini/mindlogic)·키·재시도·`temperature 0.3`·`max_tokens 4096`은 해설과 공유.
+- **배선** (`content/index.ts:requestQuestion`): 해설의 `requestExplain`와 같은 `EXPLAIN` 메시지에 `question` 동봉. **질문 경로는 `explainPrompt` 비어있음 가드를 안 함**(질문 전용 프롬프트를 쓰므로). background 핸들러 가드도 `(m.prompt || m.question)`으로 완화 — 단 `AnyMsg`가 `Partial<ExplainMsg>`라 `||` 가드는 `prompt`를 string으로 좁히지 못해 `prompt: prompt ?? ''` 폴백 필요(해설 경로에선 항상 채워져 옴). `ExplainUI` 생성자에 `requestQuestion` 콜백을 `requestExplain` 다음 인자로 주입.
+
+### 20. 해설 패널 탭 누적 + 최소화 (A37, v0.10.0)
+
+**문제:** 옛 `openPanel`은 새 해설/질문을 띄울 때마다 맨 앞에서 `closePanel()`로 **이전 패널을 파괴**했다. 그래서 ⓐ 새 단어를 물으면 직전 해설이 사라져 "다시 볼 수가 없고" ⓑ ✕/Esc로 닫으면 **복구 진입점이 0**이었다. (패널 자체는 영상 시청·SPA 이동에는 안 죽음 — teardown은 위 두 경로뿐이었다.) prior art: `ai-dictionary`(C:\Dev\ai-dictionary)가 팝업 내부 탭 모델을 이미 구현 — 그 데이터 모델을 in-page 패널 특성에 맞게 단순화해 차용([[project_ai_dictionary]]).
+
+- **탭 모델은 메모리 only** (`explain-ui.ts:Tab[]` + `active`): content script가 YouTube SPA 이동에서 reload되지 않으므로 탭이 영상 전환·Shorts 스와이프를 가로질러 생존한다. 전체 새로고침(F5)·탭 닫기에서만 초기화. `ai-dictionary`는 팝업 document가 매번 파괴돼 `storage.session` 직렬화가 필수였지만, **우리 패널은 안 죽으므로 storage 불필요** — 각 탭의 렌더된 `bodyEl`(DOM)을 그대로 들고 show/hide만 한다. 그 덕에 라이브 형광펜(`code.ydt-user-mark`)·offset 재적용 문제가 통째로 사라짐(섹션 17의 "DOM이 source of truth"와 정합).
+- **셸 1개 + 탭별 콘텐츠 swap** (`ensureShell`/`openTab`/`activateTab`): 헤더(제목·액션·`–`·`✕`)와 탭스트립은 패널에 고정, `tabsContainer` 안에서 활성 탭의 `contentEl`(=`[qform?] + body`)만 `display:flex`. `openTab`이 옛 `openPanel`을 대체해 **`closePanel` 대신 새 탭 push**. 제목·액션 버튼 상태는 `activateTab`→`refreshActions`가 활성 탭 기준으로 갱신. 탭 ≥2면 `renderTabstrip`이 스트립(라벨+✕) 표시, 1개면 숨김(`ai-dictionary`와 동일 규칙).
+- **탭별 독립 상태**: `result`(복사/Notion 참조)·`notionSaved`/`notionPageUrl`·`qInput`이 전부 `Tab`에. 형광펜 모드(`highlightMode`)는 탭 전환 시 off로 리셋(탭마다 독립). 복사/Notion/백틱은 전부 `activeTab().bodyEl` 대상 — `currentMarkdown()`=`domToMarkdown(activeTab.bodyEl)`.
+- **비동기 가드 전환**: 옛 코드는 `panel.dataset.term !== text`로 "패널이 그 단어 것인지" 검사했으나, 탭 구조에선 `this.tabs.includes(tab)`(탭이 닫혔나)로 바꿈 — 결과는 비활성 탭이어도 그 `tab.bodyEl`에 쓰고(살아있으면), **버튼 갱신은 `activeTab()===tab`일 때만**. 그래서 로딩 중 탭 전환·패널 닫힘에도 다른 탭 버튼을 오염시키지 않음. 질문 **에러** 시엔 `refreshActions`를 부르지 않음(본문이 에러 텍스트라 옛 `result`로 버튼이 켜지면 복사가 에러를 복사 — 해설 에러 경로와 동일하게 비활성 유지).
+- **최소화 ≠ 닫기** (`minimize`/`restore`/`ensureFab`): `–` 또는 **Esc**는 패널을 파괴하지 않고 `display:none` + 우상단 `💡 N` 핸들(`.ydt-explain-fab`)로 접어 탭을 보존, 핸들 클릭으로 복원. `✕`(헤더)는 패널·모든 탭 완전 제거(`closePanel`), 탭스트립의 탭별 `✕`는 그 탭만(`closeTab`, 마지막 하나면 패널 닫힘). Esc 최소화는 전체화면 Esc 탈출과 비충돌(UA 전체화면 해제는 JS `stopPropagation`과 무관) + 시청 중 갇힘 해소.
+- **CSS** (`styles.ts`): `.ydt-explain-tabs`(스트립)·`.ydt-explain-tab`(칩, ellipsis)·`.ydt-explain-tabsbody`/`.ydt-explain-tabcontent`(flex column 체인)·`.ydt-explain-fab`(핸들). `.ydt-explain-body`에 `flex:1 1 auto; min-height:0` 추가 — 본문이 중첩 flex(`panel > tabsbody > tabcontent > body`) 안에서 남은 높이를 채우고 그 안에서 스크롤하게(없으면 장문이 contentEl을 넘쳐 스크롤 안 됨).
+- **한계:** 메모리 only라 F5/탭 닫기로 사라짐(영구 보관·"단어장"은 `ai-dictionary`가 담당 — 기능 중복 회피). 멀티턴 대화는 여전히 미지원(각 탭은 단발).
+
+### 21. Gemini 동적 모델 (A38, v0.11.0)
+
+Mindlogic 동적 모델(섹션 17-2)과 **동일 패턴을 Gemini에도** 적용. 단일 제공자라 목록이 작고 안정적이지만 모델이 주기적으로 추가/폐기돼 코드 고정 enum이 금방 낡는다 → 동적 조회 + 추천 힌트 오버레이로 통일.
+
+- **스키마 enum→자유 문자열** (`settings.ts:GeminiModelSchema = z.string().min(1)`): 목록 밖 모델을 골라도 검증 통과(enum이면 default 리셋). 실제 유효성은 Gemini API가 판정. `MindlogicModelSchema`와 같은 이유.
+- **하위 호환** (`gemini.ts:resolveGeminiModelId`): 자유 문자열 전환 전(A38 이전) storage에 박힌 옛 별칭 `flash`/`flash-lite`/`3.5-flash`를 `LEGACY_ALIAS`로 실제 ID(`gemini-2.5-flash` 등)로 변환. 새 값은 이미 실제 ID라 그대로 통과. **번역(`callGemini`)·해설(`explain.ts:explainGemini`) 양쪽이 이 함수를 공용** — explain.ts의 옛 `GEMINI_MODEL_ID` 테이블 제거. `lang-options.ts:GEMINI_MODELS`의 value도 실제 ID로 교체(추천 힌트 + 새로고침 전 fallback 목록).
+- **동적 조회** (`gemini.ts:listGeminiModels`): `GET /v1beta/models?pageSize=200` → `supportedGenerationMethods`에 `generateContent` 있는 것만, `embedding|aqa|imagen|veo|tts|image-generation` 제외, `geminiFamily(id)`로 세대 그룹(`gemini-2.5`/`gemini-3.5`/`gemma`) 추출해 optgroup 라벨. background `GEMINI_LIST_MODELS` 메시지 → `chrome.storage.local`(`ydtGeminiModels`) 캐시. 키는 `secrets.ts` 재사용(401/403 즉시 throw).
+- **옵션 UI 통합** (`options/main.tsx`): Mindlogic 전용이던 `renderMindlogicSelect`/`onRefreshMindlogicModels`를 **제공자 공용 `renderModelSelect`/`refreshModels`**로 일반화(메시지 타입·키·캐시 키만 분기). 번역·해설 모델 둘 다 `<select>`(owner별 optgroup) + "↻ 모델 새로고침" 버튼. Gemini 번역 모델 행이 radio→select로 바뀜. **별도 새로고침 버튼은 A68(섹션 44)부터 `🧪 테스트` 버튼에 통합돼 제거됨.**
+- **캐시 태그**(`content/index.ts:cacheBackendTag`)의 gemini 기본값 `'flash'`→`'gemini-2.5-flash'`(실제 ID와 정합).
+- **검증 한계:** `/models` 동적 조회는 라이브 키 필요 — 빌드·타입체크만 통과(프록시검증, 실조건 미확인).
+
+### 22. 해설 패널 안 재해설 + 저장 제목 알림 + 형광펜 UX (A41, v0.12.0)
+
+해설 패널을 **읽다가 모르는 단어를 또 파고드는** 흐름을 매끄럽게 + Notion 저장 결과 가시화. 모두 `explain-ui.ts` 중심(제목 길이 캡은 섹션 15).
+
+- **패널 본문 드래그 → 해설/질문 툴바 재출현** (`onMouseUp`/`evaluateSelection`): 옛 코드는 `.ydt-explain-panel` 안 선택을 전부 무시했으나, 이제 **본문(`.ydt-explain-body`) 안 선택**은 평가 대상 — 자막 박스(`.ydt-container`) 선택과 같은 `💡 해설`/`❓ 질문` 툴바를 띄워 **새 탭으로 누적**(섹션 20). 문맥(context)은 선택이 든 가장 가까운 블록(`closestBlock`: p/li/td/th/h*/blockquote/pre) 텍스트. 본문 외 패널 영역(헤더·질문 입력칸)·textarea 선택은 무시(입력 보호). **형광펜 모드 ON일 땐 본문 드래그는 마킹용**이라 툴바 평가 skip(`inBody && highlightMode` 게이트) — ai-dictionary의 markMode 분기와 동일. 툴바 z-index를 패널 위로(`2147483647 > 2147483646`).
+- **형광펜 OFF에서 칠한 텍스트 클릭 = 해제 안 함** (`onPanelClick`): 옛 코드는 모드 무관 클릭 시 `code.ydt-user-mark` 해제. 이제 `if (!this.highlightMode) return` 게이트 — OFF면 빨간 백틱 단어를 클릭/드래그해도 해제 않고 **선택에 양보**(위 재해설 흐름과 정합). 해제는 모드 ON에서만.
+- **Shift+백틱(`~`) = 형광펜 토글 단축키** (`onKeyDown`): 헤더 ✏️ 백틱 버튼의 `onHighlightClick`을 그대로 호출(버튼과 100% 동일 — 본문 선택 있으면 그 선택 마킹+모드 ON, 없으면 모드 on/off). 키 판별 물리 키 `code === 'Backquote' && shiftKey` 우선 + `key === '~'` 폴백(섹션 10의 IME/레이아웃 견고성 패턴). 가드: 입력칸(INPUT/TEXTAREA/contentEditable) 포커스 시 `~` 입력 보호, 패널이 떠 있고 활성 탭에 답이 도착한 뒤에만(버튼 disabled 조건과 동일).
+- **Notion 저장 제목 알림** (`saveToNotion`이 `{url, title}` 반환 → `NOTION_SAVE` 응답·`NotionSaveResult`에 `title` 추가): 저장 성공 시 패널 헤더 아래 알림 줄(`.ydt-explain-notice`)에 **`📝 Notion 저장됨: 「제목」  열기 ↗`** — 실제로 어떤 제목으로 들어갔는지 바로 확인(특히 한 문장/예문 폴백이 무엇으로 됐는지). 탭별 `notionTitle` 보관해 탭 전환 시도 따라오고, 백틱 수정으로 stale되면(`markEdited`) 사라짐. ai-dictionary의 `showNoticeLink` 패턴 차용.
+- **검증 한계:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 드래그/저장/단축키는 Chrome 실사용 확인 대상.
+
+### 23. 해설 툴바 자막 전환 시 자동 닫힘 + Notion 버튼 색 구별 (A43, v0.12.2)
+
+- **자막 cue 전환 시 해설/질문 툴바 닫힘** (`subtitle-renderer.ts:onCueChange` → `content/index.ts` 배선 → `explain-ui.ts:hideToolbar`): 자막을 드래그해 `💡 해설`/`❓ 질문` 툴바를 띄운 채 두면 다음 cue로 넘어가도 툴바가 남아 있던 문제(가리키던 선택은 사라졌는데). 옛 hide 경로는 `selectionchange`(collapse 시)·바깥 `mousedown` 둘뿐이었는데, **렌더러의 프로그램적 DOM 텍스트 교체는 Chrome에서 `selectionchange`를 신뢰성 있게 발화하지 않아** 툴바가 lingering. 해결: 렌더러가 표시 cue 인덱스가 바뀌는 지점(`update()`의 `idx !== lastIdx` — 새 cue 등장·자막 사라짐 둘 다)에서 `onCueChange` 콜백 발화 → content가 `explainUI.hideToolbar()` 호출. 롤링 sticky 공백 구간은 인덱스 불변이라 발화 안 함(불필요 호출 없음). 콜백 배선은 `onFontSizeChange`/`onPositionChange`와 같은 패턴. **패널(이미 연 것)은 툴바와 별개라 영향 없음** — 계속 열려 있음. `hideToolbar`를 private→public 전환.
+- **📝 Notion 버튼 녹색 구별** (`styles.ts:.ydt-explain-action-notion` + `explain-ui.ts`에서 버튼에 클래스 부여): 해설을 다 읽고 정리해 내보내는 "마지막" 액션이라 복사(`📋`)·형광펜(`✏️`)의 중립 회색과 구별되게 녹색(`#244b34`, hover `#2d5d40`)으로 채움 — Notion 저장됨 알림 줄(`.ydt-explain-notice`)과 같은 팔레트라 일관. 저장 후 `✓ 저장됨`/`✗ 저장 실패` 상태는 textContent만 바뀌고 클래스는 유지돼 색 그대로(2-class selector specificity로 base `:hover`도 덮음).
+- **최신 탭이 맨 왼쪽** (`explain-ui.ts:openTab` — `tabs.push`+`activateTab(끝)` → `tabs.unshift`+`activateTab(0)`): 새 탭은 곧 활성화되므로 prepend하면 활성(최신) 탭이 **항상 같은 위치(맨 왼쪽)**에 와 reachable. append였을 땐 계속 해설/질문해 탭이 쌓이면 최신이 오른쪽으로 밀려 화면 밖으로 나갔음. 트레이드오프: 옛 탭이 한 칸씩 오른쪽으로 밀림(recency 우선이라 수용). `contentEl`은 display로 show/hide돼 `tabsContainer` 내 순서 무관(탭 배열 순서만 칩 순서) + `closeTab`·async 가드는 인덱스 재계산/객체 참조(`tabs.includes`) 기반이라 정렬 변경에 안 깨짐.
+- **검증 한계:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 툴바 자동 닫힘·버튼 색·탭 순서는 Chrome 실사용 확인 대상.
+
+### 24. API 백엔드 원문↔번역 정렬 — 문장당 1요청 (A44, v0.12.3)
+
+**문제:** gemini·mindlogic으로 보면 자막의 **번역이 원문보다 한 문장(턴) 앞서** 떠 원문·번역이 안 맞았다(예: 원문은 남자 기자 질문인데 번역은 다음 장면 여자 답변). 실측 타임라인에서 4개 입력 문장에 번역 배열이 `[A, B, B, B]` — 모델이 인접 문장을 **유창하게 합쳐**(s0+s1→A, s2+s3→B) 2덩어리로 만들고 **개수만 4로 맞춰**(중복으로 슬롯 채움) 반환. **개수가 맞아 길이검증·문장별 재번역 안전망(아래) 둘 다 못 잡는다** — 길이 기반 보정은 이 메커니즘에 원리적으로 무력.
+
+- **원인 구조:** API 백엔드는 배치 전체를 **한 번의 모델 호출**에 넣어 모델이 우리 문장 경계를 무시하고 합칠 재량을 갖는다. (segmentation이 200자 캡·cue 내부 마침표로 문장 중간을 쪼개면 — 섹션 13 — 모델이 더 합치고 싶어함.) google-free(줄바꿈 보존)·chrome-builtin(원래 문장별 N회)은 **구조상 합침이 불가능**해 원래 안 어긋났다(사용자 실측으로 확인).
+- **해결 (`content/index.ts:translateCues`):** `PER_SENTENCE_BACKENDS = {gemini, mindlogic}`이면 배치 크기를 **1**로 강제(`const size = PER_SENTENCE_BACKENDS.has(backend) ? 1 : ...`). 단일 문장은 합칠 이웃이 없어 **1-in-1-out**이 보장돼 `번역[idx]`가 항상 `원문[idx]`와 정렬. google-free·chrome-builtin은 기존 `FIRST_BATCH_SIZE`/`TRANSLATE_BATCH_SIZE` 배치 유지.
+- **트레이드오프:** 문장당 1요청이라 긴 영상은 요청 수↑·느려짐·gemini 429 가능 — 단 기존 429 cooldown이 google-free로 fallback해 **정렬은 유지**. 문맥(인접 문장 함께 읽기) 보너스는 줄지만, 단위가 이미 온전한 문장이라 매끄러움의 *대부분*(cue→문장 묶음, 섹션 13)은 유지되고 cross-sentence 연결만 약간 손실. 품질이 체감되면 후속으로 **"앞뒤 문장은 문맥으로만 주고 한 문장만 번역하게"**(per-sentence + context) 업그레이드 여지(미구현).
+- **안전망 (배치 경로용):** `translateCues`는 배치 결과 줄 수가 입력과 안 맞으면 그 배치를 문장별로 재요청(여전히 실패 시 원문 fallback, `usedFallbackText`면 캐시 금지). API는 이제 size 1이라 거의 안 타지만 google-free의 `\n` 보존 깨짐 등에 대한 보호로 남김.
+- **mindlogic.ts의 `%%` 구분자·few-shot·`MINDLOGIC_CHUNK_SIZE`(섹션 5)는 이제 입력이 항상 1문장이라 사실상 vestigial** — 코드는 그대로 두되(향후 배치 복원 시 재활용) 정렬 보장은 size 1이 담당.
+- **검증:** 사용자 실조건검증(실제 자막 시청으로 어긋남 해소 확인). probe 미실행.
+
+### 25. 해설 패널 헤더 레이아웃 — 제목 전폭 + 액션 툴바 분리 (A45, v0.12.4)
+
+**문제:** 긴 문장을 term으로 골라 해설하면(제목 = 드래그한 선택 그대로, 섹션 20의 `activateTab`) 헤더 제목이 여러 줄로 늘어나 본문을 가렸다. 처음엔 같은 헤더 한 줄에 제목 + 백틱·복사·Notion·`–`·`✕`가 다 있어 제목 폭이 극히 좁았다.
+
+- **메커니즘 교체 (계단형 float → 툴바 분리):** 중간 시도로 제목이 우측 버튼들을 피해 계단형으로 래핑하게 했으나, `–/✕`(26px)+버튼행(26px)을 세로로 쌓으면 ~52px라 **버튼 float이 3줄째(~42px 시작)까지 물려 내려와** 3줄째도 좁아지고 생략부호가 줄 중간에 박히는 구조적 한계가 있었다. 해결: **액션 버튼을 헤더에서 빼 본문 위 별도 툴바(`.ydt-explain-actions`)로** 내리고, 헤더(제목바)엔 제목 + 우상단 `–/✕`(`.ydt-explain-corner`, float right)만 남김. 그러면 제목은 1줄째만 작은 `–/✕` 옆으로 살짝 좁고 **2·3줄은 전폭** → 잘림 표시가 마지막 줄 끝(우하단)에 자연히 옴. 버튼이 본문 바로 위 고정 위치라 "읽다가 위로 올려 누르는" 동선과도 맞음(`explain-ui.ts:ensureShell`의 `panel.append`; 순서는 A47에서 `header, actions, tabstrip, notice, tabsContainer`로 조정 — 섹션 27).
+- **제목 클램프 — `overflow: clip` + JS 트림:** `.ydt-explain-term`은 `max-height: 4.5em`(3줄) + `overflow: clip`. **`clip`은 BFC를 만들지 않아** float(corner) 래핑을 유지하면서 초과분만 자른다(`hidden`은 BFC라 래핑이 깨짐 — `-webkit-line-clamp`도 `display:-webkit-box`라 같은 이유로 불가). 순수 CSS 멀티라인 생략부호가 안 되므로 `explain-ui.ts:setTitle`이 `scrollHeight > clientHeight`면 **이진 탐색**으로 max-height에 들어오는 최대 prefix를 찾아 생략부호를 붙인다. 전체 term은 `title` 툴팁·탭 라벨·본문에 남아 정보 손실 없음. 최소화 중(숨김)이면 측정 불가라 트림 보류 후 `restore`에서 재적용.
+- **생략부호는 ASCII `...`(U+2026 `…` 아님):** 제목 폰트가 CJK(Noto Sans KR) 우선이라 `…` 한 글자를 **줄 세로 중앙**(CJK 관례)에 찍어 떠 보인다 → ASCII 마침표 3개로 baseline(아래)에 깔리게 함.
+- **검증:** 사용자 실조건검증(Chrome 실사용으로 제목 전폭 표시·생략부호 우하단·툴바 동선 확인). 빌드·타입체크 통과.
+
+### 26. 해설 패널·미니버튼 드래그 이동 (A46, v0.13.0)
+
+**의도:** 해설 패널(`.ydt-explain-panel`)이 우상단 고정(`top:72 right:24`)이라 영상·자막을 가리면 비킬 방법이 없었다. 패널과 최소화 핸들(미니버튼 `.ydt-explain-fab`, 섹션 20) **양쪽 모두 드래그로 옮기고**, 위치를 둘이 **공유**해 접으면 그 자리에 미니버튼·펼치면 그 자리에 패널이 뜨게 한다.
+
+- **위치 1개 공유** (`explain-ui.ts:panelPos {left,top} | null`): 뷰포트 기준 좌상단 px, 패널·미니버튼이 같은 값을 본다. 어느 쪽을 끌든 갱신 → "접고→옮기고→펼치기" 우회 없이 한 자리 유지. **메모리 only**(탭 모델과 같은 휘발 정책, 섹션 20) — 영상 전환·전체화면 가로질러 유지, F5·`✕`(`closePanel`)로 초기화. `null`이면 CSS 기본값.
+- **범용 드래그 헬퍼** (`enableDrag(el, handle, guard, onTap)`): 미니버튼 전용이던 로직을 일반화. `el`=움직일 요소(위치·클램프 기준), `handle`=드래그 시작 요소(el 자신 또는 그 일부), `guard(t)`=true면 드래그 시작 안 함(버튼 보존용), `onTap`=임계값(4px) 미만 이동으로 끝나면 호출(클릭).
+  - **미니버튼**: `enableDrag(fab, fab, null, ()=>restore())` — 전체가 핸들, 안 움직이고 떼면 클릭=펼치기. (옛 `click→restore`를 대체 — 드래그/클릭 한 핸들러에서 분기.)
+  - **패널**: `enableDrag(panel, header, (t)=>!!t.closest('.ydt-explain-corner'), null)` — **헤더(제목바)가 핸들**, 우상단 `–/✕`(corner) 클릭은 guard로 드래그 시작 차단(버튼 동작 보존). 액션 툴바(`.ydt-explain-actions`)·본문은 헤더 밖이라 애초에 드래그 트리거 안 됨(본문은 재해설 선택 우선, 섹션 22). `setPointerCapture`로 포인터가 요소를 벗어나도 추적.
+- **클램프·적용** (`clampPos(left,top,el)` / `applyPos(el)`): 8px 여백으로 뷰포트 안에 가둠. 패널·미니버튼은 크기가 달라 **표시 시점에 각자 `offsetWidth/Height`로 다시 클램프** — 패널이 크니 우하단에서 살짝 위로 당겨질 수 있음(화면 밖 방지 우선, FAB와 약간 어긋남 감수). `applyPos`는 `left/top`(px)을 박고 CSS 기본 `right`를 `auto`로 무력화. `panelPos===null`이면 inline 비워 CSS 기본값 복귀.
+- **배선**: `restore()`가 패널 표시 후 `applyPos(panel)`, `minimize()`가 미니버튼 표시·텍스트 설정 후 `applyPos(fab)`(폭 0 상태 오클램프 방지 — 표시 뒤 재적용), `onFullscreenChange`가 re-home 후 보이는 쪽을 새 뷰포트 크기로 재클램프. `closePanel`이 `panelPos=null`로 리셋.
+- **CSS** (`styles.ts`): 헤더·미니버튼 `cursor: grab`(+드래그 중 `.ydt-dragging`이면 `grabbing`), `user-select:none`(헤더 텍스트 선택 방지), 미니버튼 `touch-action:none`.
+- **검증:** 사용자 실조건검증(미니버튼 드래그·패널 헤더 드래그·접힘/펼침 위치 공유 Chrome 실사용 확인). 빌드·타입체크 통과.
+
+### 27. 탭 세로 위치 고정 + Notion 저장 탭 ✓ 표시 (A47, v0.13.1)
+
+해설 패널의 **탭 전환 편의** 두 가지 개선. 모두 `explain-ui.ts`의 탭스트립 중심.
+
+- **탭 세로 위치 고정 (notice/tabstrip 순서 뒤집기)** (`ensureShell`의 `panel.append`): 옛 순서 `header, actions, notice, tabstrip, tabsContainer`에서 `notice`(「Notion 저장됨」 알림 줄, `.ydt-explain-notice`)가 **탭스트립보다 위**에 있었다. 이 알림은 **탭별**로 켜지고 꺼져(`refreshActions` — `tab.notionSaved`일 때만) 저장된 탭 ↔ 안 된 탭을 오갈 때 그 아래 탭스트립 전체가 세로로 밀렸다 → 탭을 번갈아 누르려면 마우스를 좌우뿐 아니라 위아래로도 제어해야 하는 불편. 해결: **탭스트립을 notice 위로** (`header, actions, tabstrip, notice, tabsContainer`). 탭스트립이 `header + actions`(둘 다 고정 높이) 바로 아래라 **세로 위치 불변** — 좌우로만 움직여 전환. notice는 탭스트립과 본문 사이로 내려가 저장 여부에 따라 **본문**만 밀리는데, 본문은 클릭 타겟이 아니라 무해. CSS 위험 없음(`.ydt-explain-notice`·`.ydt-explain-tabs` 둘 다 `flex:0 0 auto` + 각자 border-bottom, 인접 선택자·순서 의존 없음).
+- **Notion 저장된 탭 칩에 ✓ 표시** (`renderTabstrip`): 탭을 열어보지 않아도 저장 여부를 확인하도록 저장된 탭 칩 왼쪽에 녹색 `✓`(`.ydt-explain-tab-saved`) + `saved` 클래스(테두리 색 구별, Notion 액션/알림과 같은 팔레트). 저장 성공(`onNotionClick`)·백틱 수정으로 stale(`markEdited`) 시점에 각각 `renderTabstrip()` 호출로 즉시 반영. **탭스트립은 탭 2개 이상일 때만** 표시되므로(`renderTabstrip` 게이트) 탭 1개면 `✓`가 안 보이나, 그땐 헤더 버튼(`✓ 저장됨 ↗`)·알림 줄로 이미 확인됨.
+- **검증:** 빌드·타입체크만 통과(프록시검증, 실조건 미확인) — 탭 위치 고정·✓ 표시·저장 후 즉시 반영은 Chrome 실사용 확인 대상.
+
+### 28. Alt+Q 직접 질문 + 멀티턴 "이어서 질문" (A48, v0.14.0)
+
+자막 선택 없이 곧장 AI에 묻는 단축키 + 답을 받은 뒤 이어서 파고드는 멀티턴 대화를 해설 패널에 추가. 별도 확장 `AI Dictionary`(C:\Users\7make\Dev\260622_AI_Dictionary, [[project_ai_dictionary]])의 "따로 검색" 용도를 듀얼자막 안으로 흡수 — 그쪽 Alt+Q는 반납(아이콘 클릭/사용자 재지정). 유튜브 밖 페이지가 필요할 때만 AI Dictionary를 씀.
+
+- **Alt+Q 직접 질문** (`manifest.ts:commands['open-ask']` → `background/index.ts:commands.onCommand` → `content/index.ts:onMessage 'OPEN_ASK'` → `explainUI.openAsk()`): 자막 선택 없이 빈 질문 탭을 열어 맨 아래 입력창에 포커스. `_execute_action`(팝업)과 겹치지 않게 **커스텀 커맨드**로 둬 `chrome://extensions/shortcuts`에 노출·사용자 재지정 가능(기본 Alt+Q). content script는 SW로 단축키를 직접 못 받아 background가 활성 탭으로 메시지 왕복(유튜브 아닌 탭이면 sendMessage 거부→무시). 페이지 키다운 방식은 shortcuts 페이지에 안 떠서 기각. `openAsk`는 빈 term('직접 질문' 라벨)·`isAsk=true`로 열어 백엔드엔 선택 텍스트 미전송(`explain.ts:buildUserMessage`가 text 비면 "고른 부분" 줄 생략 → 순수 질문).
+- **멀티턴 "이어서 질문"** (`explain-ui.ts` + `background/explain.ts`): 답을 받은 상황에서 "더 쉽게", "예문 더" 등 후속 질문. **직전 답변을 문맥으로 기억해야** 말이 되므로 단발 호출을 대화 누적으로 확장.
+  - **후속 = 새 탭(부모 대화 상속)**: 답 있는 탭에서 제출하면 `openTab(q,'',true,false,true)`로 **새 탭** 생성(§23대로 최신=맨 왼쪽, 라벨 `⏎` 마커). 화면엔 새 Q/A만 짧게 보이지만, 부모의 `turns`를 상속해 모델은 이전 대화 전체를 문맥으로 봄. 길이 폭주 방지 + 이전 질문과 분리라는 사용자 요구를 동시 충족.
+  - **대화 기록** `Tab.turns: ChatTurn[]`(`shared/types.ts`, `{role:'user'|'model', text}`, 메모리 only — 기존 탭 모델과 정합). `runExplain`/`runQuestion` 성공 시 `[...history, {user: userMessage}, {model: markdown}]`로 누적. user 턴은 **background가 실제 보낸 메시지**(`explain()`이 `userMessage`를 함께 반환 — content가 재구성 drift 없이 정확히 저장), model 턴은 `**질문:**` 접두어 없는 순수 답(markdown).
+  - **background 멀티턴 relay** (`explain.ts:explain(params.history)`): gemini는 `contents[]`(role `user`/`model` 그대로), mindlogic은 `messages[]`(system + history의 `model`→`assistant` 매핑 + 이번 user). 후속은 항상 `question` 있음 → 가벼운 튜터 프롬프트(`questionSystemPrompt`) + 전체 기록(초기 해설이 rigid 표 프롬프트로 생성됐어도 후속은 대화체). 비용: 후속마다 누적 대화 재전송(토큰↑, BYOK·간헐이라 무방).
+- **입력창 하나로 통일** (`ensureShell`의 `.ydt-explain-chatbar`, `styles.ts`): §19의 상단 per-탭 qform 제거 → **패널 하단 고정 공용 입력창**(활성 탭 대상). `submitChat` 분기: 답 있는 탭이면 후속(새 탭), 답 없는 빈 질문/직접질문 탭이면 그 탭을 첫 답으로 채움, 해설 로딩 중 탭이면 무시. 입력창은 본문(`bodyEl`) **밖** 형제라 복사/Notion(`domToMarkdown(bodyEl)`)·형광펜(§17)이 안 건드림 — §19의 "입력칸을 본문 밖에" 원칙 유지. placeholder는 `refreshActions`가 답 유무로 갱신("이어서 질문…" ↔ "질문을 입력하고 Enter…"). **Enter keydown은 IME 조합 중(`isComposing || keyCode 229`)이면 무시** — Chrome은 한글 조합 확정 Enter와 실제 Enter를 두 번 보내, 가드가 없으면 첫 전송 후 비워진 입력창에 확정된 마지막 글자(예: 「나」)가 들어가 한 번 더 전송됐다. 그 두 번째 전송이 아직 답 대기 중인 같은 탭을 `submitChat`의 "첫 질문" 분기로 다시 타서 제목·탭 라벨이 그 한 글자로 덮어써지고 API도 중복 호출됐다.
+- **기호·라벨**: 형광펜 버튼 라벨 `✏️ 백틱`→`🖍 형광펜`(AI Dictionary와 통일, 누구나 이해). 보내기 버튼·후속 탭 마커를 `⏎`(return)로 통일(옛 `↑`/`↳`는 비율 어색). **§17·§22의 "✏️ 백틱" 서술은 버튼 라벨만 바뀐 것 — 백틱(코드) 감싸기 메커니즘 자체는 동일.**
+- **한계·검증:** 후속 새 탭의 복사/Notion은 그 탭 Q/A만(원문맥은 부모 탭에). 후속 탭 상한 없음(AID는 10). 빌드·타입체크 통과(프록시검증) — 멀티턴 기억·새 탭 생성·`⏎` 폰트 렌더는 Chrome 실사용 확인 대상.
+
+### 29. 직접 질문 버튼(패널·팝업) + 팝업 크기/위치 하단 재배치 (A49, v0.15.0)
+
+§28의 Alt+Q(직접 질문)는 단축키 하나뿐이라 발견성이 0이었다(안내 없는 제스처). 형광펜/복사처럼 **버튼으로도** 노출해 몰라도 쓸 수 있게 함. Alt+Q 경로(`openAsk`)는 그대로 재사용 — 새 트리거만 추가.
+
+- **패널 액션 툴바 `➕ 새 질문` 버튼** (`explain-ui.ts:ensureShell`): 형광펜/복사/Notion과 같은 `.ydt-explain-actions` 행에 추가하되, "새 탭 생성"이라 export 액션(형광펜·복사·Notion)과 **범주가 달라** CSS `.ydt-explain-action-newq { margin-right: auto }`로 **왼쪽에 분리** 배치(`styles.ts`). 클릭 → `this.openAsk()`(§28과 동일 경로). 결과 유무 무관 **항상 활성**(export 버튼들은 결과 도착 전 비활성인 것과 대비 — 로컬 `const` 버튼이라 `refreshActions` 참조 불필요). 패널은 `setEnabled(false)` 시 `closePanel()`로 파괴되므로 이 버튼은 `enabled===true`일 때만 존재 → `openAsk`의 `if(!enabled)return` 가드에 걸릴 데드 엣지 없음.
+- **팝업 새 질문 버튼** (`popup/main.tsx`) — **A80(섹션 50)부터 제거, 팝업 맨 위 질문 입력칸으로 대체**(아래는 옛 동작): 제목줄 오른쪽 아이콘 버튼(A75 — 옛 전폭 `➕ 새 질문` 버튼에서 바뀜, 섹션 48). 활성 탭에 `chrome.tabs.sendMessage({type:'OPEN_ASK'})` **직접** 전송(background 경유 안 함 — content가 `OPEN_ASK` 수신 → `explainUI.openAsk()`, `content/index.ts:242`) 후 `window.close()`. cold-start(패널 안 열림) 발견성 보완 — 단축키를 몰라도 됨. **게이팅**: `pageReachable`일 때만 노출(A51에서 `explainEnabled` 게이트 제거). `pageReachable` = 상태가 `active|no-cues|subtitles-off`(=콘텐츠 스크립트가 `YDT_GET_STATUS`에 응답 = YouTube 탭 + 도달). `not-youtube`/`unreachable`이면 숨김 → "눌러도 아무 일 없음" 방지. explain 비활성 시 숨김이라 `openAsk`의 enabled 가드와도 정합. 상시 플로팅 페이지 버튼은 YouTube 화면 가림(클러터)이라 미채택 — 팝업/패널 버튼으로 충분.
+- **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 패널/팝업 버튼 클릭 → 새 질문 탭, 팝업 하단 배치는 Chrome 실사용 확인 대상.
+
+### 30. 직접 질문 입력창 autofocus + 새 질문 시 draft 비우기 (A50, v0.15.1)
+
+§28/§29의 직접 질문(`openAsk`)이 열릴 때 커서를 입력창에 바로 넣는 두 UX 마감. 모두 `explain-ui.ts:openAsk`.
+
+- **다음 프레임 재포커스** (`requestAnimationFrame`): §28은 "빈 질문 탭을 열어 맨 아래 입력창에 포커스"라 적었지만, Alt+Q(`chrome.commands`)/팝업 버튼 경로는 패널을 **방금 표시·재배치한 같은 틱**에 `focus()`를 불러 씹혔다(새로 display된 요소는 레이아웃 전이라 focus 무시 — §10·§22의 "표시 직후 조작" 계열 문제). 동기 `focus()` 뒤 `requestAnimationFrame(()=>input?.focus())`로 다음 프레임에 한 번 더 포커스해 마우스 클릭 없이 곧장 타이핑되게 함. (팝업 버튼은 `window.close()` 후 페이지가 포커스를 되찾는 타이밍이라 rAF 한 프레임으로 부족할 여지 남음 — 실사용에서 재확인 대상.)
+- **새 질문은 빈 입력창으로** (`if (this.chatInput) this.chatInput.value = ''`): 입력창은 §28에서 탭별→**패널 공용** 하나로 합쳤는데(`ydt-explain-chatbar`), 그 부작용으로 이전 탭에 제출 없이 타이핑만 해둔 초안이 새 탭에도 남았다. `openAsk`가 새 탭을 연 뒤 입력창을 비워 "새로 물으려고 연 탭"엔 잔여 텍스트가 안 남게 함. **탭 전환 시 draft 공유는 유지**(그건 유용) — 비우는 건 새 질문 진입점에서만.
+- **검증:** 사용자 실조건검증(Alt+Q·새 질문 버튼으로 커서 즉시 진입·입력창 비움 Chrome 실사용 확인). 빌드·타입체크 통과.
+
+### 31. 옵션 페이지 IA 개편 — 섹션 재배치·불릿 계층·API 제공자별 표시·해설/Notion 상시화 (A51, v0.16.0)
+
+옵션 페이지(`options/main.tsx`)의 정보구조·시각 계층 정리 + 해설/Notion 상시화. 대부분 옵션 UI 한 파일이지만 상시화 3건은 런타임(`content/index.ts`)에도 영향.
+
+- **섹션 순서**: 자막 관련을 위, AI/API를 아래로 — `자막 표시 → Single Subtitle → 자막 스타일 → 자막 배치·배경 → 번역 방식 → Gemini 설정 → Mindlogic 설정 → 단어·표현 해설 → Notion 저장 → 관리`. "번역 방식"(백엔드 라디오)은 옛 "자막 표시" 안에서 **독립 섹션으로 분리**해 Gemini/Mindlogic 설정 바로 위에 배치(AI 블록 응집).
+- **시각 계층 — 섹션 카드**: A76(섹션 49)부터 섹션 = 작은 제목 + 카드로 구분하고 옛 들여쓰기 + `•` 불릿은 제거(세로선 `borderLeft` 시안은 그 전에 사용자 선택으로 폐기). 자막 스타일의 크기·색·굵기는 그룹 칩(`1./2.`) 아래 한 단계 들여쓰기.
+- **API 설정 섹션 = 제공자별 표시** (`showGemini`/`showMindlogic`): `backend === 'gemini' || explainBackend === 'gemini'`이면 Gemini 설정 펼침(Mindlogic 동형). 번역 방식이나 해설이 그 제공자를 쓰면 그 키 섹션만 노출 — 옛 통합 조건·`explainEnabled` 게이트(섹션 14)를 대체.
+- **해설 백엔드 라디오 제거 → 번역 방식(AI) 자동 추종**: "AI는 보통 하나만 쓴다" 전제로 해설 백엔드 선택 UI 제거. 번역 방식에서 Gemini/Mindlogic 선택 시 `explainBackend`도 함께 set(라디오 onChange), 로드 시 저장값이 어긋나면 정규화(`loadSettings().then`의 `aiBackend`). 번역이 google/chrome이면 마지막 AI 선택(기본 gemini) 유지. **해설 모델 선택칸은 유지**(같은 제공자라도 번역=저렴/해설=고품질 분리, 섹션 17). **A79 보완:** 번역이 google/chrome일 때만 번역 방식 카드 아래 「해설·질문에 쓸 AI」 칩(Gemini/게이트웨이)으로 `explainBackend`를 고른다 — 이 선택칸이 없을 땐 Google을 골라도 게이트웨이 설정이 보이는 이유(해설이 그 AI를 씀)가 화면에 안 드러나 혼란스러웠다. 번역이 AI면 이 줄은 숨고 해설은 번역 AI를 따라간다(번역 AI≠해설 AI 조합은 여전히 UI로 못 고름).
+- **해설 켜기 / Notion 저장 켜기 체크박스 제거 → 상시 노출**: 두 체크박스를 없애고 섹션 내용·패널 버튼(💡 해설·❓ 질문·📝 Notion)을 상시 표시. content가 `setEnabled(true)`/`setNotionEnabled(true)`(popup의 "➕ 새 질문"도 `explainEnabled` 게이트 제거, `pageReachable`만). `explainEnabled`/`notionEnabled`는 스키마에 **미래 결제 게이트용 예약 필드**로 남김(주석 명시) — 유료화 시 버튼은 무료도 노출해 구매 유도하고 "호출/저장" 단계에서 이 값을 검사할 자리.
+- **문구 평이화**: 해설 안내의 개발자 은어 "BYOK" → "내 AI 키가 필요해요"("무료 발급"은 Mindlogic엔 안 맞아 제거, Gemini 라디오 선택 시 아래 AI Studio 링크가 이미 뜸).
+- **검증:** 빌드·타입체크 통과(프록시검증) — 섹션 펼침/접힘·번역↔해설 AI 추종·Notion 상시·불릿 정렬은 Chrome 실사용 확인 대상.
+
+### 32. Alt+Q 직접 질문은 해설 프롬프트로 답변 (A56, v0.16.5)
+
+**문제:** §28의 Alt+Q "직접 질문"(자막 선택·문맥 없이 곧장 묻기)은 답이 ❓질문·💡해설보다 눈에 띄게 짧았다. 원인 둘이 겹침 — ⓐ 질문 경로(§19)는 `questionSystemPrompt`("핵심만 간결하게")를 쓰고, ⓑ 직접 질문은 자막 문맥이 없어 `buildUserMessage`가 `질문: {q}` 한 줄만 보내(§28) 모델이 확장할 재료가 얇음. 두 요인이 곱해져 답이 부실.
+
+- **해결 — 직접 질문 첫 턴만 해설 프롬프트로** (`explain.ts:explain`): `ExplainParams.isAsk`(신설)가 true이고 `prompt`(=`explainPrompt`)가 비어있지 않으면, 질문이어도 `questionSystemPrompt` 대신 **해설 프롬프트**(`params.prompt`, 표·예문·어원)를 system으로 쓴다(`useExplainForAsk`). 문맥이 없는 대신 모델이 예문을 스스로 만들어 채워 풍부해짐. `explainPrompt`가 비면 질문 프롬프트로 폴백(크래시 없음).
+- **isAsk 신호는 탭에서** (`explain-ui.ts:runQuestion`): `tab.isAsk`(§28에서 이미 존재)를 그대로 `requestQuestion`에 실어 보냄. 그래서 **직접 질문 탭의 첫 질문만** isAsk=true — 그 탭에서 파생된 **후속(⏎ child 탭)은 `openTab(...,false,...)`이라 isAsk=false**, **선택 ❓질문 탭도 isAsk=false**라 둘 다 기존 대화체(`questionSystemPrompt`) 유지. 직접 질문 탭은 runQuestion을 첫 질문 때 한 번만 타므로(후속은 새 탭) 분기가 깔끔.
+- **배선**: `content/index.ts:requestQuestion(...,isAsk)` → `EXPLAIN` 메시지에 `isAsk` 동봉 → `background/index.ts`가 `explain({isAsk})`로 전달. §28 line 309의 "순수 질문"·line 313의 "후속은 항상 `questionSystemPrompt`"는 여전히 맞고(직접 질문 **첫 턴만** 예외), 그 예외가 이 섹션.
+- **트레이드오프:** 해설 프롬프트는 "답변 최상단에 영어예문"을 강제해, "who 빼면 이상해?" 같은 순수 문법 질문을 Alt+Q로 물으면 형식이 다소 끼어들 수 있음(§19에서 질문 프롬프트를 분리한 이유). 실사용은 대개 "이 표현 알려줘"류라 수용 — 거슬리면 해설/질문 중간 프롬프트(방식 B)로 조정 여지. `explainPrompt`는 사용자 편집 가능이라 스스로 완화도 가능.
+- **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — Alt+Q 답변이 풍부해지는지·문법 질문 형식 어색함은 Chrome 실사용 확인 대상.
+
+### 33. 해설 답변 드래그 툴바에 형광펜 추가 + 클릭 오표시 수정 (A57, v0.17.0)
+
+**의도:** §17/§22의 형광펜(백틱 하이라이트)은 해설 패널 **헤더 버튼**(🖍️ 형광펜)/`Shift+``로만 켰다 — 발견성이 낮았다. 해설·질문 답변 본문을 드래그하면 뜨던 툴바(§22: 💡 해설 + ❓ 질문)에 형광펜을 얹어, 읽다가 표현을 드래그하면 곧장 형광펜 표시까지 되게 한다. 모두 `explain-ui.ts`.
+
+- **툴바 3버튼 — `🖍️ 형광펜 · 💡 해설 · ❓ 질문` 순** (`showToolbar(rect, canHighlight)`): 형광펜 버튼은 DOM 맨 앞(왼쪽). `canHighlight`일 때만 `display`로 노출. 툴바는 1회 생성·재사용이라 형광펜 버튼은 항상 DOM에 있고 표시만 토글.
+- **형광펜은 "해설 답변 본문(.ydt-explain-body) 선택 + 답변 도착한 탭"에만** (`evaluateSelection`): case 2(본문 선택)에서 `canHighlight = !!this.activeTab()?.result` — 로딩/에러만 있는 탭엔 마킹 대상이 없어 숨김(헤더 버튼 `disabled` 게이트와 동일). **자막(.ydt-container) 드래그(case 1)엔 형광펜 미노출**(`false`) — 자막은 마킹 대상이 아니고 지속되지도 않음. 자막 드래그 툴바는 기존대로 해설/질문만.
+- **툴바 형광펜 클릭 = 헤더 버튼과 동일** (`onToolbarHighlightClick` → `onHighlightClick`): 현재 본문 선택을 백틱 마킹 + **형광펜 모드 ON 유지**(이후 본문 드래그는 자동 마킹, 모드 중엔 툴바 안 뜸 — §22의 `inBody && highlightMode` 게이트) + 헤더 🖍️ 버튼도 `active`. 툴바 컨테이너의 `mousedown preventDefault`(§14)로 선택이 살아있어 클릭 시점에 그 선택을 그대로 감싼다.
+- **위치는 선택(드래그) 위 중앙 정렬**: 버튼 수(2 vs 3)에 따라 폭이 달라, `visibility:hidden`으로 먼저 띄워 `offsetWidth` 실측 후 `rect` 중앙에 배치(위 여백 없으면 아래로). *중간 시도로 "드래그 끝점 바로 위에 형광펜 버튼"(마우스업 좌표 기준) 배치를 넣었다 사용자 피드백으로 되돌림 — 중앙 정렬이 보기 좋음.*
+- **클릭 오표시 버그 수정** (`onMouseUp`): 드래그로 선택이 남은 상태에서 화면을 **제자리 클릭**하면, 어떤 핸들러가 mousedown 기본동작(선택 collapse)을 막아 선택이 안 지워지는 경우 `evaluateSelection`이 그 stale 선택의 rect로 툴바를 **엉뚱한 위치에 다시 그렸다**. 해결: `onMouseDown`이 시작 좌표(`downX/downY`)를 기록 → `onMouseUp`에서 이동거리 `< 4px && ev.detail < 2`(더블클릭 아님)면 **제자리 클릭**으로 보고 `hideToolbar()` 후 return(재평가 안 함). 실제 드래그(이동 ≥4px)·더블클릭 단어선택(`detail≥2`)만 툴바를 띄운다. 트레이드오프: 4px 미만 미세 드래그 선택은 툴바가 안 뜰 수 있으나 더블클릭 경로가 커버.
+- **아이콘 컬러화** (`🖍` → `🖍️`, 툴바·헤더 둘 다): 크레용 U+1F58D는 기본이 **흑백(text) 표현**이라 💡·❓과 달리 색이 없어 어색 — 이모지 변형 선택자 U+FE0F를 붙여 **컬러 emoji 표현 강제**(Windows Segoe UI Emoji 기준 컬러 렌더). 컬러 emoji엔 CSS `color`가 안 먹으므로 FE0F가 정석.
+- **검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 툴바 형광펜 노출·중앙 정렬·모드 유지·클릭 시 툴바 닫힘·아이콘 컬러는 Chrome 실사용 확인 대상.
+
+### 34. Notion 재저장 = 덮어쓰기 (create → 옛 페이지 휴지통, A58, v0.18.0)
+
+**문제:** Notion에 저장한 뒤 형광펜을 더 칠하면 `markEdited()`가 탭의 Notion 상태를 **전부 null로** 지워(옛 `notionSaved`/`notionPageUrl`/`notionTitle`) 버튼이 `📝 Notion`으로 되돌아갔다. 사용자 눈엔 "저장 안 됨"이라 다시 누르는 게 자연스러운데 그 결과는 **중복 페이지**. 기능 누락이 아니라 **버튼이 중복 생성을 예고 없이 유도**하는 잘못된 어포던스였고, 복습용 DB에 형광펜만 다른 두 줄이 남아 나중에 읽을 때 비용이 붙었다.
+
+- **메커니즘 선택 — create→archive** (`notion.ts:saveToNotion`): Notion API엔 페이지 본문을 통째로 교체하는 엔드포인트가 **없다**. `PATCH /v1/pages`는 속성만, `PATCH /v1/blocks/{id}/children`은 **append 전용**, 블록 삭제는 `DELETE /v1/blocks/{id}`로 **1개씩**(벌크 없음, 평균 3 req/s). 그래서 세 후보 중:
+  - (A) 옛 블록 전부 지우고 재추가 — 20~40블록이면 7~15초, 중간 실패 시 페이지가 반쯤 망가짐(먼저 지우면 빈 페이지, 먼저 붙이면 중복).
+  - (B) 바뀐 블록만 제자리 `PATCH` — 형광펜만 바뀌면 블록 구조가 불변이라 이론상 가장 빠르고 page/block id도 보존. 대신 표는 `table_row` children 재귀가 필요하고 코드가 제일 큼.
+  - (C) **채택** — 새 페이지 생성 후 `PATCH /v1/pages/{old} {archived:true}`로 옛 페이지를 휴지통으로. **요청 2번, 부분 실패 상태 없음.** archive가 실패해도 결과는 "지금까지처럼 페이지 두 개"라 더 나빠지지 않는다. 대가는 페이지 id/URL이 매번 바뀌는 것 — 방금 만든 단어장 페이지에 백링크를 거는 일은 사실상 없어 실질 대가 0.
+- **상태 전이** (`explain-ui.ts:Tab`): `notionPageId`/`notionDbId`/`notionTitle`은 `markEdited`가 **안 지운다**(옛 페이지를 치울 실마리 + 제목 재사용). `notionSaved`만 false로 내리고 `refreshActions()`가 버튼을 `♻ 업데이트`로 바꾼다(`notionPageId`가 있을 때). 저장 성공 시 `pageId`는 응답의 새 id로 **교체**하고, id가 안 오면 옛 값을 유지하지 않는다 — 그 페이지는 방금 archive됐으므로 다음 저장이 또 지우려 들면 404.
+- **제목 고정**: 재저장은 `prevTitle`(첫 저장 때 쓴 제목)을 그대로 재사용한다. `pickNotionTitle`의 ② 경로(첫 인라인 백틱 예문, 섹션 15)는 사용자가 AI의 첫 백틱보다 앞을 형광펜으로 칠하면 제목이 튀기 때문.
+- **archive 대상 오판 방지**: `prevDatabaseId`와 현재 `databaseId`를 **둘 다 `normalizeId`로 정규화해 비교** — 옵션에서 DB를 바꿨으면 옛 페이지는 남의 DB 소속이라 안 건드린다. 방금 만든 페이지를 지우는 사고는 `prevPageId !== data.id` 가드로 차단. `archivePage`의 **404는 성공으로 처리**(사용자가 노션에서 이미 지움 = 치울 게 없음. 실패로 치면 거짓 경고가 뜨고, `notionError`의 404 문구는 DB 전용이라 부적합).
+- **정직한 표기 `oldKept`**: archive 실패(403 — integration에 "update content" 권한 없음) 또는 DB 변경으로 옛 페이지가 남으면 결과에 `oldKept:true` → 알림 줄이 `📝 Notion 저장됨: 「…」 · ⚠ 옛 페이지 남음`. 조용히 중복이 쌓이지 않게. 새 페이지 저장 자체는 성공이므로 throw하지 않는다.
+- **알려진 레이스**(A58 이전부터): 저장 진행 중(`저장 중…`) 형광펜을 칠하면 `markEdited`가 `notionSaved===false`에 걸려 early-return → 그 마크가 빠진 내용으로 `✓ 저장됨`이 된다. 고치려면 성공 처리 직전에 `activeTab()===tab && currentMarkdown()!==markdown`이면 stale로 되돌리면 됨(미적용).
+- **필드명 주의**: 우리는 `Notion-Version: 2022-06-28` 고정이라 휴지통 필드가 `archived`. 최신 버전 문서는 `in_trash`로 안내하니 버전을 올릴 땐 함께 바꿔야 한다.
+- **검증:** 사용자 실조건검증(저장→형광펜→`♻ 업데이트`→노션 DB에 한 줄만 남고 갱신됨 확인). `archived` 필드는 실호출로만 확정되며, 틀려도 400 → `oldKept`로 안전하게 실패한다.
+
+### 35. 해설 탭 클릭만으로 옆 탭 이동 + 닫기 ✕ 활성 탭 한정 (A59, v0.19.0)
+
+**문제:** 해설 패널 탭스트립(섹션 20)은 탭이 쌓여 넘치면 `overflow-x: auto`로 **가로스크롤을 사용자가 직접** 해야만 밀린 탭에 닿았다. 살짝 튀어나온 탭을 클릭하면 활성화는 되지만 그 다음 탭이 여전히 밀려 있어 "클릭만으로 계속 옆으로"가 안 됐다.
+
+- **활성 칩 자동 스크롤** (`explain-ui.ts:scrollChipIntoView`, `renderTabstrip` 끝에서 `strip.children[this.active]`로 호출): 활성 칩이 스트립 밖으로 잘려 있으면 **넘치는 만큼만** 가로스크롤해 완전히 드러낸다. 잘린 탭을 클릭 → 그 탭이 다 보이고 그 옆 탭이 `PAD`만큼 드러나 다음 클릭 타겟이 됨 → 좌·우 어느 끝이든 **클릭 연타로 걸어감**. `scrollLeft`를 rect 차분으로 직접 계산(좌: `c.left < s.left+PAD`, 우: `c.right > s.right-PAD`) — `scrollIntoView`는 스크롤 가능한 조상(유튜브 페이지)까지 움직일 수 있어 회피. `getBoundingClientRect` 사용(`.ydt-explain-tabs`에 `position` 없어 `offsetParent`가 스트립이 아니라 좌표계 어긋남). 브라우저가 `scrollLeft`를 `[0,max]`로 클램프해 양끝 칩에선 무해하게 no-op. **덤으로 기존 버그 수정**: `replaceChildren`가 매 렌더마다 `scrollLeft`를 0으로 되돌려, 오른쪽 옛 탭을 보려 스크롤해 둔 상태에서 Notion 저장 `✓`(섹션 27)·형광펜 stale 등으로 `renderTabstrip`이 불리면 맨 왼쪽으로 튀던 것. 스크롤 보정을 `renderTabstrip` 안에 둬 함께 해소. `restore()`(최소화 복원)에서도 재적용 — `display:none` 동안 `scrollLeft`가 풀리므로.
+- **칩 클릭 = 활성화** (`renderTabstrip`): 클릭 리스너를 `label`→`chip` 전체로 이동. 살짝 드러난 칩의 왼쪽 가장자리는 테두리·패딩이라 라벨만 받으면 눌러도 안 먹던 것. 닫기 `✕`는 `stopPropagation`으로 칩 클릭과 분리.
+- **닫기 ✕는 활성 탭에만** (`styles.ts:.ydt-explain-tab-close { visibility: hidden }` + `.active`만 `visible`): **구조적 함정** — ✕가 칩 오른쪽에 있고 왼쪽 peek 탭은 항상 **오른쪽 부분(=✕)**이 보인다. 그래서 ✕가 비활성 탭에 뜨면(특히 hover 시 커서 자리에) 옆으로 넘기려다 탭이 닫힌다. 처음엔 `hover/active`에 노출로 막으려 했으나 **hover가 곧 peek 자리에 ✕를 띄워** 원점(2번째 수정에서 발견). 활성 탭에만 노출로 확정 — 활성 탭은 위 스크롤 로직이 항상 완전히 드러내 ✕가 안전한 위치에 있고, 비활성 peek 탭은 hover해도 ✕가 없어 눌러도 무조건 활성화. **닫기는 "클릭해 활성화 → ✕" 2스텝**(닫기는 저빈도라 수용). `visibility`(≠`display`)라 폭 고정 → peek 기하학 일정, hidden 버튼은 클릭 타겟이 아니라 그 자리를 눌러도 칩 활성화로 통과.
+- **PAD=44** (`scrollChipIntoView`): 다음 탭이 gap(4px)을 빼고 ~40px 노출 — 넉넉한 클릭 타겟. ✕가 활성 탭에만 보여 작은 peek도 안전하므로 크게 둠. 대칭이라 좌·우 동일 폭 peek.
+- **검증:** 사용자 실조건검증(오른쪽↔왼쪽 클릭 연타 이동·peek hover 시 ✕ 안 뜸·활성 탭 ✕ 닫기 확인). 빌드·타입체크 통과.
+
+### 36. 자막 '사용 안 함' 영상에서 듀얼자막 미표시 — 부팅 레이스 + 워치독 복구 (A60, v0.19.1)
+
+**증상:** 듀얼자막이 켜져 있는데도 자막이 안 나오고, 확인해 보면 그 영상의 유튜브 자막 상태가 `사용 안 함`. 자동생성/영어를 **수동으로** 고르면 그때 듀얼자막이 뜬다.
+
+**구조적 전제:** 우리 direct fetch는 **페이지가 이 영상의 timedtext를 한 번은 스스로 fetch해 줘야** 성립한다 — raw `baseUrl`엔 PoToken이 없어 `200 + empty body`가 오고, `waitForMatchingPageUrl`이 **같은 videoId의** 페이지 URL에서 PoToken을 빌려오기 때문(섹션 2). 즉 페이지 자막이 `사용 안 함`이면 데이터 경로가 통째로 없다. 그걸 뚫는 게 우리 CC 켜기 시퀀스(`trySetTrack` → CC click)인데, 아래 두 버그로 그 시퀀스가 발화하지 않거나 재시도되지 않았다.
+
+- **원인 1 — 부팅 레이스: `subtitlesEnabled=false`가 "꺼짐"과 "아직 모름"을 구분 못 함** (`inject-main.ts`). MAIN은 `subtitlesEnabled=false`로 시작해 isolated의 `SUBTITLES_ENABLED`를 기다리는데(초기 오작동 방지용, 섹션 12 주석), isolated의 `handleCaptionTracks`는 **설정 로드를 기다리지 않고** 트랙 방송 즉시 `FETCH_TIMEDTEXT`를 쏜다. 트랙이 `ytInitialPlayerResponse`에 이미 있는 첫 로드에선 이게 `loadSettings()` 완료보다 빨라, MAIN의 `tryEnableCaptions`·`forceToggleCaptions`·`armCaptureTimeout`이 **셋 다 게이트에 걸려 early-return** → **CC 클릭이 한 번도 안 나감**. 유튜브 자막이 원래 켜져 있던 영상은 페이지가 알아서 fetch해 티가 안 나고, `사용 안 함` 영상에서만 증상이 드러나 간헐적으로 보였다.
+  **해결:** `settingsKnown` 플래그로 "모름"을 분리하고, 설정 도착 전에 온 chosen 트랙은 `pendingEnable`에 **보류**했다가 `SUBTITLES_ENABLED` 수신 시 `runEnableSequence(lang, kind)`로 실행. 시퀀스(`trySetTrack` → 100ms 후 CC click → 300ms 후 force toggle)를 함수로 묶어 즉시/보류 두 경로가 같은 코드를 타게 했고, `armCaptureTimeout`도 시퀀스 안에서 재호출 — 레이스 때 `tryBroadcast`가 게이트에 걸려 못 건 재시도 타이머를 되살린다(재호출은 기존 타이머 교체라 idempotent).
+- **원인 2 — 워치독이 부트 시퀀스를 재발사 못 함** (`content/index.ts`). `requestedDirectFetchVideoIds`는 videoId당 `FETCH_TIMEDTEXT` 1회만 허용하고 `emptied`(영상 전환)에서만 비워진다. 그래서 워치독이 `FORCE_BOOT`로 MAIN의 capture 상태를 리셋하고 트랙을 재방송해도 isolated가 "이미 요청함"으로 판단해 **`FETCH_TIMEDTEXT`를 다시 안 보냈다** → `trySetTrack` + CC click + direct fetch 전체가 재시도되지 않고, 남은 복구 경로는 `armCaptureTimeout`의 CC 재토글뿐이었다(그마저 원인 1이면 안 걸림). **해결:** `FORCE_BOOT` 전송 직전에 `requestedDirectFetchVideoIds.delete(videoId)` — 섹션 4의 "워치독은 capture 상태 전체를 reset하는 장기 보호"가 실제로 성립하게 된다.
+- **보조 — `loadModule('captions')`** (`inject-main.ts:trySetTrack`): 자막이 `사용 안 함`인 영상은 captions 모듈이 안 올라와 있을 수 있고 그 상태의 `setOption`은 조용히 무시된다. `setOption` 전에 모듈을 먼저 올린다(이미 올라와 있으면 no-op). 타입엔 선언돼 있었으나 호출한 적이 없던 API.
+- **의도된 부작용 — 유튜브 자막 상태는 사용자가 만지는 곳이 아니다.** 우리 듀얼자막이 켜져 있으면 페이지 자막은 **강제로 켜진다**(데이터 수도꼭지). 그래서 사용자가 유튜브 메뉴에서 `사용 안 함`으로 바꿔도 ⓐ 이미 받은 cue로 듀얼자막은 계속 표시되고 ⓑ 듀얼자막 토글 키(A63부터 `V`, 이전엔 `Alt+C`)로 껐다 켜면 부트 시퀀스가 다시 돌아 트랙이 자동생성/영어로 되돌아온다(A63부터는 워치독을 기다리지 않고 즉시 — 섹션 39). 자막을 진짜로 끄는 유일한 스위치는 `V`·팝업 토글(그때 `subtitlesEnabled=false`라 강제 켜기도 멈춤). **A62(섹션 38)부터** 네이티브 자막 강제숨김이 `subtitlesEnabled` 조건부라 듀얼자막을 꺼두면 네이티브 자막(`'C'`로 제어)이 이중표시 없이 그대로 보인다 — 이전엔 CSS가 무조건 숨겨 이중표시가 원천 불가능했다.
+- **남은 의존 — 제거 불가로 확정(2026-07-13 실측).** 이 수정은 "페이지가 자막을 확실히 켜게" 만든 것이지 페이지 의존 자체를 끊은 건 아니다. 근본안으로 검토한 **`pot` 크로스-비디오 이식**(세션 내 다른 영상의 timedtext URL에서 `pot`만 떼어 이 영상 baseUrl에 이식)은 **콘솔 probe로 기각**됐다: 이 영상의 **정상 페이지 URL에서 `pot`만 다른 영상 것으로 교체**하니 `body.len 110545 → 0`. 나머지 파라미터가 전부 유효한 상태의 단일 변수 실험이므로 **`pot`은 콘텐츠(영상) 바인딩**으로 확정 — 세션 공용이 아니다. `pot` 자체 생성은 BotGuard 챌린지가 필요해 확장에서 비현실적. **따라서 "페이지가 그 영상의 timedtext를 한 번 fetch하게 만든다"가 유일한 데이터 경로이고, 유튜브 자막 메뉴가 강제로 켜지는 부작용은 구조적 대가다.** (probe 함정은 `~/.claude/wiki/youtube-timedtext-potoken.md`)
+- **검증:** 사용자 실조건검증(`사용 안 함` 영상에서 듀얼자막 표시 + 트랙 자동 선택 확인). 빌드·타입체크 통과.
+
+### 37. Mindlogic Base URL 사용자 입력화 — 여러 조직 계정 지원 (A61, v0.20.0)
+
+**계기:** 사용자가 학교(전북대) Mindlogic 계정 외에 회사(KBS) 계정을 추가로 받음 — 도메인이 다르다(`factchat-cloud.mindlogic.ai` vs `factchat.mindlogic-kr-api.com`, 후자는 `docs.factchat.kr/docs/kbs/api-gateway`로 확인). 매달 독립된 쿼터 2개를 쓸 수 있게 됐지만, 지금까지는 base URL이 학교 도메인 하나로 하드코딩(`mindlogic.ts`·`explain.ts`)돼 있어 계정을 바꿔 낄 수 없었다.
+
+- **설계 — 게이트웨이 프리셋이 아니라 자유 입력 필드 하나.** 두 계정을 자동 전환·동시 병행(용도별 분리, fallback 체인)하는 방안도 검토했으나, 실사용 패턴이 "한 번에 하나만 활성"이라 사용자가 직접 텍스트 필드 2개(Base URL + API 키)를 채우고 바꿀 때 자기가 바꾸는 방식으로 결정(오버엔지니어링 회피). `settings.mindlogicBaseUrl`(storage.sync, 문자열) 신설.
+- **기본값 없음 — 웹스토어 공개를 고려한 결정.** 학교 URL을 기본값으로 박으면 배포 후 그 조직과 무관한 사용자에게 남의 인프라 주소가 노출되고 실제로는 안 쓰임(Gemini/Notion 키와 같은 원칙 — BYOK는 기본값이 없다). `mindlogicBaseUrl` 기본값은 빈 문자열. 빈 상태로 호출하면 API 키와 동일한 패턴으로 명확한 에러("Mindlogic Base URL이 설정되어 있지 않음")를 던져 빈 도메인 fetch를 막는다(`shared/settings.ts:getMindlogicBaseUrl` — trailing slash 제거해 `.../v1/gateway/`처럼 슬래시를 붙여도 `//chat/completions`가 안 되게. `mindlogic.ts`·`explain.ts` 공용).
+- **기존 사용자(학교 계정) 마이그레이션 필요:** 이 변경 전엔 URL이 코드에 박혀 있어 즉시 동작했지만, 배포 후엔 옵션 페이지에서 Base URL을 **한 번 직접 입력**해야 학교 계정이 계속 동작한다(자동 이관 없음 — 이전엔 storage에 값 자체가 없었으므로 마이그레이션할 옛 값이 없음). 번역은 실패 시 google-free로 자동 fallback되어 조용히 품질만 낮아지고, 해설(💡/❓)은 fallback이 없어 에러가 그대로 뜬다.
+- **host_permissions는 정적이라 아는 도메인만 선등록.** MV3는 런타임에 임의 도메인을 fetch 허용할 수 없어(`optional_host_permissions` + 사용자 제스처 기반 `chrome.permissions.request` 없이는), 지금 아는 두 도메인(`factchat-cloud.mindlogic.ai`, `factchat.mindlogic-kr-api.com`)을 `manifest.ts`에 미리 등록. 제3의 조직 도메인이 추가되면 매니페스트 갱신 + 재배포 필요 — base URL을 완전 자유 입력으로 열어도 이 한계는 남는다.
+- **배선:** `mindlogic.ts`의 `translateBatch`/`testMindlogicKey`/`listMindlogicModels`, `explain.ts`의 `explainMindlogic` 모두 하드코딩 `ENDPOINT`/`MODELS_ENDPOINT` 상수 대신 `getMindlogicBaseUrl() + '/chat/completions'` 또는 `'/models'`로 조립. 옵션 페이지의 "테스트"·"모델 새로고침" 버튼도 저장된 값이 아니라 입력 중인 `settings.mindlogicBaseUrl`을 그대로 실어 보내(API 키와 같은 "저장 전 즉시 검증" 패턴) `TEST_MINDLOGIC`/`MINDLOGIC_LIST_MODELS` 메시지에 `baseUrl` 필드 추가.
+- **검증:** 사용자 실조건검증(옵션 페이지에서 Base URL+키 입력 후 "테스트" 통과 확인).
+
+### 38. 영상 언어 자동감지 + 'C'/`Alt+C` 완전 분리 (A62, v0.21.0)
+
+**계기:** 사용자 요청 두 가지 — ⓐ 어떤 나라 영상이든 그 나라 언어 기반 듀얼자막이 자동 실행됐으면(특히 정식 자막이 드문 Shorts는 자동생성 자막 우선), ⓑ `'C'` 키가 네이티브 자막·듀얼자막을 동시에 토글하는 게 불편 — 둘을 분리하고 듀얼자막을 꺼도 네이티브 자막은 보이게.
+
+**ⓐ 언어 자동감지 — `sourceLang` 설정 완전 제거.**
+
+- **문제였던 것:** `pickTrack`(섹션 2)의 외국어 분기가 사용자가 미리 골라둔 `sourceLang` 설정(기본 `'en'`)과 일치하는 트랙을 최우선으로 골랐다. 대부분 영상은 그 설정 언어 트랙이 없어 결과적으로 영상 원어가 뽑혔지만(운 좋은 fallback), 크리에이터가 원어+영어 자막을 같이 올린 영상에서는 실제로 프랑스어인 영상인데 영어 트랙이 뽑히는 식으로 어긋났다. 번역 API에 넘기는 원본 언어(`src`)도 실제 고른 트랙이 아니라 이 설정값이라 이중으로 어긋날 수 있었다(잠재 버그).
+- **수정:** `pickTrack`(`content/index.ts`) 외국어 분기의 정렬 기준을 사용자 설정 → **ASR 트랙의 lang(`videoLang`, 영상이 실제 말하는 언어)** 으로 교체. 같은 언어 안 manual > asr 우선순위는 그대로. 번역 시 `src`도 설정값 대신 `currentTrackLang`(실제 고른 트랙의 언어)을 쓰도록 통일 — 원본 언어 hint가 항상 실제 트랙과 일치.
+- **설정 UI 통째로 제거:** `SourceLangSchema`/`SourceLang`(`settings.ts`), `SOURCE_LANGS`(`lang-options.ts`), 옵션 페이지 "원문 → 번역문"의 원문 드롭다운(→ "번역 언어" 한 줄로 축소), 팝업의 "영상 자막" 행, `RETRANSLATE_KEYS`의 `'sourceLang'`. 옛 사용자 storage에 남은 `sourceLang` 값은 스키마에서 안 읽으므로 그냥 무시됨(마이그레이션 불필요).
+- **트레이드오프:** "특정 언어만 계속 학습하고 싶다"(예: 항상 영어 자막 우선) 같은 고정 선호 옵션은 사라짐 — 이제 항상 영상의 실제 언어를 따른다.
+
+**ⓑ `'C'`/`Alt+C` 완전 분리 (섹션 10·12 참조).**
+
+- **막고 있던 지점:** `styles.ts`의 네이티브 자막 강제숨김(`.ytp-caption-window-container { display: none !important }`)이 `subtitlesEnabled` 상태와 무관하게 **무조건** 적용돼 있었다. 듀얼자막을 꺼도 네이티브 자막이 안 보이는 게 이 CSS 한 줄 때문 — 키를 아무리 분리해도 이게 있으면 "본자막이 보이는" 요청 자체가 원천 불가능했다.
+- **수정:** CSS를 `html[data-ydt-active="true"] .ytp-caption-window-container {...}`로 스코프(`content/index.ts:applySettings`가 `document.documentElement.dataset.ydtActive`를 `subtitlesEnabled`에 맞춰 토글). `'C'` 키 가로채기(`stopImmediatePropagation` + 프로그램적 CC `click()` + `subtitlesEnabled` 토글)를 완전히 제거해 YouTube 기본 동작에 맡기고, 듀얼자막 on/off는 새로 만든 `Alt+C` 핸들러(`document.keydown`, 기존 `'C'`와 같은 물리 키 판별 패턴)로 이동. CC 버튼→`subtitlesEnabled` 단방향 sync(옛 섹션 12, `ccButtonObserver` 전체)도 독립성 목표와 충돌해 제거.
+- **결과:** `'C'` = 네이티브 CC만, `Alt+C` = 듀얼자막만. 듀얼자막을 꺼둔 채 `'C'`로 네이티브를 켜면 원래 자막이 그대로 보인다. (**A63부터 `Alt+C`는 `V`로 변경** — 분리 메커니즘 자체는 동일, 섹션 39.)
+
+**검증:** 사용자 실조건검증(Shorts 영상에서 듀얼자막 정상 렌더 확인, `'C'`/`Alt+C` 각각 의도대로 분리 동작 확인). 여러 언어 자막이 동시에 있는 영상에서 원어가 정확히 뽑히는지는 그런 영상을 아직 못 만나 실조건 미확인 — 구조상(설정 자체가 없어져 `videoLang` 외 다른 기준이 없음) 어긋날 경로가 없다는 점만 코드로 확인.
+
+### 39. 듀얼자막 단축키 `Alt+C`→`V` + 자막 꺼짐 상태에서 켜면 즉시 강제 재부팅 (A63, v0.22.0)
+
+**계기:** 사용자 요청 두 가지 — ⓐ `Alt+C`를 `V`(단독 키)로 변경, ⓑ 영상이 자막 `사용 안 함` 상태로 시작한 경우(특히 Shorts) 단축키로 듀얼자막을 켜도 화면에 표시되지 않고, 유튜브 자막 메뉴에서 자동생성 자막을 마우스로 직접 선택해야만 그제서야 보이는 문제.
+
+**ⓐ 단축키 변경 — `Alt+C` → `V` 단독 키.** `chrome.commands`(매니페스트 단축키, `Alt+Q`가 이미 쓰는 방식 — 섹션 28)는 수정키 없는 단독 키를 등록할 수 없어 채택 불가 — 기존과 같은 `document.keydown` 리스너를 유지하되 판별 키만 교체(`content/index.ts` 최하단). 물리 키 `ev.code === 'KeyV'` 우선(+ `ev.key === 'v'` 폴백)은 기존 `'C'`/`Alt+C` 핸들러와 동일한 IME/레이아웃 견고성 패턴(섹션 10). 수정키(Alt/Ctrl/Shift/Meta) 중 하나라도 눌려 있으면 통과 — `Ctrl+V`(붙여넣기)와 충돌 방지. 팝업·옵션 페이지의 단축키 안내 라벨(`popup/main.tsx`·`options/main.tsx`)도 동기화.
+
+**ⓑ 자막 꺼짐→켜짐 전환 시 즉시 강제 재부팅 — 워치독의 타이밍 갭.**
+
+- **구조적 원인:** A60(섹션 36)이 고친 건 "영상 시작 시점의 부팅 레이스"였지, "자막이 꺼진 채 시작한 영상에서 **나중에** 사용자가 켜는" 경로가 아니었다. `subtitlesEnabled=false`인 채 영상이 시작하면 MAIN은 CC 클릭·`setOption`을 아예 보류하고(`inject-main.ts`의 `pendingEnable`), 우리 direct fetch는 페이지가 자체 fetch한 적이 없어 PoToken 없이 빈 응답만 받는다(섹션 36 "구조적 전제"). 이 상태를 복구하는 유일한 경로는 워치독(`content/index.ts:armWatchdog`)인데, **영상 진입 후 8s/30s/60s 누적 지연으로만** 동작하고 그마저 콜백이 도는 순간 `subtitlesEnabled`가 `true`여야 발화한다. 사용자가 그 사이 어느 시점에 단축키로 켜도 다음 워치독 틱까지(최장 수십 초) 아무 재시도가 없다 — 쇼츠는 그 전에 스와이프하거나 영상이 끝나 사실상 복구가 안 됐다. 유튜브 메뉴로 직접 켜면 우리 메커니즘을 거치지 않고 페이지가 즉시 자체 fetch하니 바로 뜨는 것이었다.
+- **수정:** 워치독 콜백 안에 있던 재부팅 코드(`requestedDirectFetchVideoIds.delete` + `FORCE_BOOT` postMessage)를 `requestForceBoot(videoId)`로 추출하고, `chrome.storage.onChanged` 핸들러에서 `subtitlesEnabled`가 `false→true`로 바뀌었고 그 영상의 cue가 아직 하나도 없으면(`lastCues.length === 0`) 워치독 틱을 기다리지 않고 즉시 호출한다(`content/index.ts`). 이미 cue가 있는 영상에서 껐다 켜는 정상 케이스는 조건에 안 걸려 불필요한 재부팅이 없다.
+- **한계:** Shorts의 CC 버튼 셀렉터(`inject-main.ts`의 `.ytmClosedCaptioningButtonButton`, 섹션 3)가 현재 유튜브 DOM과 여전히 일치하는지는 코드로만 확인했고 실조건 미확인 — 이 수정 후에도 재현되면 다음 의심 지점.
+
+**검증:** 빌드·타입체크 통과(프록시검증, 실조건 미확인) — 자막 꺼짐 영상에서 `V`로 켰을 때 즉시 표시되는지, 특히 Shorts는 Chrome 실사용 확인 대상.
+
+### 40. 팝업 "최근 번역"에 모델명 추가 + Mindlogic 추천 힌트 제거 (A64, v0.22.1)
+
+- **모델명 표기** (`secrets.ts:LastBackendInfo` + `background/index.ts` + `popup/main.tsx`): 번역 성공 시 그 순간 `storage.sync`의 `geminiModel`/`mindlogicModel`을 함께 읽어 `LastBackendInfo.model`에 저장(google-free·chrome-builtin은 모델 선택이 없어 `undefined`). **팝업 표시는 A75에서 제거**(fallback 경고 카드만 남음 — 섹션 11·48). `model` 필드는 저장만 되고 현재 읽는 곳 없음.
+- **Mindlogic 모델 힌트 제거** (`lang-options.ts`): `ModelOption.transHint`를 optional로 바꾸고 `MINDLOGIC_MODELS`에서 `자연스러움`/`고품질` 등 힌트 텍스트를 뺐다 — 모델 라인업이 자주 바뀌어 고정 추천 문구가 금방 낡기 때문(사용자 피드백). **Gemini는 그대로 유지**(세대가 안정적) — `renderModelSelect`(`options/main.tsx`)는 힌트가 없으면 `known.get(id)?.transHint`가 `undefined`라 자동으로 안 표시.
+
+### 41. Alt+Q "직접 질문"을 유튜브 밖에서도 — activeTab 온디맨드 주입 (A65, v0.23.0)
+
+**계기:** 단축키 `Alt+Q`(섹션 28, "자막 직접 질문 패널 열기")는 `content_scripts.matches`가 `youtube.com`뿐이라 다른 사이트에서는 반응하지 않았다. 사용자는 별도 확장 `AI_Dictionary_260622`([[project_ai_dictionary]])로 그 자리를 메워왔는데 "거의 같은 기능 두 벌"이 번거롭다는 요청 — `AI_Dictionary`가 이미 검증해둔 온디맨드 주입 패턴(그 repo `background/index.ts`)을 이 리포의 더 풍부한 해설 패널(탭·형광펜·Notion, 섹션 14·17·20)에 적용해 흡수했다.
+
+- **왜 `<all_urls>` content_scripts가 아닌가:** 상시 매칭은 브라우저가 열릴 때마다 모든 페이지에 스크립트를 얹어야 하고, 설치 시 "모든 웹사이트의 데이터 읽기·변경" 권한 경고가 뜬다. 실제 필요는 "단축키를 누른 그 순간, 그 탭 하나"뿐이라 `activeTab`(사용자 제스처로 그 탭에만 임시 권한) + `chrome.scripting.executeScript`로 온디맨드 주입한다(`AI_Dictionary`가 이미 쓰던 방식, `manifest.ts`에 `activeTab` 추가).
+- **`ExplainUI`는 이미 YouTube 비의존적:** 생성자가 `requestExplain`/`requestQuestion`/`requestNotionSave`/`modelLabel` 콜백만 받고(`explain-ui.ts`), 패널은 `document.fullscreenElement ?? document.body`에 붙는다. `.ydt-container`(자막 박스) 셀렉터를 참조하는 곳은 "드래그 선택이 자막 박스 안인지" 판정 두 곳뿐이라 유튜브가 아닌 페이지에서는 그냥 매치가 안 돼 무해 — `openAsk()` 경로엔 이 판정 자체가 없다. 그래서 새 진입점(`src/inject/ask-anywhere.ts`)은 `content/index.ts`의 해설 배선(EXPLAIN·NOTION_SAVE 메시지 조립, 섹션 14·19·28)을 그대로 복제 재사용하면 됐다 — `videoTitle()`(유튜브 접미사 스트립) 대신 `document.title`을 씀.
+- **크로스js 빌드 트릭 — "등록은 하되 절대 자동 실행 안 되게":** `chrome.scripting.executeScript({files})`로 주입할 파일은 vite가 콘텐츠 해시를 붙여 빌드하므로, background 코드가 그 경로를 미리 알 수 없다. crxjs는 `content_scripts` 항목만 해시된 실제 경로로 처리해준다 — 그래서 `ask-anywhere.ts`를 `content_scripts`에 등록하되 `matches`를 RFC 2606 예약 도메인(`https://ydt-ask-anywhere.invalid/*`)으로 둬 실제로는 절대 매치되지 않게 했다. background(`askAnywhereFiles()`)는 `chrome.runtime.getManifest().content_scripts`에서 파일명에 `ask-anywhere`가 들어간 항목을 찾아 그 해시 경로를 `executeScript({files})`에 그대로 쓴다.
+- **`web_accessible_resources`는 이 그룹만 `<all_urls>`로 예외:** crxjs가 자동 생성하는 `web_accessible_resources` 항목은 해당 `content_scripts.matches`(=`.invalid` placeholder)를 그대로 복사해버려, 실제로 임의 페이지에 주입했을 때 loader의 동적 `import()`(다른 공유 청크를 chrome-extension:// URL로 fetch)가 그 페이지 origin에서 CORS로 막힌다. `scripts/patch-manifest.mjs`가 `npm run build` 뒤 `dist/manifest.json`에서 리소스 목록에 `ask-anywhere`가 들어간 그룹만 찾아 `matches`를 `<all_urls>`로 넓힌다. **`web_accessible_resources.matches`는 host_permissions와 별개 채널**(그 사이트의 스크립트가 이 파일들을 "볼" 수 있게 하는 것뿐, 확장이 그 사이트 데이터를 보는 권한이 아님)이라 설치 권한 경고를 유발하지 않는다(Chrome 공식 문서가 이 구분을 명시하나 권한 경고 UI 자체에 대한 명시 문장은 없음 — 확인 필요로 남김). 그룹을 못 찾으면 빌드를 `process.exit(1)`로 실패시켜(조용히 깨진 채 배포되는 걸 방지) — 이 그룹이 사라지는 건 crxjs의 내부 청크 분할 방식이 바뀌었다는 신호다.
+- **YouTube 레이스 가드** (`background/index.ts`): `chrome.tabs.sendMessage(tabId, {type:'OPEN_ASK'})`가 실패해도 그 탭이 `youtube.com`이면 온디맨드 주입을 하지 않는다 — content script가 아직 초기화 중일 뿐인데 ask-anywhere를 얹으면 자막 배선 없는 별도 `ExplainUI` 인스턴스가 중복 생겨 선택 이벤트가 두 번 처리된다. 진짜 "콘텐츠 스크립트 자체가 없는 페이지"에서만 보완.
+- **사용자 제스처 유지:** `chrome.commands.onCommand`의 두 번째 인자로 `tab`을 직접 받아(별도 `chrome.tabs.query` 왕복 없이) `activeTab`이 요구하는 "사용자 제스처로 호출됨" 조건을 이벤트 콜백 프레임 안에서 바로 쓴다(`AI_Dictionary`의 `chrome.action.onClicked`와 같은 원칙).
+- **팝업 "➕ 새 질문" 버튼(섹션 29)은 이번엔 그대로 둠** — A80(섹션 50)에서 팝업 입력칸으로 바뀌며 전역화됨.
+
+**검증:** 빌드·타입체크·`manifest.json` 산출 구조(placeholder matches + `<all_urls>` 리소스 그룹) 확인(프록시검증) — 실제 비유튜브 사이트에서 `Alt+Q` 눌러 패널이 뜨는지는 Chrome 실사용 확인 대상.
+
+### 42. Mindlogic 게이트웨이 크레딧 사용량 조회 (A66, v0.23.0)
+
+옵션 페이지에서 이번 달 크레딧 사용량을 확인할 수 있게 `GET /v1/gateway/credits/` 엔드포인트를 연결(엔드포인트 스펙은 `docs.factchat.kr/docs/kbs/api-gateway/reference/credits` 확인 — KBS 조직 문서지만 두 조직 모두 같은 Mindlogic/FactChat 게이트웨이 소프트웨어라 `/models`처럼 동일 계약으로 가정, 전북대 도메인에서는 실호출 미확인).
+
+- `mindlogic.ts:getMindlogicCredits(apiKey?, baseUrl?)`: `${baseUrl}/credits/`(baseUrl은 이미 `.../v1/gateway`까지 포함, 섹션 5·37) → `{monthly_allocated, purchased, total}` 각각의 `{quota, used, remaining}` + `renewal_date`를 camelCase로 변환. 401/403은 키 인증 실패, **404는 "이 게이트웨이 버전엔 없을 수 있음"으로 별도 문구** — 조직별 배포판마다 지원 여부가 다를 수 있어 일반 서버 오류와 구분.
+- `background/index.ts:MINDLOGIC_CREDITS` 메시지: `TEST_MINDLOGIC`/`MINDLOGIC_LIST_MODELS`와 같은 패턴(옵션 페이지가 입력 중인 baseUrl/키를 그대로 실어 보냄 — 저장 전 즉시 검증).
+- `options/main.tsx`: Mindlogic 설정 섹션에 "사용량 확인" 행 추가 — `💳 크레딧 확인` 버튼 → `이번 달 {used} / {quota} 사용 (갱신 YYYY-MM-DD) · 구매 잔여 {n}`. 응답 타입(`MindlogicCredits`)은 `background/translators/mindlogic.ts`의 동명 인터페이스를 import하지 않고 옵션 페이지에 로컬로 다시 선언(`ModelInfo`와 같은 기존 패턴 — options↔background는 메시지 JSON 모양만 공유, 직접 import 없음). **별도 행·버튼·문구는 A68(섹션 44)부터 `🧪 테스트` 버튼에 통합되고 `잔여 R / Q 크레딧` 형식으로 바뀜.**
+
+**검증:** 빌드·타입체크 통과(프록시검증) — 실제 게이트웨이 응답 스키마가 문서와 일치하는지, 두 조직 도메인 모두에서 엔드포인트가 살아있는지는 Chrome 실사용(유효 키로 "크레딧 확인" 클릭) 확인 대상.
+
+### 43. ask-anywhere 버튼 아이콘이 다른 사이트에서 안 보임 — 호스트 CSS 충돌 방어 (A67, v0.23.2)
+
+**증상 (사용자 실사용 리포트):** A65(섹션 41)로 유튜브 밖 페이지(`nate.com`)에서 `Alt+Q`를 눌러보니 패널 본문(마크다운·표·색상)은 정상인데, 헤더의 아이콘 버튼(🖍️형광펜·📋복사·📝Notion·➕새질문·–/✕)만 빈 사각형으로 보임.
+
+**1차 시도(불충분, `!important` + specificity만):** 처음엔 그라디언트 텍스트(`-webkit-text-fill-color:transparent`+`background-clip:text`)와 아이콘폰트식 `button{font-size:0}` 두 패턴을 가정해 `color`/`font-family`/`background-clip` 등을 `!important`로 재선언하고 셀렉터를 `.foo.foo`로 이중화해 specificity까지 올렸다. 재현 사이트를 몰라 **가상의 충돌 HTML**로만 검증하고 배포했는데, 사용자가 실제 `nate.com`에서 재확인하니 **동일 증상 재발**(스턱루프 트립와이어 — 규칙 11-b).
+
+**부재 확인(Playwright로 실제 `nate.com` DOM 직접 조사):** `getComputedStyle` + `Range.getBoundingClientRect()`로 우리 버튼 엘리먼트를 실제로 그 페이지에 만들어 넣고 재보니 `text-indent: -14000px` + `overflow: hidden`이 걸려 있었다 — 1차 시도가 방어한 속성(`color`·`font-family`·`background-clip`) 자체는 이미 올바르게 계산되고 있었는데(1차 수정이 무효였던 게 아니라 **다른 속성**이 원인), 텍스트 노드의 실제 렌더 위치가 `x: -7020px`로 화면 밖으로 밀려나 있었다. **`text-indent`/`overflow`로 텍스트를 안 보이게 하고 `background-image`로 아이콘만 보여주는 건 네이버·네이트 등 한국 포털이 흔히 쓰는 접근성 패턴**(텍스트는 스크린리더용으로 남기고 시각적으로만 숨김) — 우리 버튼은 "텍스트"가 곧 아이콘(이모지)이라 이 리셋에 그대로 당한다. 박스(배경·테두리·패딩)는 1차 수정이 이겨서 정상으로 보이니 "버튼은 있는데 텅 빔"으로 보인 것.
+- **최종 수정** (`content/renderer/styles.ts`): 1차 수정(색상·폰트·specificity 이중화)은 그대로 유지한 채, 같은 버튼 클래스들에 `text-indent: 0 !important; overflow: visible !important;`를 추가.
+- **검증 방법 교정:** 가상 HTML 시뮬레이션은 "내가 예상한 충돌 패턴"만 재현해 실제 사이트의 다른 메커니즘을 놓쳤다 — 이후로는 Playwright로 **실제 호스트 페이지에 직접** 우리 클래스의 버튼을 만들어 `getComputedStyle`/`getBoundingClientRect`로 검사하고, 같은 방법으로 최종 수정 후 `nate.com`에서 아이콘이 실제로 보이는 것까지 스크린샷으로 확인.
+- **한계:** `#id` 셀렉터나 3중 클래스 조합처럼 이론상 더 강한 리셋은 여전히 이길 수 있음 — 재발하면 Shadow DOM 격리를 검토(다만 `window.getSelection()`의 open shadow root 경계 처리가 브라우저별로 불확실해 본문 재해설·형광펜 기능이 깨질 위험이 있어 지금은 채택 안 함).
+
+**검증:** 실제 `nate.com`에서 Playwright로 직접 재현·확인(1차는 프록시검증에 그쳐 실패, 2차는 실조건검증 — 같은 사이트에서 컴퓨티드 스타일·스크린샷 둘 다 정상 확인). 사용자가 원래 겪은 화면에서도 같은지는 최종 재확인 대상.
+
+### 44. 옵션 페이지 — 테스트 버튼에 모델 새로고침·크레딧 확인 통합 (A68, v0.23.3)
+
+Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새로고침, 💳 크레딧 확인 — Mindlogic만)로 늘어나 있던 걸 `🧪 테스트` 하나로 합쳤다. 셋 다 "같은 키가 유효한가"를 확인하는 호출이라 분리해 둘 이유가 없었다(사용자 요청, 섹션 21·42의 "↻ 모델 새로고침"·"💳 크레딧 확인" 별도 버튼 서술은 이 섹션으로 대체).
+
+- **배선** (`options/main.tsx`): `onTestGemini`는 `TEST_GEMINI` + `refreshModels('gemini')`를, `onTestMindlogic`은 `TEST_MINDLOGIC` + `refreshModels('mindlogic')` + `checkMindlogicCredits()`를 `Promise.all`로 동시 실행. 번역 모델 행의 `↻ 모델 새로고침` 버튼(`modelRefreshControls`)과 Mindlogic의 `사용량 확인` 행(`💳 크레딧 확인` 버튼)은 제거 — 테스트 버튼 옆에 결과만 이어 붙는다(`✓ 동작함 · 모델 목록 N개 확인 · 잔여 R/Q 크레딧 (갱신 날짜)`).
+- **결과는 항상 한 번에 커밋 — 순차 도착에 의한 레이아웃 점프 방지.** 처음엔 `refreshModels`/`checkMindlogicCredits`가 각자 완료 시점에 자체 `setState`를 호출해, 먼저 끝난 요청의 결과(주로 모델 목록 — 응답이 가벼워 번역 테스트보다 빨리 옴)가 버튼 옆에 먼저 뜨고, 뒤늦게 도착한 테스트 결과 텍스트가 앞에 끼어들며 그 줄이 통째로 다음 줄로 밀리는 점프가 있었다(사용자 실사용 리포트로 발견). 해결: `refreshModels`/`checkMindlogicCredits`를 자체 `setState` 없이 결과값(`ModelsFetch`/`CreditsState`)만 반환하는 함수로 바꾸고, `onTest*`가 `Promise.all`로 다 모은 뒤 `setTestState`/`setModelsFetch`/`setCreditsState`를 같은 tick에 한 번에 호출 — 세 결과가 항상 완성된 한 줄로만 나타난다. 모델 목록 자체(드롭다운 옵션)는 이 점프와 무관한 별도 행이라 `setModels`는 여전히 도착 즉시 반영.
+- **크레딧 문구**: 섹션 42의 "이번 달 N/M 사용" 대신 **잔여량을 앞세운** `잔여 {monthlyRemaining} / {monthlyQuota} 크레딧` 형식(사용자가 남은 양을 우선 확인하고 싶어함). 구매 크레딧이 있으면 `· 구매 잔여 N 크레딧` 이어 붙임.
+- **검증:** 빌드·타입체크 통과(프록시검증) — 실제 Mindlogic 키로 테스트 클릭 시 세 결과가 동시에 한 줄로 뜨는지, 크레딧 문구·소수점 표시는 Chrome 실사용 확인 대상.
+
+### 45. 듀얼자막 단축키 기본값 V→G + 옵션 페이지에서 사용자 재지정 (A69, v0.23.4)
+
+**계기:** 전체화면 상태에서 `V`를 누르면 YouTube 자체 기능(추천 영상 썸네일 오버레이 호출)이 함께 발동해 `V`를 듀얼자막 단축키로 계속 쓰기 어려웠다. 코드에 다시 하드코딩된 다른 글자로 바꾸면 다음에 또 같은 충돌이 나면 코드 수정·재배포가 필요하므로, 이번엔 **옵션 페이지에서 사용자가 직접 키를 재지정**할 수 있게 만들었다.
+
+- **설정화** (`shared/settings.ts:SubtitlesToggleKeySchema`): `subtitlesToggleKey`를 새 설정 필드로 신설(기본값 `'g'`). **소문자 알파벳 1글자만 허용**(자유 문자열 아님) — `content/index.ts`의 물리 키 판별(`ev.code === 'Key<Letter>'`, 섹션 10·39와 동일 IME/레이아웃 견고성 패턴)과 짝이 맞아야 하므로. **숫자는 의도적으로 제외**: YouTube 네이티브 플레이어가 `0`-`9`를 영상 진행률 % 탐색(seek) 단축키로 이미 쓰고 있어, 숫자를 허용했다면 이번에 고친 것과 같은 종류의 충돌(`V`가 전체화면 오버레이와 겹쳤던 것)이 재발했을 것.
+- **핸들러 동적화** (`content/index.ts`): 옛 `if (ev.code !== 'KeyV' ...)` 하드코딩을 `currentSettings.subtitlesToggleKey`(module-level, `storage.onChanged`로 매 변경마다 최신화)에서 매 keydown마다 다시 읽어 `Key${toggleKey.toUpperCase()}`를 계산하는 방식으로 교체. 옵션 페이지에서 키를 바꾸면 다음 keydown부터 즉시 새 키로 반영(재빌드·재로드 불필요 — storage 값만 바뀌면 됨).
+- **옵션 페이지 레코더 UI** (`options/main.tsx`): "켜기/끄기 단축키" 행에 현재 키를 보여주는 버튼 하나. 클릭 → "키 입력 대기" 상태로 전환 → 다음 유효 키(수정키 없는 알파벳 1개)를 `window.addEventListener('keydown', ..., true)`로 캡처해 즉시 저장(디바운스 없음 — 단발 이벤트라 불필요), Escape로 취소. 힌트 문구에 `c/f/j/k/l/m/n/i/t/w` 등 YouTube 자체 단축키와 흔히 겹치는 글자를 미리 안내해 같은 충돌을 사용자가 스스로 피하게 함(이 목록은 YouTube 키보드 단축키 공식 문서 fetch 없이 코드 상수로 흔한 것만 나열 — 완전한 목록 아님, 확인 필요로 남김).
+- **팝업·옵션 라벨 동기화**: 팝업 "자막 켜기" 행의 "단축키 V" 고정 문구, 옵션 "자막 켜기" 행의 동일 문구를 모두 `settings.subtitlesToggleKey.toUpperCase()`를 따라가도록 교체 — 사용자가 키를 바꾸면 두 표시도 즉시 갱신.
+- **검증 한계:** 브라우저 자동화 도구가 `chrome://extensions`/`chrome-extension://` 내부 URL 조작을 막아 이번 세션에서 옵션 페이지 레코더·실제 키 입력 반영을 직접 눌러보진 못했다(프록시검증 — 빌드·타입체크만 통과). 레코더 UI 동작·저장된 키로 실제 토글까지는 Chrome 실사용 확인 대상.
+
+### 46. UI 표시 언어 — 기본 영어 + 옵션에서 한국어 (A70, v0.24.0) + 새 설치 브라우저 언어 시드·`_locales` (A72, v0.24.1)
+
+**계기:** 웹스토어 공개 배포를 염두에 두고 화면 문구를 영어 기본으로 바꾸되, 한국어 사용자는 옵션에서 되돌릴 수 있게 한다.
+
+- **`chrome.i18n`을 안 쓴 이유(확인된 한계):** `chrome.i18n`은 로케일을 **브라우저 UI 언어로만** 정하고 런타임에 바꾸는 API가 없다(공식 문서 실확인 — 메서드는 `getMessage`/`getAcceptLanguages`/`getUILanguage`/`detectLanguage` 넷뿐이고, 문서가 "직접 번역 관리 체계를 구현하라"고 명시). "설정에서 한국어로 전환"이라는 요구가 `_locales` 방식과 원리적으로 상충 → 자체 사전(`src/shared/i18n.ts`).
+- **사전 구조:** `EN` 객체가 **키의 원본**이고 `KO: Record<MsgKey, string>`이라 한쪽에만 키를 넣으면 타입체크가 깨진다(누락 방지). 치환은 `{name}` 자리표시자. 현재 언어는 모듈 전역 하나(`setUiLang`/`getUiLang`/`t`/`tl`).
+  - **React 페이지(옵션·팝업)**: 컴포넌트 본문 맨 위에서 `setUiLang(settings.uiLang)`를 **동기로** 호출한 뒤 렌더한다. settings state가 바뀌면 리렌더되므로 언어 전환이 그 즉시 화면 전체에 반영된다(effect로 미루면 첫 렌더가 옛 언어로 나간다).
+  - **content/background/ask-anywhere**: `initUiLang()`(background) 또는 `setUiLang(s.uiLang)`(content `applySettings`, ask-anywhere) — storage를 읽고 `onChanged`로 추적. 로드 전에는 영어로 나간다(부팅 직후 잠깐, 에러 문구에만 해당).
+  - **이미 만들어진 DOM은 자동으로 안 바뀐다** — 해설 패널은 셸을 1회 생성하고 재사용하므로 `ExplainUI.relabel()`이 정적 라벨(툴바·액션 버튼·코너·전송·FAB)만 다시 찍는다. `applySettings`가 매번 호출. 탭 본문(받은 답변)은 모델이 만든 내용이라 대상 아님.
+  - **라벨 상수는 함수로**: `lang-options.ts`의 `DISPLAY_MODES`/`BACKENDS`가 모듈 로드 시점 언어로 굳어버리므로 `displayModes()`/`backends()`로 바꿨다. 같은 이유로 모델 추천 힌트(`transHint`/`explainHint`)는 문자열이 아니라 **사전 키(`MsgKey`)** 를 들고 있고 옵션 페이지가 렌더 시 `t()`로 푼다.
+- **프롬프트 문장은 표시 언어를, AI 답변 언어는 번역 언어(`targetLang`)를 따른다 (A73):** `defaultExplainPrompt(lang)`/`questionSystemPrompt(lang)`은 표시 언어별 두 벌이고, **언어를 전환할 때 저장된 `explainPrompt`가 「직전 언어의 기본값 그대로」면 새 언어 기본값으로 갈아끼운다**(`options/main.tsx:onUiLangChange`). 사용자가 편집한 프롬프트는 건드리지 않는다(사용자 자산). 답변 언어 줄은 `{answerLang}` 자리표시자이고 background `explain()`이 매 호출 storage의 `targetLang`을 읽어 `settings.ts:fillAnswerLang`으로 그 언어 이름(프롬프트 언어 기준 — `Japanese`/`일본어`, 사전 키 `lang.name.*`)을 넣는다. **왜:** 표시 언어는 en/ko뿐이라 답변을 표시 언어에 묶으면 일본어 브라우저 사용자(표시 en·번역 ja)가 영어 해설을 받는다 — 학습 도구로는 모국어(=번역 언어) 설명이 맞다. 사용자가 `{answerLang}`을 지운 프롬프트는 그대로 둔다. **A73 이전 기본값**(답변 언어가 `English`/`한국말` 고정 문구)이 그대로 저장된 경우는 `loadSettings`가 새 기본값(자리표시자판)으로 정규화해 읽는다(저장값은 안 건드림) — 안 그러면 "기본값으로" 버튼이 켜지고 언어 전환 자동 교체도 끊긴다. 한국어 프롬프트의 `{answerLang}로` 조사는 7개 언어 이름이 전부 모음(`어`)으로 끝나 성립.
+- **에러 문구에서 제공자 이름:** 번역/해설 백엔드 에러는 `{name}` 자리에 `'Gemini'`/`'Gateway'`를 넣어 조립한다. 게이트웨이를 브랜드명이 아니라 일반명으로 부르는 것은 위 라벨 정책과 같은 이유(섹션 5).
+- **길이 불일치 재시도는 code로 판별:** gemini·mindlogic의 1회 재시도가 예전엔 `e.message.startsWith('… 응답 길이 불일치')`였는데 문구가 번역되면 그대로 깨진다 → `Object.assign(new Error(t(...)), { code: LENGTH_MISMATCH })` + `code` 비교로 교체. **사용자에게 보이는 문자열로 제어 흐름을 분기하지 말 것** — i18n을 넣는 순간 전부 지뢰가 된다.
+- **번역 대상이 아닌 것:** 코드 주석(한국어 유지), `console.log`(개발자용), 옵션 미리보기 샘플 문장(그건 `targetLang`별 예시 데이터), 모델 ID.
+- **스토어 목록(manifest `name`/`description`, 커맨드 설명)은 이 설정으로 못 바꾼다** — Chrome이 직접 읽는 값이라 **브라우저 UI 언어**를 따르는 별개 채널이다. A72부터 `public/_locales/{en,ko}/messages.json` + `default_locale: 'en'`으로 브라우저 언어별 표시(`__MSG_extName__`/`__MSG_extDescription__`/`__MSG_cmdOpenAsk__`). 이름은 두 언어 모두 `Dual Subtitle for YouTube`(상표 검토 결과 유지 — `docs/STORE_LISTING.md` 1-b). vite가 `public/`을 `dist/`로 복사하므로 crxjs 설정 변경 없음.
+- **새 설치는 브라우저 언어로 시작 (A72):** `background/index.ts:seedInstallDefaults`가 `onInstalled` reason `'install'`일 때만 `settings.ts:browserDefaults()`(`chrome.i18n.getUILanguage()` 기반)로 `uiLang`(ko면 ko, 그 외 en)·`targetLang`(지원 7개 언어면 그것, 아니면 en)·그 언어의 `explainPrompt`를 storage에 심는다. **`DEFAULT_SETTINGS`는 안 바꿨다** — `saveSettings`가 바꾼 필드만 쓰는 partial이라 한 번도 안 건드린 필드는 storage에 없고 기본값으로 채워지므로, 기본값을 바꾸면 기존 사용자의 번역 언어가 조용히 바뀐다. storage에 이미 있는 키(Chrome 동기화로 넘어온 설정)는 안 건드리고, 프롬프트는 `uiLang`을 함께 심을 때만 심는다. 옵션 "전체 초기화"도 `DEFAULT_SETTINGS + browserDefaults()`.
+- **`relabel()`은 아직 질문을 안 보낸 직접 질문 탭의 라벨·안내문도 바꾼다** — 둘 다 생성 시점 언어로 박히기 때문(안내문은 `.ydt-explain-askhint` 마커로 찾음). 제출한 탭은 라벨이 질문으로 바뀌어 대상 아님.
+- **검증:** 옵션·팝업 페이지를 헤드리스로 렌더해 en/ko 양쪽 전체 문구와 **언어 전환 시 즉시 반영 + 미편집 프롬프트 자동 교체**까지 확인(chrome API 스텁 + 로컬 서버). A72: `dist/`를 `--load-extension`으로 실제 Chromium에 올려 브라우저 언어 en-US/ko/ja 각각 설치 시드(`en/en`·`ko/ko`·`en/ja`)·`_locales` 설명·단축키 설명, 그리고 youtube.com에서 `OPEN_ASK` 패널을 띄운 뒤 `uiLang` 전환 시 `relabel()`로 버튼·툴팁·입력창·직접 질문 라벨·안내문이 양방향 전환되는 것 확인. 자막 드래그 툴바 라벨은 자막 영상이 필요해 코드 확인만. 동기화된 기존 설정 보존 분기는 코드 확인만.
+
+### 47. 자막 드래그 선택 안정화 — 번역 도착 재렌더 제거 + 선택 박스 가두기 + 선택 중 자막 고정 (A71)
+
+**증상(사용자 리포트):** 해설/질문을 띄우려 자막을 드래그하면 ⓐ 한글 번역이 다 나오기 전까지 선택이 계속 풀리고 ⓑ 조금만 끌어도 너무 많이 잡혀 툴바가 안 뜨며 ⓒ Shorts에서 자막이 아래에 있으면 특히 심함(위로 옮기면 해결).
+
+- **ⓐ 원인 — 번역 도착마다 원문 DOM 재생성** (`subtitle-renderer.ts:setTargetTexts`): 옛 코드는 `lastIdx = -2`로 강제 재렌더 → 다음 프레임 `renderSource`가 원문 DOM을 통째로 교체 + `onCueChange`가 툴바까지 닫음. per-sentence 백엔드(섹션 24)는 번역이 문장마다 도착해 **영상 전체 번역이 끝날 때까지** 계속 발생. 수정: 표시 중 cue의 번역 줄만, 값이 실제로 바뀐 경우에만 제자리 갱신(번역 누적 윗줄은 그 범위 번역이 바뀐 경우만 재구성). `-2`/`-1`이면 아무것도 안 하고 다음 cue 진입 때 `update()`가 그림.
+- **ⓑⓒ 원인 — 선택이 박스 밖으로 번짐** (실측: 실제 Shorts 페이지에 동일 구조 박스를 넣고 Playwright 실입력 드래그): 18%(옛 기본) 위치에서 아래로 끌면 선택이 채널바·제목 오버레이(`yt-reel-channel-bar-view-model`)까지 번지고, 좌우로 박스를 벗어나면 페이지 헤더까지 번짐 → 선택 공통조상이 `.ydt-container` 밖이라 `evaluateSelection`이 툴바를 안 띄움. 30%면 아래가 `<video>`라 아래 방향은 안 번짐(사용자 관찰과 일치). 수정: 텍스트에서 시작한 드래그 동안 `selectionchange`마다 focus가 박스 밖이면 **포인터 좌표를 박스 안으로 clamp한 지점의 `caretRangeFromPoint`**로 `sel.extend`(실패 시 첫/끝 텍스트 노드). DOM 순서 비교(`comparePoint`)만으로 방향을 정하면 오른쪽으로 끌었는데 focus가 DOM상 앞의 헤더로 튀어 시작점에 붙는 오류가 실측돼 좌표 기반으로 함. CSS `user-select: contain`은 Chrome 미지원이라 불가.
+- **선택 중 자막 고정** (`update()`의 `isHoldingSelection`): 드래그 중이거나 자막 안에서 시작한 비어있지 않은 선택이 남아 있으면 현재 문장에 고정(영상은 계속 재생, 일시정지 안 함 — 사용자 선택). 문장이 넘어가며 DOM이 교체돼 선택이 사라지는 것 방지. 선택이 풀리면 다음 프레임에 현재 시각으로 따라잡음. 해설/질문 버튼 클릭 시 `explain-ui.ts:releaseSubtitleSelection`이 자막 선택을 해제해 고정을 푼다(툴바 mousedown `preventDefault`로 선택이 남기 때문).
+- **검증:** 선택 가두기는 실제 Shorts 페이지에서 동일 로직 하네스로 실입력 드래그 확인(프록시검증 — 확장 자체 로드 아님). 번역 도착 재렌더 제거·자막 고정은 빌드·타입체크만(프록시검증) — Chrome 실사용 확인 대상.
+
+### 48. 팝업 재디자인 — 자주 쓰는 것만 + 카드형 레이아웃 (A75, v0.25.0)
+
+**문제:** 팝업이 13줄(상태·새 질문·자막 켜기·노래방·표시 모드·언어·번역 방식·최근 번역·원문 크기·번역 크기·위치·설정·버전)이라 거의 안 바꾸는 설정까지 늘 자리를 차지했다. 사용자와 시안 6장(팝업 3 + 옵션 3, claude.ai Design 캔버스)을 비교해 "팝업 B(카드) + 크기는 원문/번역 글자 표기 + 기능별 카드"로 확정.
+
+- **남긴 것** (`popup/main.tsx`): 제목줄(오른쪽 아이콘 `새 질문`·`⚙ 설정` — 버전은 ⚙ 툴팁) → **자막 켜기 카드**(카드 전체가 토글, 아랫줄에 페이지 상태 + 단축키) → **표시 모드 3타일**(원문/번역 막대 그림 + 짧은 라벨 `pop.mode.*`) → 카드 3개 `언어`(내 언어) · `글자 크기`(원문 [−n+] │ 번역 [−n+] 한 줄) · `위치`(처음 자리로).
+- **옮긴 것:** 노래방 모드·번역 방식은 팝업에서 제거(옵션 페이지엔 원래 있음 — 한 번 정하면 거의 안 바꿈). 상태 줄(StatusLine)은 켜기 카드 아랫줄로 흡수 — 문제 상태(`unreachable`/`no-cues`)만 주황 글씨. 팝업에서 끄면 상태는 열 때 한 번만 조회한 값이라 줄 수 대신 단축키만 보이게 `settings.subtitlesEnabled`로 가린다.
+- **최근 번역 → 조건부 경고:** 상시 줄 대신 fallback + 30분 이내(`FALLBACK_FRESH_MS`)일 때만 경고 카드. 키 미설정 경고(`pop.noGeminiKey`/`noMindlogicKey`)는 그대로 조건부.
+- **이름:** `바꿀 언어` → `내 언어`(targetLang은 번역 대상이자 모국어 영상 판정(섹션 2)·AI 답변 언어(A73)라 "내 언어"가 실제 뜻). `위치 초기화` → `처음 자리로`. 영어는 크기 라벨을 `Source`/`Target`로(Translation은 320px 한 줄에 안 들어감).
+- **스타일:** 인라인 style → `popup/index.html`의 클래스 + CSS 변수(따뜻한 다크 `#181715`). 색 역할은 옵션 페이지와 같다(섹션 49): 작은 제목(`.cap`)은 주황 `--brand`, 켜짐 카드·선택 타일·내 언어 값은 파랑 `--accent`(A79 — 처음엔 앰버 `#ffb020`이었음). 팝업 폭 320px 고정. 글꼴은 기본(system-ui) — 시안의 Gothic A1은 번들 증가로 미채택(사용자 선택). 아이콘은 이모지 대신 선 SVG.
+- **검증:** 프록시검증 — 헤드리스 Chrome에 chrome API 스텁 + 로컬 서버로 ko 켜짐 / ko 꺼짐+fallback 경고 / en 켜짐 3장 렌더 확인(넘침·어긋남 없음). 실제 확장 팝업에서의 클릭 동작은 미확인.
+
+### 49. 옵션 페이지 재디자인 — 왼쪽 설정·오른쪽 미리보기 + 카드 본문, 제목 주황·선택 파랑 (A76, v0.26.0 → A79)
+
+팝업(섹션 48)과 같은 톤으로 옵션 페이지 겉모양·배치를 바꿈. **저장·키·테스트 등 동작 코드는 무변경** — `options/main.tsx`는 표시 컴포넌트와 레이아웃만 손댐.
+
+- **배치** (`.layout` = `.main` + `.side`): 왼쪽 본문(최대 760px), 오른쪽 300px 고정(sticky) **미리보기 2개**(예전과 같은 좌우). 미리보기를 본문 맨 위에 두면 아래쪽 자막 스타일을 고치는 동안 화면 밖으로 사라져 옆 고정. A76은 왼쪽에 목차+미리보기를 뒀으나 A79에서 사용자 선택으로 예전 좌우로 되돌리고 **목차는 제거**(시안 비교 — 목차 있음/없음 중 없음).
+- **섹션 = 작은 제목 + 카드** (`Section`/`Row`, 클래스는 `options/index.html`): 섹션 31의 들여쓰기·`•` 불릿 계층은 카드로 대체(불릿 제거). 행 아래 보충 설명은 `.sub-hint`(라벨 폭 160 + gap 12만큼 들여씀 — 옛 `margin-left 152px` 인라인 대체).
+- **입력 모양:** 체크박스는 CSS만으로 토글 스위치 모양(`appearance:none` + `::after`, 동작은 checkbox 그대로). 표시 모드·표시 자막 수·쌓는 방식은 `<select>` → `Chips`(선택지가 다 보이고 한 번에 바뀜). 번역 방식 라디오는 `.choice` 카드, 고른 칸은 `:has(input:checked)`로 파랑 테두리.
+- **색 역할 둘 (A79):** 주황 `--brand #ffa200` = 섹션 제목(아이콘·원문 자막 기본색과 같은 대표색), 파랑 `--accent #3ea6ff` = 켜짐·선택됨(토글·칩·선택 카드·테스트 버튼). A76은 선택 표시를 앰버 `#ffb020`로 했다가 제목(주황)과 거의 같은 색이라 섞여 보여 반대색 파랑으로 분리 — 예전 옵션 페이지의 주황 제목 + 파랑 컨트롤 조합과 같다. 팝업도 같은 규칙(섹션 48). 인라인 hex는 CSS 변수·클래스(`--muted`/`--accent-text`/`.ok`/`.err`)로.
+- **한국어 화면의 영어 섞임 수정 (A77, v0.26.1):** 한국어 UI에서 Notion 안내·Gemini 설명 일부가 영어로 나왔다 — KO 사전의 `notion.introPre`/`notion.step1Pre`/`backend.gemini.descPre`는 한국어 어순상 일부러 `''`인데 `t()`/`tl()`이 `TABLE[lang][key] || EN[key]`라 빈 문자열을 영어로 대체. `||` → `??`(키가 없을 때만 영어). KO는 `Record<MsgKey,string>`이라 타입이 모든 키를 강제하므로 실제 폴백은 생기지 않는다. **빈 조각이 필요한 문장은 `''`로 두면 된다.**
+- **검증:** 프록시검증 — 헤드리스 Chrome + chrome API 스텁으로 ko(Gemini 선택) 전체 페이지·en 상단 렌더 확인. 실제 확장에서 저장·테스트 동작은 미확인(동작 코드 무변경).
+
+### 50. 웹페이지 우클릭 해설 + 팝업 질문 입력칸 (A80, v0.28.0)
+
+**계기:** 웹페이지를 보다가 모르는 영단어를 마우스로 빠르게 묻고 싶다는 요청. 검토한 안: ① 아이콘 클릭 = 직접 질문(팝업 폐지) ② 팝업에 입력칸 ③ 우클릭으로 질문창. ①은 `default_popup`이 있으면 `action.onClicked`가 아예 안 불려(공식 문서) 팝업을 없애야 하고, 그러면 유튜브 자막 설정이 옵션 페이지까지 멀어져 기각. 채택 = ③을 보완한 **글자 선택 우클릭 해설** + ②.
+
+- **우클릭 메뉴** (`background/index.ts:createContextMenus`, `contextMenus` 권한 — 설치 경고 없음, 공식 permissions-list 확인): 글자를 골랐으면(`contexts:['selection']`) 「"%s" AI 해설」 → `OPEN_ASK {explain}` → `ExplainUI.explainText(text)`가 그 글자로 해설 탭을 바로 연다(타이핑 0). 안 골랐으면(`['page']`) 「AI에게 직접 질문」 → 빈 직접 질문. 메뉴 클릭도 activeTab을 주는 제스처라 단축키와 같은 온디맨드 주입이 된다. 메뉴 제목은 단축키 설명처럼 `_locales`(브라우저 언어) — 인앱 `uiLang`이 아님. 메뉴는 `onInstalled`에서 `removeAll` 후 생성.
+- **우클릭 해설의 문맥** (`explain-ui.ts:selectionContext`): 메뉴는 선택 글자만 주므로, 페이지에 남은 선택이 같은 글자면 그 선택이 든 블록(p/li/td/…) 텍스트를 문맥으로 쓴다(자막 박스 안이면 원문 줄 — 드래그 툴바와 같은 기준). 600자 넘으면 단어 주변만 자름. 못 찾으면 단어 자체.
+- **팝업 입력칸** (`popup/main.tsx`): 제목줄 아래 `autoFocus` 입력칸. Enter → `POPUP_ASK {tabId,url,question}` → background `openAskInTab` → 패널을 열고 `openAsk(question)`이 그 질문을 바로 제출(빈 Enter면 빈 질문 탭). 팝업을 연 것이 activeTab 제스처라 유튜브가 아닌 탭에도 주입된다. 못 여는 페이지(`chrome://`·스토어)면 `{ok:false}` → 팝업을 닫지 않고 안내. 한글 조합 확정 Enter 가드(§28과 같은 이유). 옛 제목줄 "새 질문" 아이콘(섹션 29)은 입력칸과 기능이 같아 제거.
+- **공용 진입점** `openAskInTab(tabId,url,payload)`: 단축키·우클릭·팝업 셋이 공유. `OPEN_ASK`(`shared/types.ts:OpenAskMsg` — `question?`/`explain?`)를 탭에 보내고, 받는 쪽이 없으면(유튜브 제외 — §41 레이스 가드) ask-anywhere를 주입한다. 주입 직전 같은 isolated world에 `window.__YDT_ASK_PENDING__`(열 내용)을 `executeScript({func,args})`로 심어 두고 ask-anywhere가 시작 시 읽는다.
+- **버그 수정 — 비유튜브 두 번째 Alt+Q 무반응:** 옛 ask-anywhere의 재주입 가드(`__YDT_ASK_OPEN__`)는 실제로 불리지 않았다. crxjs 로더는 모듈을 동적 `import()`하므로 재주입해도 **모듈 캐시 때문에 최상위 코드가 다시 돌지 않는다**(빌드 산출 로더로 확인). ask-anywhere에 `chrome.runtime.onMessage`(`OPEN_ASK`) 리스너를 달아, 두 번째부터는 sendMessage가 성공해 재주입 자체를 안 하게 했다.
+- **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려(테스트 사본만 `<all_urls>` host 권한 추가) 팝업 입력칸 autofocus·ko/en 렌더, 일반 페이지 첫 주입 질문 제출(isAsk=true), 주입된 탭에 explain 메시지 → 「postpone」 탭 + 문단 문맥 전송, 재호출 시 탭 누적, `chrome://` → ok:false 확인. 브라우저 고유 우클릭 메뉴 표시·클릭, 실제 activeTab 제스처 권한, 유튜브 탭 경로, 한글 IME Enter는 Chrome 실사용 확인 대상.
+
+### 51. 🔊 듣기 — 선택한 표현을 원어민 발음으로 (A81, v0.29.0)
+
+**계기:** 단어만 보고는 발음을 모를 때가 많다는 요청. 자막 드래그/더블클릭과 해설 본문 드래그로 뜨는 툴바(§22·§33)에 `🔊 듣기`를 추가(순서 `🖍️ 형광펜 · 💡 해설 · 🔊 듣기 · ❓ 질문`).
+
+- **엔진 = 브라우저 내장 `speechSynthesis`** (`content/explain/speak.ts`): 키·권한·네트워크 왕복 없이 content script에서 바로 호출되고, Chrome은 `Google US English`/`Google UK English *`/`Google 한국의` 등 원어민 음성을 기본 제공(실측). 같은 언어 음성 중 이름에 Google이 든 것을 우선, 영어는 en-US 우선. 연타 시 `cancel()` 후 새로 읽어 큐가 쌓이지 않게. **Chrome은 사용자 제스처 없는 `speak()`를 막으므로** 반드시 버튼 클릭 핸들러 안에서 부른다(스크립트로 부르면 start 없이 끝남 — 실측).
+- **검토 후 미룬 대안 — 게이트웨이 TTS**(`/audio/speech/`, `gemini-2.5-flash-preview-tts`): 비용은 사실상 0이지만 게이트웨이 키 사용자만 쓸 수 있고 매번 서버 왕복이라 느리다. 내장 음성 품질이 아쉬울 때 옵션으로 붙일 자리. STT는 읽어 주기에 불필요.
+- **발음 언어**: 자막 **원문 줄(`.ydt-source`)** 선택이면 현재 트랙 언어(`content/index.ts`가 `() => currentTrackLang`을 `ExplainUI` 생성자 마지막 인자로 넘김 — 'en'만 en-US로 보정), 그 외(번역 줄·해설 본문·ask-anywhere)는 `guessSpeechLang`이 글자 체계로 추정(한글 ko·가나 ja·한자 zh·키릴 ru, 나머지 라틴은 en-US). 라틴 문자는 언어 구분이 안 돼 해설 본문의 프랑스어 단어도 영어 음성으로 읽힌다(학습 대상이 영어라 수용).
+- **툴바는 클릭 후에도 남는다** — 다시 눌러 반복 청취. 선택이 남아 있는 동안 자막은 그 문장에 고정(§47).
+- **검증:** 프록시검증 — 테스트 Chromium에 dist를 올려 youtube.com의 가짜 자막 박스에서 더블클릭 → 툴바 4버튼(형광펜 숨김)·🔊 클릭 시 한국어 발화 확인(그 Chromium엔 영어 음성이 없어 영어는 무음). 실제 Chrome에서 같은 음성 선택 로직을 클릭 제스처로 실행해 `Google US English` 발화(start→end) 확인. 실제 자막·해설 패널에서 🔊 클릭은 Chrome 실사용 확인 대상.
+
+### 52. 쇼츠 넘기기 후 자막 미표시 — 이른 응답 보류 + 자동 더빙 원래 언어 (A83)
+
+**증상(사용자 리포트):** 영어 쇼츠를 넘겨 보면 자막이 한참 안 나올 때가 있고, 새로고침하면 바로 나온다. 일반 영상은 정상.
+
+- **원인 1 — 쇼츠는 주소보다 자막이 먼저 온다** (`content/index.ts:handleTimedtextResponse`): 다음 reel로 넘기면 페이지가 그 reel의 timedtext를 받은 **뒤에** 주소(location)를 바꾼다(실측 ~0.1~0.2s 차이). 옛 코드는 응답 처리 시 `mountedVideoId = currentVideoId()`라 cue에 **이전 영상 ID**가 붙었고 → 곧이은 새 영상 broadcast가 "다른 영상 cue"로 보고 지움 → 뒤따르는 우리 direct fetch 응답은 `lastProcessedTrackKey`(같은 트랙 dedup)에 걸려 버려짐 → 워치독 재시도도 같은 dedup에 걸려 **복구 불가**. 새로고침은 첫 로드라 주소가 먼저 맞아 정상. 일반 영상은 주소가 먼저 바뀌어 무관.
+  **해결:** 응답 URL의 `v`가 현재 주소와 다르면 `earlyResponse`에 보류하고, 그 영상의 `handleCaptionTracks`(주소가 따라잡은 뒤의 broadcast) 끝에서 다시 처리한다. 덤으로 지금 보이지 않는(프리페치된) reel의 자막이 현재 영상에 잘못 얹히는 경로도 막힌다. 그리고 cue를 지울 때(`handleCaptionTracks`의 새 영상 분기)와 `requestForceBoot`에서 `lastProcessedTrackKey`도 비운다 — dedup은 "그 트랙 cue가 지금 떠 있을 때"만 의미가 있다.
+- **원인 2 — 자동 더빙 영상의 원래 언어 오판** (`inject-main.ts:originalAudioLang` → `CAPTION_TRACKS.originalLang` → `pickTrack`): 유튜브 자동 더빙 영상은 음성이 언어마다 있고 ASR 자막도 언어마다 생긴다(예: `de/es/en/it/id/pt/fr/hi` 전부 asr). `pickTrack`이 첫 ASR(`de`)을 원래 언어로 보고 독일어를 direct fetch → PoToken이 lang에 묶여 항상 빈 응답 → 페이지 자체 fetch가 놓치면 대체 경로가 없었다. 원래 언어는 `streamingData.adaptiveFormats[].audioTrack` 중 `isAutoDubbed`가 아닌 것(있으면 `audioIsDefault` 우선)의 `id`(예: `en-US.4` → `en`)로 뽑고, 없으면 `captions…audioTracks[defaultAudioTrackIndex].audioTrackId`. 음성 트랙 정보가 없는 보통 영상은 `null`이라 기존대로 첫 ASR. (실측: 더빙 음성은 `isAutoDubbed:true`, 원본은 플래그 없음 + `audioIsDefault:true` + 표시명 "영어 (US) 원본".)
+- **남은 것(미수정):** 쇼츠에서 `getTracks`가 활성 reel 정보를 못 얻으면 `ytInitialPlayerResponse`(첫 영상 것)로 떨어져 엉뚱한 트랙 목록을 쓴다(쓸모없는 요청만 생김). `trySetTrack`은 쇼츠에서도 숨은 `#movie_player`(쇼츠 플레이어 밖)에 `setOption`한다.
+- **검증:** 프록시검증 — 개발 빌드를 테스트 Chromium(`--disable-blink-features=AutomationControlled`, 자동화 플래그 제거 — 안 하면 페이지 자체 timedtext도 빈 응답)에 올려 쇼츠 연속 넘기기. 수정 전 10회 중 2회 표시 → 원인 1 수정 후 10/10 → 원인 2까지 12회 중 10회(나머지 둘은 첫 대사가 12s 이후로 추정 / 자막 없는 쇼츠로 추정), 독일어 요청 0회. 사용자 크롬 실사용 확인 대상.
