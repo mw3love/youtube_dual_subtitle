@@ -43,7 +43,7 @@ export interface ExplainOutput {
 
 export async function explain(params: ExplainParams): Promise<ExplainOutput> {
   const q = params.question?.trim();
-  // 질문이 있으면(=후속 포함) 기본은 가벼운 질문 프롬프트. 단 Alt+Q "직접 질문"(isAsk)은 자막 문맥이
+  // 질문이 있으면(=후속 포함) 기본은 질문 프롬프트. 단 Alt+Q "직접 질문"(isAsk)은 자막 문맥이
   // 없어 답이 얇아지므로 해설 프롬프트(params.prompt)로 풍부하게 — 프롬프트가 비면 질문 프롬프트로 폴백.
   const useExplainForAsk = params.isAsk === true && !!params.prompt?.trim();
   const rawPrompt = q ? (useExplainForAsk ? params.prompt : questionSystemPrompt(getUiLang())) : params.prompt;

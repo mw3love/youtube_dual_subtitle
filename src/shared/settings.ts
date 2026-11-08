@@ -51,7 +51,7 @@ export function defaultExplainPrompt(lang: UiLang): string {
 
 // 질문 전용 시스템 프롬프트 — "❓ 질문" 경로에서 쓴다(해설 프롬프트와 분리).
 // 해설은 고정 표 형식의 "영어 선생님"이라 "who 빼면 이상한가?" 같은 자유 질문엔 형식이
-// 끼어들어 어색하다. 질문은 형식 강제 없이 자막 문맥을 참고해 핵심만 답하는 가벼운 튜터로.
+// 끼어들어 어색하다. 질문은 고정 형식 없이 자막 문맥을 참고하되 해설만큼 자세히 답하는 튜터로.
 // (사용자 편집 대상 아님 — 코드 상수. 자유 질문이라 영어/한글 영상 모두 동작.)
 export function questionSystemPrompt(lang: UiLang): string {
   return tl(lang, 'prompt.question');
