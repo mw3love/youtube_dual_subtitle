@@ -179,7 +179,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **25** 패널 제목 3줄 클램프는 `overflow: clip`(hidden·line-clamp는 BFC를 만들어 float 래핑이 깨짐) + JS 이진탐색 트림. 생략부호는 ASCII `...`(CJK 폰트가 `…`를 줄 가운데 찍음).
 - **26** 패널·미니버튼은 위치 하나(`panelPos`)를 공유, 메모리 only. 표시 시점에 각자 크기로 다시 클램프.
 - **27** 탭스트립을 notice 줄 **위**에 둬 탭의 세로 위치를 고정. 저장된 탭 칩에 ✓.
-- **28** Alt+Q 직접 질문은 커스텀 커맨드 `open-ask`. 후속 질문 = 부모 `turns`를 상속한 새 탭, user 턴은 background가 실제 보낸 `userMessage`를 저장. **Enter 처리엔 IME 조합 가드(`isComposing || keyCode 229`) 필수** — 없으면 한글 마지막 글자로 한 번 더 전송된다.
+- **28** Alt+Q 직접 질문은 커스텀 커맨드 `open-ask`. 드래그해 둔 글자는 입력창에 미리 채운다(`fromSelection`, Alt+Q 경로만 — A85). 후속 질문 = 부모 `turns`를 상속한 새 탭, user 턴은 background가 실제 보낸 `userMessage`를 저장. **Enter 처리엔 IME 조합 가드(`isComposing || keyCode 229`) 필수** — 없으면 한글 마지막 글자로 한 번 더 전송된다.
 - **29** 패널 액션 줄의 「새 질문」 버튼(팝업 버튼은 섹션 50에서 입력칸으로 대체).
 - **30** `openAsk`는 rAF로 한 번 더 focus(같은 틱 focus가 씹힘). 새 질문 진입 시 공용 입력칸을 비운다.
 - **31** 옵션 IA: 제공자 설정 섹션은 `backend` 또는 `explainBackend`가 그 제공자일 때만 표시. 해설 AI는 번역 AI를 따라가고, 번역이 Google/Chrome일 때만 칩으로 고른다. `explainEnabled`/`notionEnabled`는 미래 결제 게이트용 예약 필드(지금은 안 읽음).
