@@ -145,7 +145,7 @@ async function initAskAnywhere(): Promise<void> {
 
   const open = (o: Omit<OpenAskMsg, 'type'>): void => {
     if (o.explain) explainUI?.explainText(o.explain);
-    else explainUI?.openAsk(o.question);
+    else explainUI?.openAsk(o.question, o.fromSelection);
   };
   open(window.__YDT_ASK_PENDING__ ?? {});
   window.__YDT_ASK_PENDING__ = undefined;

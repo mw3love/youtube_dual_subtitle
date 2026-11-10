@@ -31,7 +31,7 @@ console.log(TAG, 'background service worker started');
 // "사용자 제스처로 호출됨" 조건을 이 이벤트 콜백 프레임 안에서 바로 씀으로써 최대한 지킨다.
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command !== 'open-ask' || tab.id === undefined) return;
-  void openAskInTab(tab.id, tab.url, {});
+  void openAskInTab(tab.id, tab.url, { fromSelection: true });
 });
 
 // 단축키·우클릭 메뉴·팝업 입력칸이 공유하는 진입점. 탭에 패널이 이미 있으면(유튜브 content script

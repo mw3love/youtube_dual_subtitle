@@ -248,7 +248,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (m?.type === 'OPEN_ASK') {
     const o = m as OpenAskMsg;
     if (o.explain) explainUI.explainText(o.explain);
-    else explainUI.openAsk(o.question);
+    else explainUI.openAsk(o.question, o.fromSelection);
   }
   return false;
 });

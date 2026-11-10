@@ -322,9 +322,20 @@ export class ExplainUI {
   // 포커스(자막에 안 뜨는 표현을 따로 물어보기 — 별도 AI 사전 대체). 해설 꺼져 있으면 무시.
   // term='직접 질문'은 표시 라벨일 뿐, isAsk=true라 백엔드엔 선택 텍스트를 안 보낸다(제출 시 라벨은 질문으로 교체).
   // question이 있으면(팝업 입력칸에서 쓰고 Enter) 열자마자 그 질문을 첫 질문으로 제출한다.
-  openAsk(question?: string): void {
+  // fromSelection(Alt+Q만)이면 드래그해 둔 글자를 입력창에 채워 Enter만 치면 묻게 한다.
+  // ➕ 새 질문·팝업의 빈 Enter도 이 함수를 쓰므로 플래그로 구분한다(그쪽은 안 채움).
+  openAsk(question?: string, fromSelection = false): void {
     if (!this.enabled) return;
-    this.openTab(tr('panel.directAsk'), '', true, true);
+    // 입력창에 포커스가 가면 페이지 선택이 바뀌므로 패널을 열기 전에 읽는다.
+    const picked = fromSelection && !question?.trim() ? this.readPageSelection() : '';
+    // 문맥이 있어야 AI가 단어 뜻을 가른다(bank: 은행/강둑). 단어 자체뿐이면 보낼 필요 없음.
+    const found = picked ? selectionContext(picked) : '';
+    const context = found === picked ? '' : found;
+    if (picked) {
+      this.hideToolbar();
+      releaseSubtitleSelection(); // 남겨 두면 자막이 그 문장에 계속 고정된다(섹션 47)
+    }
+    this.openTab(tr('panel.directAsk'), context, true, true);
     // 새 질문은 빈 입력창으로 시작 — 입력창은 패널 공용(§28)이라 이전 탭의 미제출 초안이
     // 남는데, 새로 물으려고 연 탭엔 잔여 텍스트가 혼란스러워 비운다(탭 전환 시 draft 공유는 유지).
     if (this.chatInput) this.chatInput.value = '';
@@ -333,12 +344,23 @@ export class ExplainUI {
       this.submitChat();
       return;
     }
+    if (picked && this.chatInput) {
+      // 커서는 맨 뒤 — Enter로 바로 보내도 되고 뒤에 말을 덧붙여도 된다.
+      this.chatInput.value = picked;
+      this.chatInput.setSelectionRange(picked.length, picked.length);
+    }
     // Alt+Q(chrome.commands)/팝업 버튼으로 열릴 땐 패널을 방금 표시·재배치한 직후라
     // 동기 focus()가 씹힌다(레이아웃 전·문서 포커스 복귀 전). 다음 프레임에 다시 포커스해
     // 마우스 클릭 없이 곧장 타이핑되게 한다.
     const input = this.chatInput;
     input?.focus();
     requestAnimationFrame(() => input?.focus());
+  }
+
+  // 페이지에 드래그해 둔 글자(공백·줄바꿈은 한 칸으로). 패널 입력창에서 작업 중이면 그건 페이지 선택이 아니다.
+  private readPageSelection(): string {
+    if (document.activeElement === this.chatInput) return '';
+    return (window.getSelection()?.toString() ?? '').replace(/\s+/g, ' ').trim();
   }
 
   // public — 웹페이지 글자 선택 우클릭 메뉴(「"…" 해설」)가 호출. 선택 텍스트를 곧장 해설 탭으로.
