@@ -195,6 +195,36 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   max-height: 4.5em;
   overflow: clip;
 }
+/* 제목 글자는 드래그 선택 가능(해설/듣기/질문 툴바). 헤더의 나머지 빈 곳만 이동 핸들(grab). */
+.ydt-explain-term-text {
+  cursor: text;
+  user-select: text;
+}
+/* 제목 글자 끝 🔊 — 줄 높이(1.5em)를 키우지 않게 작게, 글자 흐름 안(inline)에 둔다. */
+.ydt-explain-term-listen.ydt-explain-term-listen {
+  display: inline-block;
+  vertical-align: middle;
+  margin: -2px 0 0 6px !important;
+  padding: 0 4px !important;
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  line-height: 1.4 !important;
+  font-family: "Noto Sans KR", "YouTube Sans", "Roboto", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif !important;
+  color: #ddd !important;
+  background: #333 !important;
+  border: 1px solid #444 !important;
+  border-radius: 5px !important;
+  cursor: pointer !important;
+  /* .ydt-explain-btn과 같은 방어용 재선언(섹션 41·43). */
+  -webkit-text-fill-color: currentColor !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
+  text-indent: 0 !important;
+  overflow: visible !important;
+}
+.ydt-explain-term-listen:hover { background: #3f3f3f !important; }
+/* 읽는 중 — 형광펜 모드 ON과 같은 켜짐 색. */
+.ydt-explain-term-listen.active { background: #2e6f86 !important; border-color: #4aa3c4 !important; }
 /* 백틱·복사·Notion 액션 툴바 — 헤더(제목바) 아래 별도 행. 제목바를 침범하지 않아 제목이 전폭으로
    2~3줄을 쓸 수 있고, 버튼은 본문 바로 위 고정 위치라 읽다가 위로 올려 빠르게 누르는 동선과 맞음. */
 .ydt-explain-actions {
@@ -206,7 +236,11 @@ html[data-ydt-active="true"] .ytp-caption-window-container { display: none !impo
   background: #232323;
   border-bottom: 1px solid #333;
   flex: 0 0 auto;
+  /* 버튼 사이 빈 곳도 패널 이동 핸들(섹션 26) — 긴 제목은 헤더에 잡을 곳이 거의 없다. */
+  cursor: grab;
+  user-select: none;
 }
+.ydt-explain-panel.ydt-dragging .ydt-explain-actions { cursor: grabbing; }
 .ydt-explain-action.ydt-explain-action {
   padding: 4px 9px !important;
   font-size: 12px !important;

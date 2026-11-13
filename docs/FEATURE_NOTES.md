@@ -1,4 +1,4 @@
-# 기능 노트 — 섹션 12·14~52 전문
+# 기능 노트 — 섹션 12·14~53 전문
 
 `CLAUDE.md`에서 옮겨 온 기능별 설계 노트다(2026-11-04, CLAUDE.md가 94k자로 비대해져 분리). 번호는 코드 주석의 「섹션 N」과 같으니 바꾸지 말 것. 핵심 구조(섹션 1~13)와 매 세션 알아야 할 함정 요약은 `CLAUDE.md`에 있다. 본문의 「섹션 N」 참조는 1~11·13이면 `CLAUDE.md`, 그 외는 이 파일이다.
 
@@ -444,3 +444,15 @@ Gemini/Mindlogic 설정 섹션에 버튼이 3개(🧪 테스트, ↻ 모델 새�
 - **원인 2 — 자동 더빙 영상의 원래 언어 오판** (`inject-main.ts:originalAudioLang` → `CAPTION_TRACKS.originalLang` → `pickTrack`): 유튜브 자동 더빙 영상은 음성이 언어마다 있고 ASR 자막도 언어마다 생긴다(예: `de/es/en/it/id/pt/fr/hi` 전부 asr). `pickTrack`이 첫 ASR(`de`)을 원래 언어로 보고 독일어를 direct fetch → PoToken이 lang에 묶여 항상 빈 응답 → 페이지 자체 fetch가 놓치면 대체 경로가 없었다. 원래 언어는 `streamingData.adaptiveFormats[].audioTrack` 중 `isAutoDubbed`가 아닌 것(있으면 `audioIsDefault` 우선)의 `id`(예: `en-US.4` → `en`)로 뽑고, 없으면 `captions…audioTracks[defaultAudioTrackIndex].audioTrackId`. 음성 트랙 정보가 없는 보통 영상은 `null`이라 기존대로 첫 ASR. (실측: 더빙 음성은 `isAutoDubbed:true`, 원본은 플래그 없음 + `audioIsDefault:true` + 표시명 "영어 (US) 원본".)
 - **남은 것(미수정):** 쇼츠에서 `getTracks`가 활성 reel 정보를 못 얻으면 `ytInitialPlayerResponse`(첫 영상 것)로 떨어져 엉뚱한 트랙 목록을 쓴다(쓸모없는 요청만 생김). `trySetTrack`은 쇼츠에서도 숨은 `#movie_player`(쇼츠 플레이어 밖)에 `setOption`한다.
 - **검증:** 프록시검증 — 개발 빌드를 테스트 Chromium(`--disable-blink-features=AutomationControlled`, 자동화 플래그 제거 — 안 하면 페이지 자체 timedtext도 빈 응답)에 올려 쇼츠 연속 넘기기. 수정 전 10회 중 2회 표시 → 원인 1 수정 후 10/10 → 원인 2까지 12회 중 10회(나머지 둘은 첫 대사가 12s 이후로 추정 / 자막 없는 쇼츠로 추정), 독일어 요청 0회. 사용자 크롬 실사용 확인 대상.
+
+### 53. 제목 글자 선택 + 제목 끝 🔊 + 이동 핸들 축소 (A86)
+
+**계기(사용자 요청):** 제목바 전체가 이동 핸들(§26)이라 제목 글자를 드래그로 고를 수 없었고, 그래서 제목은 🔊 듣기(§51)를 쓸 길이 없었다. 창 이동은 자주 안 쓰니 핸들을 줄이고 제목을 쓰게 해 달라는 요청.
+
+- **제목 구조** (`explain-ui.ts:ensureShell`): `.ydt-explain-term` 안에 글자 `span.ydt-explain-term-text`(`user-select: text`, `cursor: text`) + 인라인 `button.ydt-explain-term-listen`(🔊).
+- **핸들 = 빈 곳만**: 헤더 `enableDrag`의 guard에 제목 글자·🔊를 추가(자막 박스의 「글자는 선택, 여백은 드래그」와 같은 패턴 — 섹션 8). 3줄을 꽉 채운 제목은 헤더에 여백(10px 남짓)만 남으므로 **액션 줄(`.ydt-explain-actions`)의 버튼 사이 빈 곳도 핸들**로 추가(`enableDrag`를 한 번 더 호출, guard = `button`). 핸들 전용 줄은 만들지 않는다(자리 낭비).
+- **제목 끝 🔊**: 화면에 잘린 글자가 아니라 **전체 `tab.term`** 을 읽는다. 읽는 중 다시 누르면 멈춤(`stopSpeaking`). 「읽는 중」 표시는 발화 번호(`titleSpeakId`/`speakSeq`)로 관리 — 끊긴 옛 발화의 종료 신호(`onend`/`onerror`)가 늦게 와서 새 발화의 표시를 끄는 것을 막는다. 탭 전환·패널 닫기 때 읽던 제목은 끊는다.
+- **발음 언어 = `Tab.speakLang`**: 탭을 연 선택의 언어(자막 원문 줄이면 트랙 언어, 그 외는 `guessSpeechLang`)를 탭에 기억. **`null`이면 제목이 표현이 아니라 내 질문**(직접 질문·이어서 질문·❓ 탭에 질문을 보낸 뒤)이라 🔊를 숨긴다.
+- **3줄 클램프(§25)와의 관계**: `setTitle`의 넘침 측정은 제목 전체(글자 + 🔊) 기준으로 하고 글자 span만 줄인다 → 🔊가 3줄 밖으로 밀려나지 않는다. 🔊는 줄 높이(1.5em)를 키우지 않게 작게(11px, `vertical-align: middle`) — 키우면 3줄 제목이 넘침으로 판정돼 불필요하게 잘린다.
+- **제목 선택 → 툴바** (`onMouseUp`·`evaluateSelection` 3번 분기): 패널 안 본문 밖 선택은 무시하던 규칙에 제목 글자만 예외. 문맥 = 그 탭의 `context`(없으면 제목 전체), 형광펜은 숨김. 잘린 제목의 끝 `...`이 선택에 딸려 오면 뗀다.
+- **검증:** 프록시검증 — 패널만 띄운 시험 페이지(esbuild 번들 + 스텁 콜백)를 Chromium에서 실제 마우스 입력으로: 짧은/3줄 초과 제목의 🔊 위치, 제목 드래그 시 패널 불이동 + 툴바 3버튼, 헤더 빈 곳·액션 줄 빈 곳 드래그 이동, 🔊 켜짐/꺼짐 전환, 직접 질문 탭 🔊 숨김 확인. 실제 소리와 유튜브 자막 탭의 트랙 언어 발음은 Chrome 실사용 확인 대상.

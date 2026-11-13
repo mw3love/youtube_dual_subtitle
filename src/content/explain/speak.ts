@@ -31,9 +31,11 @@ function pickVoice(lang: string): SpeechSynthesisVoice | null {
   return pool.find((v) => /google/i.test(v.name)) ?? pool[0];
 }
 
-export function speak(text: string, lang: string): void {
+// onEnd: 발화가 끝나거나 끊기면(다음 speak()·stopSpeaking()의 cancel 포함) 한 번 호출 — 제목 🔊의
+// "읽는 중" 표시를 끄는 용도. 발화를 시작하지 못한 경우엔 호출하지 않는다(false 반환).
+export function speak(text: string, lang: string, onEnd?: () => void): boolean {
   const synth = window.speechSynthesis;
-  if (!synth || !text.trim()) return;
+  if (!synth || !text.trim()) return false;
   // 이전 발화가 남아 있으면 끊고 새로 — 연타 시 큐에 쌓이지 않게.
   synth.cancel();
   // 자막 트랙 언어는 'en'처럼 지역 없이 오므로 영어만 en-US로 보정(그 외는 base 매칭으로 충분).
@@ -42,5 +44,14 @@ export function speak(text: string, lang: string): void {
   u.lang = full;
   const voice = pickVoice(full);
   if (voice) u.voice = voice;
+  if (onEnd) {
+    u.onend = onEnd;
+    u.onerror = onEnd; // cancel()로 끊기면 Chrome은 end 대신 error(interrupted/canceled)를 쏘기도 한다
+  }
   synth.speak(u);
+  return true;
+}
+
+export function stopSpeaking(): void {
+  window.speechSynthesis?.cancel();
 }

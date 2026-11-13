@@ -25,7 +25,7 @@ dev 모드에서도 결국 `dist/`를 Chrome이 읽으므로 한 번은 압축�
 
 ## 아키텍처 — 여러 파일을 함께 봐야 이해되는 부분
 
-여기엔 핵심 구조(섹션 1~13)만 둔다. 이후 기능별 섹션(12·14~52)의 전문은 `docs/FEATURE_NOTES.md`, 요약 색인은 이 파일 아래 「기능 노트 색인」.
+여기엔 핵심 구조(섹션 1~13)만 둔다. 이후 기능별 섹션(12·14~53)의 전문은 `docs/FEATURE_NOTES.md`, 요약 색인은 이 파일 아래 「기능 노트 색인」.
 
 ### 1. 자막 데이터 capture: MAIN world ↔ isolated world 분리
 
@@ -160,7 +160,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **배선** (`content/index.ts`): `parseJson3` 직후 `segmentCues` → `renderer.setCues(sentences)` + `translateCues(sentences)`. `lastSentences` 보관(재번역용, 섹션 6). 캐시 길이 검증·배치 분할 모두 문장 개수 기준. 배치 크기는 문장이 길어 25/4로 낮춤(섹션 5).
 - **한계:** `naughty.`처럼 종결부호로 끝나는 단독 문장은 여전히 단독 번역 — 청크 문맥으로 단어 뜻은 보정되나 완전 해소는 아님. `GAP_THRESHOLD_SEC`·길이 캡은 영상별 편차가 있어 Immersive와 나란히 두고 튜닝 대상.
 
-## 기능 노트 색인 — 섹션 12·14~52 (전문은 `docs/FEATURE_NOTES.md`)
+## 기능 노트 색인 — 섹션 12·14~53 (전문은 `docs/FEATURE_NOTES.md`)
 
 코드 주석의 「섹션 N」은 이 번호다. **그 기능을 고치기 전에 `docs/FEATURE_NOTES.md`의 해당 섹션 전문을 읽을 것** — 설계 근거·기각한 대안·검증 상태가 거기 있다. 아래는 매 세션 알고 있어야 할 함정만 추린 것.
 
@@ -204,6 +204,7 @@ production build는 `console.log`를 strip하므로(`vite.config.ts:12`) F12/SW 
 - **50** 우클릭 해설 + 팝업 질문 입력칸: `default_popup`이 있으면 `action.onClicked`는 안 불린다. 단축키·우클릭·팝업 공용 진입점 `openAskInTab`. crxjs 로더는 동적 import라 재주입해도 모듈 최상위가 다시 안 돈다 → ask-anywhere는 `onMessage`(`OPEN_ASK`)로 받는다.
 - **51** 🔊 듣기는 `speechSynthesis` — **반드시 클릭 핸들러 안에서** 호출(사용자 제스처 없으면 무음). 원문 줄은 트랙 언어, 그 외는 글자 체계로 언어 추정.
 - **52** 쇼츠는 자막 응답이 주소 변경보다 먼저 온다 → 응답의 `v`가 현재 주소와 다르면 `earlyResponse`에 보류. cue를 지울 때 `lastProcessedTrackKey`도 비울 것. 자동 더빙 영상의 원래 언어는 `isAutoDubbed`가 아닌 음성 트랙에서. 테스트 Chromium은 `--disable-blink-features=AutomationControlled` 없이 띄우면 timedtext가 빈 응답.
+- **53** 제목 글자는 드래그 선택 가능(툴바 대상) + 제목 끝 🔊(전체 `term` 읽기, 다시 누르면 멈춤). 이동 핸들은 헤더·액션 줄의 **빈 곳**만 — `enableDrag` guard에 제목 글자·버튼. `Tab.speakLang`이 `null`이면 제목이 내 질문이라 🔊 숨김. `setTitle`은 넘침을 제목 전체(글자+🔊)로 재고 글자 span만 줄인다 — 🔊를 키우면 3줄 제목이 잘린다.
 
 ## 비명백한 주의사항
 

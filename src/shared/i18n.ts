@@ -220,6 +220,7 @@ const EN = {
   'panel.highlight.title':
     'Select text and press this to mark it. Press with nothing selected to keep the mode on. Shortcut Shift+`',
   'panel.listen': '🔊 Listen',
+  'panel.listenTitle.title': 'Listen to the title (click again to stop)',
   'panel.explain': '💡 Explain',
   'panel.question': '❓ Ask',
   'panel.directAsk': 'Direct question',
@@ -529,6 +530,7 @@ const KO: Record<MsgKey, string> = {
   'panel.highlight.title':
     '드래그 후 누르면 그 부분을 형광펜 표시. 선택 없이 누르면 모드 ON(이후 드래그마다 자동). 단축키 Shift+`',
   'panel.listen': '🔊 듣기',
+  'panel.listenTitle.title': '제목 듣기 (다시 누르면 멈춤)',
   'panel.explain': '💡 해설',
   'panel.question': '❓ 질문',
   'panel.directAsk': '직접 질문',

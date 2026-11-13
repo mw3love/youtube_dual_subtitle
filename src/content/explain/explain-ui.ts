@@ -20,7 +20,7 @@
 import { renderMarkdown, domToMarkdown } from './markdown';
 import type { ChatTurn } from '../../shared/types';
 import { t as tr, tl } from '../../shared/i18n';
-import { speak, guessSpeechLang } from './speak';
+import { speak, stopSpeaking, guessSpeechLang } from './speak';
 
 const TAG = '[YDT/explain]';
 
@@ -41,6 +41,8 @@ interface Tab {
   isQuestion: boolean; // ❓ 질문/직접질문 탭이면 답이 오기 전 안내 문구를 본문에 둔다
   isAsk: boolean; // 자막 선택 없이 Alt+Q로 연 "직접 질문" 탭 — 백엔드에 선택 텍스트 미전송
   isFollowup: boolean; // 다른 탭의 답에서 "이어서 질문"으로 파생된 탭 — 라벨에 ↳ 표시
+  // 제목 🔊의 발음 언어(자막 원문에서 연 탭이면 트랙 언어). null = 제목이 표현이 아니라 내 질문이라 🔊 숨김.
+  speakLang: string | null;
   contentEl: HTMLElement; // 탭 콘텐츠 wrapper(= body) — 활성 탭만 display
   bodyEl: HTMLElement; // .ydt-explain-body — 렌더된 답변 DOM(형광펜이 라이브로 보존됨)
   turns: ChatTurn[]; // 이 탭의 누적 대화(멀티턴). 후속 질문 시 새 탭이 복사해 상속 → 문맥 유지.
@@ -82,6 +84,12 @@ export class ExplainUI {
 
   // 패널 헤더 요소(활성 탭 기준으로 동작).
   private titleEl: HTMLElement | null = null;
+  private titleTextEl: HTMLElement | null = null; // 제목 글자(드래그 선택 가능) — titleEl 안
+  private titleListenBtn: HTMLButtonElement | null = null; // 제목 끝 🔊 — 전체 제목(term) 읽기/멈춤
+  // 제목을 읽는 중이면 그 발화의 번호(0 = 안 읽는 중). 끊긴 옛 발화의 늦은 종료 신호가
+  // 새 발화의 "읽는 중" 표시를 끄지 않게 번호로 구분한다.
+  private titleSpeakId = 0;
+  private speakSeq = 0;
   private noticeEl: HTMLElement | null = null; // Notion 저장 결과 알림 줄(헤더 아래)
   private tabstripEl: HTMLElement | null = null;
   private chatInput: HTMLTextAreaElement | null = null; // 맨 아래 "이어서 질문" 입력창(패널 공용, 활성 탭 대상)
@@ -148,9 +156,10 @@ export class ExplainUI {
     // 툴바/핸들 클릭으로 끝난 mouseup은 무시.
     if (t && (t.closest('.ydt-explain-toolbar') || t.closest('.ydt-explain-fab'))) return;
     // 패널 안이라도 **본문(.ydt-explain-body)** 선택은 "그 표현 다시 해설/질문"용으로 평가한다.
-    // 본문 외 패널 영역(헤더·질문 입력칸 등) 선택은 무시.
+    // 제목 글자(.ydt-explain-term-text) 선택도 같은 용도. 그 외 패널 영역(질문 입력칸 등) 선택은 무시.
     const inBody = !!t && !!t.closest('.ydt-explain-body');
-    if (t && t.closest('.ydt-explain-panel') && !inBody) return;
+    const inTitle = !!t && !!t.closest('.ydt-explain-term-text');
+    if (t && t.closest('.ydt-explain-panel') && !inBody && !inTitle) return;
     // 형광펜 모드면 본문 드래그는 마킹용 mouseup이라 툴바 평가 skip(applyHighlight가 처리).
     if (inBody && this.highlightMode) return;
     // 제자리 클릭(드래그 아님·더블클릭 아님)이면 툴바를 띄우지 않고 닫는다 — 드래그로 남은 선택이
@@ -199,6 +208,23 @@ export class ExplainUI {
       // 답변이 도착한 탭이면 형광펜도 노출(로딩/에러 텍스트엔 마킹 무의미 — 헤더 버튼 게이트와 동일).
       this.showToolbar(range.getBoundingClientRect(), !!this.activeTab()?.result);
       return;
+    }
+    // 3) 패널 제목 안 선택 — 제목 문장의 일부를 해설/듣기/질문. 문맥 = 그 탭의 문맥(없으면 제목 전체).
+    const tab = this.activeTab();
+    const inTitle = !!(node instanceof Element ? node : node.parentElement)?.closest('.ydt-explain-term-text');
+    if (inTitle && tab) {
+      // 3줄로 잘린 제목은 끝에 '...'이 붙어 있다 — 선택에 딸려 왔으면 뗀다.
+      const cut = this.titleTextEl?.textContent !== tab.term;
+      const picked = cut ? text.replace(/\.\.\.$/, '').trim() : text;
+      if (picked) {
+        this.pending = {
+          text: picked,
+          context: tab.context || tab.term,
+          lang: tab.speakLang ?? guessSpeechLang(picked),
+        };
+        this.showToolbar(range.getBoundingClientRect(), false);
+        return;
+      }
     }
     this.hideToolbar();
   }
@@ -371,7 +397,7 @@ export class ExplainUI {
     const context = selectionContext(term);
     this.hideToolbar();
     releaseSubtitleSelection();
-    const tab = this.openTab(term, context, false);
+    const tab = this.openTab(term, context, false, false, false, guessSpeechLang(term));
     void this.runExplain(tab, term, context);
   }
 
@@ -395,10 +421,10 @@ export class ExplainUI {
     ev.preventDefault();
     ev.stopPropagation();
     if (!this.pending) return;
-    const { text, context } = this.pending;
+    const { text, context, lang } = this.pending;
     this.hideToolbar();
     releaseSubtitleSelection();
-    const tab = this.openTab(text, context, false);
+    const tab = this.openTab(text, context, false, false, false, lang);
     void this.runExplain(tab, text, context);
   };
 
@@ -407,11 +433,11 @@ export class ExplainUI {
     ev.preventDefault();
     ev.stopPropagation();
     if (!this.pending) return;
-    const { text, context } = this.pending;
+    const { text, context, lang } = this.pending;
     this.hideToolbar();
     releaseSubtitleSelection();
     // 선택 텍스트를 문맥으로 든 빈 질문 탭 → 맨 아래 입력창에 포커스(첫 질문 입력).
-    this.openTab(text, context, true);
+    this.openTab(text, context, true, false, false, lang);
     this.chatInput?.focus();
   };
 
@@ -427,6 +453,18 @@ export class ExplainUI {
     const title = document.createElement('div');
     title.className = 'ydt-explain-term';
     this.titleEl = title;
+    // 제목 글자는 드래그 선택 가능(해설/듣기/질문 툴바 대상), 글자 끝에 🔊(전체 제목 읽기).
+    const titleText = document.createElement('span');
+    titleText.className = 'ydt-explain-term-text';
+    this.titleTextEl = titleText;
+    const titleListen = document.createElement('button');
+    titleListen.className = 'ydt-explain-term-listen';
+    titleListen.type = 'button';
+    titleListen.textContent = '🔊';
+    titleListen.title = tr('panel.listenTitle.title');
+    titleListen.addEventListener('click', () => this.onTitleListenClick());
+    this.titleListenBtn = titleListen;
+    title.append(titleText, titleListen);
 
     const actions = document.createElement('div');
     actions.className = 'ydt-explain-actions';
@@ -493,9 +531,16 @@ export class ExplainUI {
     // float(corner)을 제목보다 먼저 배치 — 제목 1줄째만 corner 옆으로 좁아지고 2·3줄은 전폭.
     header.append(corner, title);
 
-    // 헤더(제목바)를 드래그 핸들로 — 패널 전체를 옮긴다. 우상단 –/✕(corner) 클릭은
-    // 드래그 시작 안 함(버튼 동작 보존). 위치는 미니버튼과 공유(panelPos).
-    this.enableDrag(panel, header, (t) => !!t.closest('.ydt-explain-corner'), null);
+    // 헤더(제목바)의 빈 곳을 드래그 핸들로 — 패널 전체를 옮긴다. 우상단 –/✕(corner)와 제목
+    // 글자·🔊 위에서는 드래그 시작 안 함(버튼 동작·글자 선택 보존). 위치는 미니버튼과 공유(panelPos).
+    this.enableDrag(
+      panel,
+      header,
+      (t) => !!t.closest('.ydt-explain-corner, .ydt-explain-term-text, .ydt-explain-term-listen'),
+      null,
+    );
+    // 긴 제목은 헤더에 빈 곳이 거의 안 남는다 → 액션 줄의 빈 곳(버튼 사이)도 핸들로.
+    this.enableDrag(panel, actions, (t) => !!t.closest('button'), null);
 
     // Notion 저장 결과 알림 줄 — 저장 후 실제 제목을 보여줌(어떤 제목으로 들어갔는지 바로 확인).
     const notice = document.createElement('div');
@@ -573,6 +618,7 @@ export class ExplainUI {
     question: boolean,
     isAsk = false,
     isFollowup = false,
+    speakLang: string | null = null,
   ): Tab {
     this.ensureShell();
     this.restore(); // 최소화돼 있었으면 펼침
@@ -606,6 +652,7 @@ export class ExplainUI {
       isQuestion: question,
       isAsk,
       isFollowup,
+      speakLang,
       contentEl,
       bodyEl: body,
       turns: [],
@@ -629,6 +676,8 @@ export class ExplainUI {
   private activateTab(i: number): void {
     if (i < 0 || i >= this.tabs.length) return;
     this.active = i;
+    if (this.titleSpeakId) stopSpeaking(); // 읽던 제목이 바뀐다
+    this.setTitleSpeaking(0);
     this.tabs.forEach((t, j) => {
       t.contentEl.style.display = j === i ? 'flex' : 'none';
     });
@@ -645,11 +694,16 @@ export class ExplainUI {
   // 제목을 넣되 3줄(max-height)을 넘치면 들어오는 최대 길이까지 줄이고 '…'을 붙인다.
   // 멀티라인 + float 계단 래핑이라 -webkit-line-clamp(=display:-webkit-box로 래핑이 깨짐)를 못 써
   // JS로 트림한다. 전체 term은 title 툴팁에 남겨 호버로 확인.
+  // 넘침 측정은 제목 전체(el = 글자 + 🔊) 기준 — 🔊가 3줄 밖으로 밀려나지 않게 글자만 줄인다.
   private setTitle(text: string): void {
     const el = this.titleEl;
-    if (!el) return;
-    el.title = text;
-    el.textContent = text;
+    const span = this.titleTextEl;
+    if (!el || !span) return;
+    if (this.titleListenBtn) {
+      this.titleListenBtn.style.display = this.activeTab()?.speakLang ? '' : 'none';
+    }
+    span.title = text;
+    span.textContent = text;
     // 최소화 중(숨김)이면 측정 불가 → 트림 보류, restore에서 재적용.
     if (el.clientHeight === 0) return;
     // 안 넘치면 그대로(짧은 term엔 생략부호 안 붙임).
@@ -663,7 +717,7 @@ export class ExplainUI {
     let best = 0;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      el.textContent = text.slice(0, mid).trimEnd() + ELLIPSIS;
+      span.textContent = text.slice(0, mid).trimEnd() + ELLIPSIS;
       if (el.scrollHeight <= el.clientHeight + 1) {
         best = mid;
         lo = mid + 1;
@@ -671,7 +725,29 @@ export class ExplainUI {
         hi = mid - 1;
       }
     }
-    el.textContent = text.slice(0, best).trimEnd() + ELLIPSIS;
+    span.textContent = text.slice(0, best).trimEnd() + ELLIPSIS;
+  }
+
+  // 제목 끝 🔊: 잘린 표시가 아니라 전체 제목(term)을 읽는다. 읽는 중에 다시 누르면 멈춤.
+  // 클릭 핸들러 안에서 speak()를 불러야 소리가 난다(섹션 51).
+  private onTitleListenClick(): void {
+    if (this.titleSpeakId) {
+      stopSpeaking();
+      this.setTitleSpeaking(0);
+      return;
+    }
+    const tab = this.activeTab();
+    if (!tab?.speakLang) return;
+    const id = ++this.speakSeq;
+    const started = speak(tab.term, tab.speakLang, () => {
+      if (this.titleSpeakId === id) this.setTitleSpeaking(0);
+    });
+    if (started) this.setTitleSpeaking(id);
+  }
+
+  private setTitleSpeaking(id: number): void {
+    this.titleSpeakId = id;
+    this.titleListenBtn?.classList.toggle('active', id !== 0);
   }
 
   // 닫은 탭이 마지막이면 패널 전체 닫기. 아니면 인덱스 보정 후 이웃 탭 활성화.
@@ -776,6 +852,7 @@ export class ExplainUI {
         this.highlightBtn.title = tr('panel.highlight.title');
       }
       if (this.copyBtn) this.copyBtn.textContent = tr('panel.copy');
+      if (this.titleListenBtn) this.titleListenBtn.title = tr('panel.listenTitle.title');
       const corner = panel.querySelectorAll<HTMLElement>('.ydt-explain-corner button');
       if (corner[0]) corner[0].title = tr('panel.minimize.title');
       if (corner[1]) corner[1].title = tr('panel.close.title');
@@ -1000,6 +1077,10 @@ export class ExplainUI {
     this.active = -1;
     this.tabsContainer = null;
     this.titleEl = null;
+    this.titleTextEl = null;
+    this.titleListenBtn = null;
+    if (this.titleSpeakId) stopSpeaking();
+    this.titleSpeakId = 0;
     this.noticeEl = null;
     this.tabstripEl = null;
     this.chatInput = null;
@@ -1061,6 +1142,7 @@ export class ExplainUI {
       input.value = '';
       const text = tab.isAsk ? '' : tab.term;
       tab.term = q;
+      tab.speakLang = null; // 제목이 내 질문으로 바뀐다 — 🔊 숨김
       this.setTitle(q);
       this.renderTabstrip();
       void this.runQuestion(tab, text, tab.context, q, []);
